@@ -139,7 +139,7 @@ CLI options: `-ReferenceModel "D:\Assets\c0000.chrbnd.dcx"` and optional `-Weapo
 
 Edit the main animation rig in Blender and save the scene. On the UI's export page, choose the scene and click **Read actions** to list its actions and frame ranges; the file is not changed. Then choose:
 
-- **Action**: the active action, or another action that keys the rig, to export another take.
+- **Action**: the active action, or another action that keys the rig, to export another take. With the add-on's control rig on the armature, only actions that animate its controls are listed.
 - **Frame range**: the scene range, the action's keys, the imported clip length, or custom frames. The evaluated pose is sampled by time, so constraints, drivers and NLA strips are baked.
 - **Tracks, frame rate and root motion**: *Source clip tracks* keeps the imported track list and is the safest choice; *Source tracks + keyed bones* and *Every skeleton bone* add tracks. The frame rate defaults to the source clip's. Root motion comes from the `HKX_RootMotion` empty, from a bone's travel, or is left out. Bone extraction uses the bone above pelvis and spine by default (Root, RootPos or Master), optionally with vertical travel and turning.
 - **Format**: *Interleaved* stores every frame uncompressed; the earlier Sekiro export path was confirmed in game by the user. *Spline* is smaller and lossy, with 40-bit, 48-bit or full-float rotations and a position tolerance. It needs the Visual C++ 2010 runtime (x86), see [Install and start](#install-and-start). In-game confirmation of spline output is still needed.
@@ -151,13 +151,15 @@ Original animation annotations and unrelated HKX metadata are not reproduced. Fl
 
 ## Optional Blender retargeting add-on
 
-`SekiroRetargetAssistant-0.2.0.zip` is in the tool folder and on the Releases page. In Blender 4.5, open Edit > Preferences > Add-ons > dropdown menu > Install from Disk, choose this ZIP, and enable **Sekiro Retarget Assistant**. Remove version 0.1.0 first, or restart Blender after installing over it. Press N in the 3D Viewport and open **Retarget**.
+`SekiroRetargetAssistant-0.3.0.zip` is in the tool folder and on the Releases page. In Blender 4.5, open Edit > Preferences > Add-ons > dropdown menu > Install from Disk, choose this ZIP, and enable **Sekiro Retarget Assistant**. Remove an older version first, or restart Blender after installing over it. Press N in the 3D Viewport and open **Retarget**.
 
 Open the receiving character's bridge scene, use **Append source .blend**, run **Match bones automatically**, review the list and **Bake motion onto target**. Then click **Export HKX** in the add-on: it writes the HKX through this bridge, with the same options and checks as the export page. Alternatively, save the scene and export it here.
 
 Bone names do not have to match. The matcher combines normalized names and aliases with each rig's anatomy (hierarchy and rest positions) and left/right position. On owned synthetic rigs of 15 conventions, six of them with scrambled bone names, every core body bone matched in every pairing. On the supplied FromSoftware rigs with scrambled names, all core bones matched for most pairs; pairs with a Dark Souls 1 rig missed one or two spine bones, because its spine has fewer bones.
 
 The bake keeps the target's skeleton, proportions and track layout. It poses the target limbs like the source's rest stance, moves the body with the source hips scaled by leg length, and carries the travel on the bone above hips and spine. Root motion comes from the source, from the body's travel, from the target clip, or is left out. This is FK retargeting: foot contacts and weapon alignment can still need cleanup, and TAE events are not retimed. See [the add-on README](../blender_addon/sekiro_retarget/README.md) for every option.
+
+For animating by hand, the add-on's **Control rig** panel gives an imported rig animator controls: FK controls that point along the limbs, IK arms and legs with pole targets and an IK/FK slider per limb, and a root control. The clip is baked onto the controls without changing the pose; the game bones follow the controls, so export works as before. **Switch to IK** and **Switch to FK** change a limb without a jump, and **Remove control rig** bakes the edited motion back onto the game bones or restores the original action. See [Control rig](../blender_addon/sekiro_retarget/README.md#control-rig).
 
 ## CLI
 

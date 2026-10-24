@@ -1,10 +1,10 @@
-# Sekiro Retarget Assistant 0.2.0
+# Sekiro Retarget Assistant 0.3.0
 
-An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. The bridge's own import and export need no add-on.
+An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand. The bridge's own import and export need no add-on.
 
 ## Install
 
-In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.2.0.zip`, and enable **Sekiro Retarget Assistant**. If version 0.1.0 is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
+In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.3.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
 
 The add-on needs no external Python libraries, account or network connection. To export HKX from Blender it uses the Animation Bridge on this computer and finds it by itself: the bridge records its folder each time its UI or CLI runs, and the conversion Python comes from the bridge's settings. The add-on preferences show what was found and can override both paths. This version was exercised in Blender 4.5.14; other Blender versions have not been run.
 
@@ -56,8 +56,29 @@ The new action keys the mapped bones, the bones that carry the body and the targ
 - **Frames.** The scene range (set by the bake), the action's key range, or the clip's frame count.
 - **Root motion.** *As baked* writes the target's root-motion object; *None* writes no root motion.
 
+## Control rig
+
+An imported rig has one short bone per game bone, each oriented however the game stores it, which is awkward to animate by hand. The **Control rig** panel, below the retarget panel, adds animator controls to it:
+
+1. Select the armature, or let the panel use the scene's bridge rig, and click **Add control rig**. Mute the armature's NLA tracks first if it has any.
+2. The armature switches to Pose Mode and its controls draw in front of the mesh:
+   - **Torso**: a root control whose arrow points forward, rings for the hips, spine, neck and head, and rings for the bones above them (such as Master and RootPos).
+   - **FK limbs**: a ring on each arm and leg bone, pointing along the limb.
+   - **IK limbs**: a box on each hand, a square under each foot, and a diamond pole target behind each elbow and in front of each knee.
+   - **Fingers & toes**: small rings.
+   - **Extras** (twist, weapon, cloth, face and other helper bones) and **Game bones** start hidden. The toggles under **Show** show or hide each group.
+3. The active action is baked onto the controls as a new action, "*clip* Controls", in FK and IK alike, so the pose does not change. The original action is kept.
+4. Each arm and leg has an IK slider: 0 follows the FK controls, 1 the IK controls, and you can key it. **Switch to IK** and **Switch to FK** first match the limb's other controls to its current pose, then set the slider, so the limb does not jump. They match at every frame of the scene range, or only at the current frame when *Match every frame* is off in the operator's redo panel.
+5. Animate, save and export as usual. **Remove control rig** asks whether to *Keep the edited motion*, which bakes what the controls do onto the game bones as "*clip* Edited", or to *Restore the original action*.
+
+Every game bone copies a hidden socket bone that hangs from its FK control at the game bone's own rest, and an arm or leg blends in a second socket on a two-bone IK chain by its slider. The game bones keep their rest pose, so meshes, weapon sockets and both exporters keep working. On owned test rigs and on copies of Sekiro player and enemy scenes, adding the control rig moved no game bone by more than 0.0001°, and IK placed the elbows, knees, hands and feet within 0.1 mm of the clip.
+
+The bridge's export page, its CLI and **Export HKX** sample the game bones, so they write what the controls do. With a control rig on the armature, **Read actions** lists only the actions that animate the controls, and exporting another action of that armature stops with a message. A keyed control of a bone without a track in the clip counts for *Original tracks + keyed bones*. To retarget onto the armature, remove the control rig first; you can add it again afterwards.
+
+Arms and legs get IK where the matcher finds them; other skeletons get FK controls only. IK bends each elbow and knee around one hinge, so a twist that the clip puts into a forearm itself does not show while that arm is in IK; FK keeps it. Bones that the clip scales unevenly, such as muscle helpers, get controls along their own axes so the scale carries over; on arm and leg bones, that scale holds in FK only. This version has no foot roll, finger IK, face controls or IK stretch.
+
 ## Current scope
 
-This add-on transfers humanoid FK animation. It does not solve foot contacts, hand-to-weapon alignment, IK poles, cloth or facial animation. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
+The retarget bake transfers humanoid FK animation. It does not solve foot contacts, hand-to-weapon alignment, cloth or facial animation; the control rig's IK limbs help with that cleanup by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
 
-Mapped target bones must have no active constraints, and target NLA tracks must be muted. The add-on adds no live constraints or handlers. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.
+Mapped target bones must have no active constraints, and target NLA tracks must be muted. The bake adds no live constraints or handlers; the control rig adds constraints and drivers to its armature, and **Remove control rig** takes them away again. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.

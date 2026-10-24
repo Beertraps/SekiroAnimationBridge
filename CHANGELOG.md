@@ -1,3 +1,11 @@
+# 0.7.0 — control rig for animating in Blender
+
+- Retarget Assistant 0.3.0 adds a **Control rig** panel to the Retarget tab. **Add control rig** gives an imported rig animator controls in the same armature: an FK control on every game bone that points along its limb, IK arms and legs with pole targets and an IK/FK slider per limb, a root control, and coloured shapes in bone collections (Torso, FK limbs, IK limbs, Fingers & toes; Extras and the game bones start hidden). The active action is baked onto the controls in FK and IK alike, so the pose does not change; the original action is kept.
+- The game bones follow the controls through constraints and keep their rest pose, so meshes and weapons stay bound and export writes what the controls do. **Switch to IK** and **Switch to FK** match a limb's other controls to its pose over the scene range, or at the current frame, before switching. **Remove control rig** bakes the edited motion onto the game bones as a new action, or restores the original action.
+- Export with a control rig: the export page, CLI and the add-on's **Export HKX** sample the game bones as before. **Read actions** lists only actions that animate the controls, and exporting another action of that armature stops with a message instead of writing a clip that the controls override. A keyed control of an untracked bone counts for **Original tracks + keyed bones**. The retarget bake refuses a target that has a control rig.
+- Arms and legs get IK wherever the matcher recognises them; other skeletons get FK controls. Bones that the clip scales unevenly, such as Sekiro's pectoral helpers, keep their own axes so their scale carries over exactly. Not in this version: foot roll, finger IK, face controls and IK stretch.
+- Install `SekiroRetargetAssistant-0.3.0.zip` over 0.2.0. New Blender test `blender_control_rig.py`; see VERIFICATION.md.
+
 # 0.6.1 — ready-to-run release ZIP
 
 - Release ZIPs include the prebuilt HKX decoder and uv. Extract the ZIP and double-click **Start Animation Bridge.cmd**: the first start downloads Python 3.13 and the pinned libraries into `%LOCALAPPDATA%\SekiroAnimationBridge`. No Python, .NET SDK or Git installation is needed; Blender 4.5 stays a separate install.
