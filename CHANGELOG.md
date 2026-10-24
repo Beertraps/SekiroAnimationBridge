@@ -1,4 +1,4 @@
-# 0.8.0 — sources and a redesigned workspace
+# 0.7.0 — sources, redesigned workspace, control rig
 
 - **Sources** replace the single assets folder. **Detect** recognises a game folder in the game's own structure (`chr`, `parts`, `mtd` or `material`, also through `Game` or `DATA`, or from a chosen `chr` folder) and names the game by its executable, by Elden Ring's material library or from one archive. Any other folder is a collected folder, matched by the folders its files share as before. A folder of several games lists them.
 - **Custom layouts** name the folders for animations, character models, parts, textures and the material library: relative to the source or absolute, several per kind, optionally with subfolders. The dialog marks folders that do not exist and counts the files in the others.
@@ -7,9 +7,6 @@
 - **Redesigned UI**: a compact rail with Import, Export, Sources and Setup. The import page has three panes: characters; an animation list that stays fast with thousands of clips, with search, an archive filter and keyboard navigation; and the scene with its checks, parts, materials and matched files. The Sources page shows every source with its layout and counts. Light and dark themes follow Windows or can be chosen in Setup, and the layout adapts down to phone width.
 - CLI: `-SourceLayout auto|folder|game|custom`, `-SourceLayoutFile` for a custom layout in JSON, and `-AssetCharacter` to choose a character in a game or custom source.
 - 21 new unit tests on owned synthetic folders cover detection, indexing, carry-over, selection and the settings migration; see VERIFICATION.md.
-
-# 0.7.0 — control rig for animating in Blender
-
 - Retarget Assistant 0.3.0 adds a **Control rig** panel to the Retarget tab. **Add control rig** gives an imported rig animator controls in the same armature: an FK control on every game bone that points along its limb, IK arms and legs with pole targets and an IK/FK slider per limb, a root control, and coloured shapes in bone collections (Torso, FK limbs, IK limbs, Fingers & toes; Extras and the game bones start hidden). The active action is baked onto the controls in FK and IK alike, so the pose does not change; the original action is kept.
 - The game bones follow the controls through constraints and keep their rest pose, so meshes and weapons stay bound and export writes what the controls do. **Switch to IK** and **Switch to FK** match a limb's other controls to its pose over the scene range, or at the current frame, before switching. **Remove control rig** bakes the edited motion onto the game bones as a new action, or restores the original action.
 - Export with a control rig: the export page, CLI and the add-on's **Export HKX** sample the game bones as before. **Read actions** lists only actions that animate the controls, and exporting another action of that armature stops with a message instead of writing a clip that the controls override. A keyed control of an untracked bone counts for **Original tracks + keyed bones**. The retarget bake refuses a target that has a control rig.
