@@ -698,10 +698,10 @@ function renderResult(value){
  box.dataset.job=value.id;
  if(value.mode==='inspect'){const info=r.scene;box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(info?`Rig ${info.rig} · ${plural(info.actions.length,'armature action')} · choose the action and frames`:'Scene read')}</p></div>`;return;}
  let details;
- if(value.mode==='import')details=`${r.frames} frames · ${r.parts} model parts · ${r.textures} material images`;
+ if(value.mode==='import')details=`${plural(r.frames,'frame')} · ${plural(r.parts,'model part')} · ${plural(r.textures,'material image')}`;
  else{
   const readback=r.readback;
-  details=`${r.frames} frames${r.frameRate?' at '+formatNumber(r.frameRate)+' fps':''} · ${r.tracks} tracks · ${r.compression}${r.compression==='spline'&&r.quantization?' '+r.quantization:''}${r.bytes?` · ${Math.ceil(r.bytes/1024)} KB`:''}`;
+  details=`${plural(r.frames,'frame')}${r.frameRate?' at '+formatNumber(r.frameRate)+' fps':''} · ${plural(r.tracks,'track')} ·${r.compression}${r.compression==='spline'&&r.quantization?' '+r.quantization:''}${r.bytes?` · ${Math.ceil(r.bytes/1024)} KB`:''}`;
   if(readback)details+=` · readback max ${readback.maxRotationDegrees.toFixed(3)}°, ${(readback.maxTranslation*1000).toFixed(2)} mm${readback.maxRotationDegrees>.5||readback.maxTranslation>.005?' (may be visible; lower the spline tolerance)':''}`;
  }
  const warnings=r.warnings?.length?` · ${r.warnings.length} ${value.mode==='import'?'material':'export'} notice${r.warnings.length===1?'':'s'} (see Activity)`:'';

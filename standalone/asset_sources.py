@@ -34,6 +34,10 @@ def game_folders(game=''):
     return dict(animations=['chr'], characters=['chr'], parts=['parts'], textures=['chr', 'parts'], materials=materials)
 
 
+def plural(count, word):
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
 def matches(path, kind):
     name = path.name.lower()
     return name.endswith(SUFFIXES[kind]) and not name.endswith('.devpatch.dcx')

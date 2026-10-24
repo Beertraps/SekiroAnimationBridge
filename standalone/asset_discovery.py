@@ -19,7 +19,7 @@ from dcx_codec import configure_oodle, unwrap
 from character_assets import asset_id, ROLES, PRESETS
 from game_profiles import GAMES, havok_info, resolve_game, player_parts, path_game
 from asset_sources import (KINDS, LAYOUTS, detect, executable_game, material_game, game_folders,
-                           find_game_root, resolve_folders, kind_files, leading_id)
+                           find_game_root, resolve_folders, kind_files, leading_id, plural)
 
 SCHEMA = 2  # archive member manifests
 CATALOG_SCHEMA = 3  # schema 2 catalogs are collected folders
@@ -383,7 +383,7 @@ def index_source(root, cache, notify, game, layout, folders=None, recursive=True
     if not resolved['animations']:
         raise ValueError('No animation folder found. A game folder keeps its ANIBND archives in chr; choose the game or mod folder that contains chr, or edit the source’s folders.')
     archives = kind_files(resolved['animations'], 'animations', recursive, cache)
-    notify('inventory', f'Indexing {len(archives)} animation archives', 40)
+    notify('inventory', f"Indexing {plural(len(archives), 'animation archive')}", 40)
     groups, unnamed, warnings = {}, [], []
     for path in archives:
         owner = leading_id(path)
@@ -455,7 +455,7 @@ def index_source(root, cache, notify, game, layout, folders=None, recursive=True
         except (OSError, ValueError, KeyError):
             pass
     write_json(destination, catalog)
-    notify('inventory', f'Found {len(characters)} characters with animations', 90)
+    notify('inventory', f"Found {plural(len(characters), 'character')} with animations", 90)
     return destination, catalog
 
 

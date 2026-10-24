@@ -158,19 +158,30 @@ class StructuredSelection(unittest.TestCase):
 
 
 class SettingsMigration(unittest.TestCase):
-    def settings(self,saved):
+    SAVED=[dict(id='a1',name='Sekiro',path=r'C:\Games\Sekiro',layout='auto',folders={},state={})]
+    def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
-        path=Path(temp.name)/'ui-settings.json';path.write_text(json.dumps(saved),encoding='utf-8')
-        with mock.patch.object(bridge_ui,'SETTINGS',path):return bridge_ui.defaults()
+        self.settings_file,self.sources_file=Path(temp.name)/'ui-settings.json',Path(temp.name)/'ui-sources.json'
+        for name,value in (('SETTINGS',self.settings_file),('SOURCES',self.sources_file),('CONFIG',{})):
+            patch=mock.patch.object(bridge_ui,name,value);patch.start();self.addCleanup(patch.stop)
+    def load(self,settings,sources=None):
+        self.settings_file.write_text(json.dumps(settings),encoding='utf-8')
+        if sources is not None:self.sources_file.write_text(json.dumps(sources),encoding='utf-8')
+        return bridge_ui.defaults()
     def test_single_assets_folder_becomes_the_first_source(self):
-        result=self.settings(dict(inputMethod='folder',assetFolder=r'D:\Assets\Owl',assetCatalog='owl.json',game='sekiro'))
+        result=self.load(dict(inputMethod='folder',assetFolder=r'D:\Assets\Owl',assetCatalog='owl.json',game='sekiro'))
         [source]=result['sources']
         self.assertEqual((source['path'],source['layout'],source['catalog'],source['game']),(r'D:\Assets\Owl','folder','owl.json','sekiro'))
         self.assertEqual(result['activeSource'],source['id'])
     def test_saved_sources_are_kept(self):
-        saved=[dict(id='a1',name='Sekiro',path=r'C:\Games\Sekiro',layout='auto',folders={},state={})]
-        result=self.settings(dict(inputMethod='folder',assetFolder=r'D:\Old',sources=saved,activeSource='a1'))
-        self.assertEqual((result['sources'],result['activeSource']),(saved,'a1'))
+        result=self.load(dict(inputMethod='folder',assetFolder=r'D:\Old'),dict(sources=self.SAVED,activeSource='a1'))
+        self.assertEqual((result['sources'],result['activeSource']),(self.SAVED,'a1'))
+    def test_sources_survive_an_older_bridge_rewriting_the_settings(self):
+        bridge_ui.persist(dict(self.load(dict(inputMethod='folder')),sources=self.SAVED,activeSource='a1'))
+        self.assertNotIn('sources',json.loads(self.settings_file.read_text(encoding='utf-8')))
+        # An older bridge writes only the keys it knows.
+        result=self.load(dict(inputMethod='folder',assetFolder=r'D:\Old',assetCatalog='old.json'))
+        self.assertEqual((result['sources'],result['activeSource']),(self.SAVED,'a1'))
 
 
 if __name__=='__main__':

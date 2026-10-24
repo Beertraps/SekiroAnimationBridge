@@ -137,20 +137,22 @@ def convert(request):
     if mode == 'discover':
         output, catalog = discover_source(request)
         structured = catalog['layout'] != 'folder'
-        event('done', f"Found {len(catalog['characters'])} characters in {catalog['archiveCount']} archives" if structured else
-              f"Found {len(catalog['clips'])} animations in {catalog['archiveCount']} archives", 100,
+        from asset_sources import plural
+        found = plural(len(catalog['characters']), 'character') if structured else plural(len(catalog['clips']), 'animation')
+        event('done', f"Found {found} in {plural(catalog['archiveCount'], 'archive')}", 100,
               output=str(output), report=dict(catalog=str(output), folder=catalog['folder'], layout=catalog['layout'], game=catalog.get('game', ''),
               clips=len(catalog['clips']), characters=len(catalog['characters']), warnings=catalog['warnings']))
         return str(output)
     if mode == 'inventory':
         from asset_discovery import load_catalog, inventory_character
+        from asset_sources import plural
         path = catalog_file(request)
         load_catalog(path, request.get('assetFolder', ''))
         catalog = inventory_character(path, request.get('assetCharacter', ''), HOME/'work/asset-cache', event, request.get('oodle', ''))
         entry = next(c for c in catalog['characters'] if request.get('assetCharacter') in (c['id'], c['character']))
         for problem in entry.get('errors', []):
             print('NOTICE: ' + problem, flush=True)
-        event('done', f"Read {entry['count']} animations of {entry['name']}", 100, output=str(path),
+        event('done', f"Read {plural(entry['count'], 'animation')} of {entry['name']}", 100, output=str(path),
               report=dict(catalog=str(path), folder=catalog['folder'], character=entry['id'], clips=entry['count'],
                           ready=entry['ready'], warnings=entry.get('errors', [])))
         return str(path)

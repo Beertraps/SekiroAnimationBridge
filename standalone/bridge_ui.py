@@ -18,6 +18,9 @@ from bridge_runtime import APP, HERE, HOME, EVENT_PREFIX, default_decoder, remem
 from character_assets import scan_character, asset_id, ROLES
 
 SETTINGS = APP / 'ui-settings.json'
+# Sources have their own file: an older bridge rewrites ui-settings.json with only the keys it knows.
+SOURCES = APP / 'ui-sources.json'
+SOURCE_KEYS = {'sources','activeSource'}
 LOCK = threading.RLock()
 JOB = None
 CONFIG = {}
@@ -65,14 +68,19 @@ def defaults():
             saved=json.loads(SETTINGS.read_text())
             result.update({k:v for k,v in saved.items() if k in KEYS})
             if 'inputMethod' not in saved: result['inputMethod']='manual'
-            # Before sources existed, the one assets folder was a collected folder.
-            if 'sources' not in saved and result['assetFolder']:
-                folder=Path(result['assetFolder'])
-                source=dict(id=secrets.token_hex(4),name=folder.name or str(folder),path=str(folder),layout='folder',
-                            game=result.get('game','auto'),folders={},recursive=True,scenes=str(folder/'Blender'),
-                            catalog=result.get('assetCatalog',''),state={})
-                result.update(sources=[source],activeSource=source['id'],sourceLayout='folder')
         except (ValueError, OSError): pass
+    try:
+        saved=json.loads(SOURCES.read_text(encoding='utf-8')) if SOURCES.is_file() else None
+    except (ValueError, OSError): saved=None
+    if isinstance(saved,dict):
+        result.update({k:v for k,v in saved.items() if k in SOURCE_KEYS})
+    elif result['assetFolder'] and not result['sources']:
+        # Before sources existed, the one assets folder was a collected folder.
+        folder=Path(result['assetFolder'])
+        source=dict(id=secrets.token_hex(4),name=folder.name or str(folder),path=str(folder),layout='folder',
+                    game=result.get('game','auto'),folders={},recursive=True,scenes=str(folder/'Blender'),
+                    catalog=result.get('assetCatalog',''),state={})
+        result.update(sources=[source],activeSource=source['id'],sourceLayout='folder')
     # A release ZIP brings its own decoder. It replaces the build_decoder.cmd default
     # and the decoder of another unpacked bridge version; a custom choice stays.
     bundled, saved_decoder = HOME/'decoder/SekiroMotionDecoder.exe', Path(result['decoder'])
@@ -124,8 +132,10 @@ def persist(config):
     with LOCK:
         CONFIG.update({k:v for k,v in config.items() if k in KEYS})
         SETTINGS.parent.mkdir(parents=True,exist_ok=True)
-        staging=SETTINGS.with_suffix('.tmp')
-        staging.write_text(json.dumps(CONFIG,indent=2),encoding='utf-8'); os.replace(staging,SETTINGS)
+        for path,value in ((SETTINGS,{k:v for k,v in CONFIG.items() if k not in SOURCE_KEYS}),
+                           (SOURCES,{k:CONFIG[k] for k in SOURCE_KEYS if k in CONFIG})):
+            staging=path.with_suffix('.tmp')
+            staging.write_text(json.dumps(value,indent=2),encoding='utf-8'); os.replace(staging,path)
 
 
 def snapshot():

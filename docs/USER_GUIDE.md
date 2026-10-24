@@ -23,18 +23,49 @@ The `.cmd` launchers use a process execution-policy bypass. No persistent PowerS
 
 Blender 4.5.14 is verified locally with Wolf and Owl/c5060. The code uses action slots on newer Blender versions, but Blender 5.2 still needs a run on that version.
 
-## Import a folder of DCX files
+## Sources
 
-1. Put the character’s needed archives in a folder outside the game installation. Subfolders are supported; no manual unpacking is required.
-2. In **Import animation → Choose your inputs**, select **Folder of DCX files · automatic** and browse to the folder. Browsing starts a scan; use **Scan folder** after changing its contents.
-3. Choose a character and animation. Search by clip or archive name. The scan fills the animation, skeleton, compendium, models, material library and texture folder below. Different clips with the same name retain their archive labels.
-4. Choose a Wolf outfit or adjust the model selection if needed. For animation only, turn off **Include model**. Choose your scene output and click **Create Blender scene**.
+A source is a folder the bridge reads game files from: a game folder in the game's own structure, a collected folder of archives, or a custom layout. Add one on the **Sources** page or from the source menu at the top of the Import page. The same menu switches between saved sources.
 
-The scan reads ANIBND members, identifies skeletons by character and archive, and matches external compendiums by Havok’s internal type IDs. Separate animation and skeleton compendiums are supported. Missing or ambiguous skeletons are shown beside the clip. “Matched inputs” does not mean every clip type has been decoded: additive animations and float tracks remain unsupported.
+1. Click **Add source** and choose the folder. The dialog shows what it found:
+   - **Game folder**: an unpacked game, or a mod folder with the game's structure: `chr` with the animation and character archives, `parts`, and `mtd` (Elden Ring: `material`). Choosing `chr` itself, or a folder whose `Game` (Dark Souls III, Elden Ring) or `DATA` (Prepare to Die) subfolder holds them, uses that game folder. The game is named by its executable, by Elden Ring's `material/allmaterial.matbinbnd.dcx`, or by reading one archive.
+   - **Collected folder**: any other folder of archives. Archives that share a folder belong together, and subfolders are read, as in earlier versions.
+   - A folder that holds several game folders lists them; choose one.
+2. Keep the layout on **Detect**, or choose **Game folder**, **Collected** or **Custom**. Choose the game when it is not recognised.
+3. **Scenes folder** is where new `.blend` files go: `Documents\Animation Bridge\<name>` for a game folder, a `Blender` folder inside a collected folder.
+4. Click **Save and scan**.
 
-Original files stay in place. Only animation/skeleton/compendium members are extracted, into `work/asset-cache`. Binder member paths cannot write outside that cache. Model and texture binders are read directly. A second scan reuses unchanged archive extractions. Scan runs in a separate process and can be cancelled from Activity. Changed source files require a rescan before import.
+A game folder is listed by file names, because a whole game holds hundreds of animation archives. A character's archives are read when you choose that character, which takes a few seconds at most. Characters read once stay listed while their archives are unchanged, and an import reads a changed archive again. The model, parts, textures and material library are found by character ID across the source's folders, for example `chr/c5060.chrbnd.dcx` for Owl and Wolf's parts in `parts`.
 
-### Which files to put in the folder
+Each source remembers its character, animation, model choice, output file and the overrides under **Textures & materials**; switching sources brings them back. On the Sources page, **Edit** changes a source's folder, layout, game or scenes folder; **Remove source** in that dialog removes it from the list and leaves its files alone. The refresh button beside the source menu scans the active source again, for example after you added archives.
+
+Sources are only read. Animation, skeleton and compendium members are extracted into the bridge's `work/asset-cache`; models and textures are read in place. Outputs inside a game installation are refused.
+
+### Custom layouts
+
+For folders that follow neither structure, such as a mod's archives next to an unpacked game, choose **Custom** and name the folders for each kind of file: animations (ANIBND), character models (CHRBND, FLVER), parts (PARTSBND), textures (TEXBND, TPF) and the material library (MTDBND, MATBINBND). Entries are relative to the source folder or absolute, and a kind can have several folders. **Start from the game structure** fills in `chr`, `parts` and `mtd`. Folders that do not exist are marked and skipped; the dialog counts the files it finds in the others. **Include subfolders** also reads below each folder. Files are matched by the character ID at the start of their names, so `c0000_c5060.anibnd.dcx` belongs to c0000.
+
+For example, Owl's animation archive from a mod folder, with his model, textures and material library from the game:
+
+| Kind | Folders |
+| --- | --- |
+| Animations | `D:\Mods\Owl` |
+| Character models | `D:\Games\Sekiro\chr` |
+| Textures | `D:\Games\Sekiro\chr`, `D:\Mods\Owl` |
+| Material library | `D:\Games\Sekiro\mtd` |
+
+### Import from a source
+
+1. On **Import animation**, keep **Source library** and choose the source in the top bar.
+2. Choose a character, then an animation. Filter by clip or archive name, or choose one archive beside the search. The arrow keys move through both lists, and `/` jumps to the animation search.
+3. The scene panel checks the animation, skeleton, compendium, model and materials, and **Matched files** lists the inputs. Choose a Wolf outfit or adjust the parts if needed. For animation only, turn off **Model**.
+4. Check **Save scene as** and click **Create Blender scene**.
+
+Reading a character inventories its ANIBND members, identifies skeletons by character and archive, and matches external compendiums by Havok’s internal type IDs. Separate animation and skeleton compendiums are supported. A missing or ambiguous skeleton is shown with the clip. A matched clip is not necessarily decodable: additive animations and float tracks remain unsupported.
+
+Binder member paths cannot write outside the cache, and a second scan reuses unchanged archive extractions. Scans run in a separate process and can be cancelled from the activity bar. A collected folder needs a new scan after its files change.
+
+### Which files to put in a collected folder
 
 | Purpose | Wolf / c0000 | Example NPC: Owl / c5060 |
 | --- | --- | --- |
@@ -44,15 +75,15 @@ Original files stay in place. Only animation/skeleton/compendium members are ext
 | Textures | Embedded part textures, plus `common_body.tpf.dcx` | `c5069.texbnd.dcx`, plus `common_body.tpf.dcx` |
 | Material library | `allmaterialbnd.mtdbnd.dcx` | `allmaterialbnd.mtdbnd.dcx` |
 
-A folder may contain several characters. The character selector filters animations and chooses the corresponding NPC model. Wolf retains its outfit and individual part controls. Texture IDs need not equal the character ID: matching uses actual material texture names across the supplied packages, without an Owl-specific rule. Keep the folder limited to the packages you need; supplying the whole game means a much larger scan and texture search. Materials and textures are optional for a rig-only import.
+A folder may contain several characters. The character selector filters animations and chooses the corresponding NPC model. Wolf retains its outfit and individual part controls. Texture IDs need not equal the character ID: matching uses actual material texture names across the supplied packages, without an Owl-specific rule. A collected folder is read completely, so keep it limited to the packages you need; for a whole game, add the game folder as a source instead. Materials and textures are optional for a rig-only import.
 
-For already extracted inputs, choose **Individual files · manual**. Previous settings are preserved when upgrading from 0.3.1.
+For already extracted inputs, choose **Individual files**. A single assets folder saved by an earlier version becomes the first source.
 
 ### DCX support and Oodle
 
 The standalone `dcx_codec.py` and `sekiro_dcx.cmd` ship with the bridge, using the same pinned Soulstruct environment as the writer. The installed Sekiro Modding Agents plugin is not needed. Its bridge’s DCX/DFLT/KRAK handling was inspected; this implementation uses the existing Python codec and also accepts the older DFLT reserved-header variant.
 
-KRAK-compressed DCX requires `oo2core_6_win64.dll`. The bridge first looks for Sekiro’s copy in your Steam libraries, then for the copy that comes with Soulstruct. If needed, choose the DLL in **Settings & setup → DCX archive support**, or pass `--oodle` / `-OodleDll` on the CLI. It is used in place and is not distributed with the bridge. DFLT uses Python’s built-in zlib.
+KRAK-compressed DCX requires `oo2core_6_win64.dll`. The bridge first looks for Sekiro’s copy in your Steam libraries, then for the copy that comes with Soulstruct. If needed, choose the DLL in **Settings & setup → DCX archives**, or pass `--oodle` / `-OodleDll` on the CLI. It is used in place and is not distributed with the bridge. DFLT uses Python’s built-in zlib.
 
 Optional DCX command, from a terminal in the tool folder:
 
@@ -63,15 +94,20 @@ standalone\sekiro_dcx.cmd compress "D:\Work\c5060.anibnd" "D:\Work\c5060.anibnd.
 
 The codec handles the outer DCX wrapper only. It does not modify binder contents. Animation export continues to write raw HKX; replace/repack the member separately with WitchyBND. DCX wrapper compression is separate from spline/interleaved animation compression.
 
-Folder CLI import can scan directly and select a unique animation filename:
+The CLI imports from a source directly and selects an animation by its file name:
 
 ```bat
 standalone\sekiro_animation_cli.cmd import -AssetFolder "D:\Assets\Owl" -AssetClip "a000_003041.hkx" -BlenderExe "C:\Blender\blender.exe" -OutputBlend "D:\Work\Owl.blend"
+standalone\sekiro_animation_cli.cmd import -AssetFolder "D:\Games\Sekiro" -SourceLayout auto -AssetCharacter c5060 -AssetClip "a000_003011.hkx" -BlenderExe "C:\Blender\blender.exe" -OutputBlend "D:\Work\Owl.blend"
 ```
 
-Use `-RigOnly` to omit the model. `discover -AssetFolder "D:\Assets\Owl"` emits a catalog path; pass `-AssetCatalog` and a unique clip ID from that JSON when several archives contain the same clip filename. Existing manual import/export CLI arguments still work. A decoder built before 0.5 needs rebuilding for native PC packfiles and separate skeleton compendiums; release ZIPs include a current one.
+`-SourceLayout` is `folder` (the default, a collected folder), `game`, `custom` or `auto`. A game or custom source holds many characters, so name one with `-AssetCharacter`. `-SourceLayoutFile "D:\Work\layout.json"` reads a custom layout, such as `{"animations": ["D:\\Mods\\Owl"], "characters": ["D:\\Games\\Sekiro\\chr"], "textures": ["D:\\Games\\Sekiro\\chr"], "materials": ["D:\\Games\\Sekiro\\mtd"]}`. Its entries are relative to `-AssetFolder` unless absolute, and subfolders are read.
+
+Use `-RigOnly` to omit the model. For a collected folder, `discover -AssetFolder "D:\Assets\Owl"` emits a catalog path; pass `-AssetCatalog` and a unique clip ID from that JSON when several archives contain the same clip filename. Existing manual import/export CLI arguments still work. A decoder built before 0.5 needs rebuilding for native PC packfiles and separate skeleton compendiums; release ZIPs include a current one.
 
 ## Import an NPC or custom character
+
+From extracted files, with **Individual files**:
 
 1. Select the character's animation, `skeleton.hkx` and matching compendium from its ANIBND. NPC skeletons can reference the compendium as well as the animation; the updated decoder handles both.
 2. Select **Auto detect** or **NPC / custom character**. Choose the extracted character folder, or use **Choose files** for `.flver(.dcx)` or `.chrbnd(.dcx)` files. A single model is enough. If a folder has multiple NPC variants, select the one matching your skeleton.
@@ -83,6 +119,8 @@ For Owl/c5060, the visible mesh is in `chr/c5060.chrbnd.dcx`; textures come from
 Owl's `a000_003041.hkx` was imported with its model, edited in Blender, exported to both formats, decoded and re-imported. This checks the conversion pipeline; no new NPC in-game confirmation was performed.
 
 ## Import a complete Wolf
+
+A source selects Wolf's standard parts automatically. From extracted files, with **Individual files**:
 
 1. Select the animation HKX, the compendium from the same animation binder, and Wolf's animation skeleton HKX. Use WitchyBND to extract those inputs. A self-contained HKX exported by this tool can be imported with the compendium field empty.
 2. Choose the unpacked Sekiro `parts` folder, the unpacked game folder, or a folder containing extracted model parts. The tool reads `.partsbnd(.dcx)` binders directly, including their FLVERs and TPFs. It also accepts loose `.flver(.dcx)` files through **Choose files**.
@@ -116,7 +154,7 @@ This is a character preview, not a reconstruction of every Sekiro shader. Layere
 
 Wolf’s body parts share the character skeleton. Separate weapon models have their own local bones; their placement comes from the character model’s dummy attachment points. The importer keeps each weapon’s armature separate and follows the correct animated bone through the authored socket transform. Weapon bones are not added to the main HKX export rig.
 
-1. Include **`c0000.chrbnd.dcx`** alongside the Wolf assets when importing weapons, or supply its extracted `c0000.flver` in **Textures & materials → Rig attachment model**. The ANIBND skeleton provides bone animation; this CHRBND supplies socket positions and orientations. Folder mode finds it automatically.
+1. Include **`c0000.chrbnd.dcx`** alongside the Wolf assets when importing weapons, or supply its extracted `c0000.flver` in **Textures & materials → Rig attachment model**. The ANIBND skeleton provides bone animation; this CHRBND supplies socket positions and orientations. A source finds it automatically.
 2. Select weapon packages under **Weapons & extra parts**. `wp_a_0300.partsbnd.dcx` is the normal katana/Kusabimaru; `wp_a_0310.partsbnd.dcx` is the Mortal Blade. The tool does not choose an equipped loadout from an HKX filename.
 3. Leave placement on **Auto · game socket**, or choose **Drawn · right hand**, **Drawn · left hand**, **Hip sheath**, **Back sheath**, or a **Custom dummy ID** for the preview. The separate scabbard stays on the body when its blade is held.
 
@@ -208,7 +246,7 @@ For example, from PowerShell:
 
 ## Local files and support
 
-UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json`. Activity logs go under this tool's `work\logs`. The UI has one conversion at a time and can cancel its process tree. Closing the workspace stops its local server; after closing the window, an idle server also exits automatically.
+UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json` and your sources in `ui-sources.json` beside it, so an older version of the bridge leaves them alone. Scans are in this tool's `work\asset-cache`. Activity logs go under this tool's `work\logs`. The UI has one conversion at a time and can cancel its process tree. Closing the workspace stops its local server; after closing the window, an idle server also exits automatically.
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
