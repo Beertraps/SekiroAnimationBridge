@@ -23,6 +23,7 @@ flowchart LR
 - **Edit in plain Blender.** The animation is a normal action on a normal armature. Constraints, drivers and NLA strips are baked on export.
 - **Export to the game's own format.** Writes the HKX version the game uses, interleaved (lossless) or spline-compressed, with options for frame range, frame rate, tracks and root motion, and reads the file back to check it.
 - **Retarget between characters.** The optional Blender add-on moves an animation from one skeleton to another, also when bone names differ, and exports it directly from Blender.
+- **Animate with controls.** The same add-on gives an imported character a control rig: FK controls along the limbs and IK arms and legs with an IK/FK switch, with the clip baked onto them.
 - **Stay local.** A small UI in an app window, served from your own computer, plus a command line for scripting. Your files never leave your PC.
 
 ## Supported games
@@ -45,7 +46,7 @@ Import and export work for all five games. Every release writes and reads back s
 
 That is all: the release includes the HKX decoder and [uv](https://github.com/astral-sh/uv), so no Python, .NET or Git installation is needed. Only the optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported), which many games have already installed; **Settings & setup** shows whether it is present. To update, extract the new version and start it; your settings carry over.
 
-For retargeting, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.
+For retargeting and the control rig, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.
 
 > **No game files are included.** Use archives from your own copy of the game, ideally copied outside the game folder. KRAK-compressed archives need `oo2core_6_win64.dll`, which the bridge does not include: it uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it.
 
@@ -61,7 +62,7 @@ For retargeting, also install **`SekiroRetargetAssistant-<version>.zip`** in Ble
 
 - [User guide](docs/USER_GUIDE.md): import modes, textures, weapons, export options and the command line
 - [Other FromSoftware games](docs/OTHER_GAMES.md): the files each game needs, materials and weapon placement
-- [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options and export
+- [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig and export
 - [Changelog](CHANGELOG.md), [verification log](docs/VERIFICATION.md) and [credits](CREDITS.md)
 
 ## Limitations
@@ -93,7 +94,7 @@ Run the unit tests with that Python, from the repository folder:
 
 The Blender checks run as `blender --background --factory-startup --python standalone/tests/<script>.py`. All test fixtures are synthetic rigs owned by this project; no game files are needed.
 
-To release, update `VERSION` and `CHANGELOG.md`, then push a tag such as `v0.6.1`. The [release workflow](.github/workflows/release.yml) builds the decoder, adds uv, starts the packaged bridge on a fresh Windows profile, runs the unit tests and publishes the ZIPs.
+To release, update `VERSION` and `CHANGELOG.md`, then push a tag such as `v0.7.0`. The [release workflow](.github/workflows/release.yml) builds the decoder, adds uv, starts the packaged bridge on a fresh Windows profile, runs the unit tests and publishes the ZIPs.
 
 ## Credits
 

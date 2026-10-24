@@ -415,13 +415,34 @@ def action_curves(action):
     return list(getattr(action, "fcurves", ()))
 
 
-def keyed_bones(action):
+def control_bones(rig):
+    """Bones that the retarget add-on's control rig added, with the game bones each one moves."""
+    result = {}
+    for bone in rig.data.bones:
+        if "sekiro_control" in bone:
+            try:
+                result[bone.name] = [str(name) for name in json.loads(bone.get("sekiro_control_for", "[]"))]
+            except (TypeError, ValueError):
+                result[bone.name] = []
+    return result
+
+
+def keyed_bones(action, rig=None):
+    """Bones an action animates. With the rig, a keyed control rig bone counts for the game bones it moves."""
     names = set()
     for curve in action_curves(action):
         match = BONE_CURVE.match(curve.data_path)
         if match:
             names.add(re.sub(r"\\(.)", r"\1", match.group(1)))
+    if rig is not None:
+        controls = control_bones(rig)
+        names.update(name for control in names & set(controls) for name in controls[control])
     return names
+
+
+def drives_controls(action, rig):
+    """Whether an action animates the rig's control rig, the only kind of action that moves its game bones."""
+    return bool(keyed_bones(action) & set(control_bones(rig)))
 
 
 def assign_action(obj, action):
@@ -444,7 +465,13 @@ def assign_action(obj, action):
 
 
 def paired_root_action(action):
-    """Root-motion action that the importer or the retarget add-on created beside an armature action."""
+    """Root-motion action that the importer or the retarget add-on created beside an armature action.
+
+    Actions of the retarget add-on's control rig pair with the action they were made from.
+    """
+    base = action.get("sekiro_control_rig_base")
+    if isinstance(base, bpy.types.Action) and base != action:
+        return paired_root_action(base)
     names = [action.name + " RootMotion"]
     if action.name.endswith("_Sekiro"):
         names.insert(0, action.name[:-len("_Sekiro")] + "_RootMotion")
@@ -568,6 +595,9 @@ def export_motion(output_json: Path, **overrides):
         raise RuntimeError("The blend file has no action named '{}'. Read the scene again to list its actions.".format(options["action"]))
     if action is None:
         raise RuntimeError("The imported armature has no active action.")
+    if rig.get("sekiro_control_rig") and not drives_controls(action, rig):
+        raise RuntimeError("The armature has a control rig, so its game bones follow the controls and '{}' would not move "
+                           "them. Export the control rig's action, or remove the control rig first.".format(action.name))
 
     root = root_motion_object(rig)
     root_mode = options["root_motion"]
@@ -586,7 +616,7 @@ def export_motion(output_json: Path, **overrides):
     if options["root_motion"] == "auto" and root is None and motion.get("rootMotion") is not None:
         warnings.append("The source clip has root motion, but its HKX_RootMotion object is missing. Exported without root motion.")
     tracked = set(source_tracks)
-    keyed = keyed_bones(action)
+    keyed = keyed_bones(action, rig)
     untracked = [index for index, name in enumerate(names) if index not in tracked and name in keyed]
     if options["tracks"] == "all":
         added = [index for index in range(len(names)) if index not in tracked]
@@ -715,9 +745,10 @@ def inspect_scene(output_json: Path):
     current = rig.animation_data.action if rig.animation_data else None
     root = root_motion_object(rig)
     actions = []
+    controlled = bool(rig.get("sekiro_control_rig"))
     for action in bpy.data.actions:
-        keyed = keyed_bones(action) & set(names)
-        if not keyed:
+        keyed = keyed_bones(action, rig) & set(names)
+        if not keyed or (controlled and not drives_controls(action, rig)):
             continue
         start, end = action.frame_range
         paired = paired_root_action(action)

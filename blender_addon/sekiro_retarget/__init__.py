@@ -1,8 +1,8 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 2, 0), 'blender': (4, 5, 0),
+    'version': (0, 3, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget', 'category': 'Animation',
-    'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion and export HKX',
+    'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, add a control rig and export HKX',
 }
 
 import json
@@ -13,7 +13,7 @@ import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 from bpy_extras.io_utils import ImportHelper, ExportHelper
-from . import export, mapping, retarget
+from . import control_rig, export, mapping, retarget
 
 
 def armature_poll(self, obj):
@@ -372,6 +372,65 @@ class SKR_OT_load_map(Operator,ImportHelper):
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 
+class SKR_OT_add_control_rig(Operator):
+    bl_idname='sekiro_retarget.add_control_rig'
+    bl_label='Add control rig'
+    bl_description=('Add FK controls along the limbs and IK arms and legs with an IK/FK switch to the armature, '
+                    'and bake its action onto them. The game bones follow the controls, so export works as before')
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        try:
+            result=control_rig.add(context,control_rig.target(context))
+            limbs=', '.join(result['limbs']).lower() or 'no recognised arms or legs'
+            self.report({'INFO'},f"Added {result['controls']} controls with IK for {limbs}"+
+                        (f"; baked {result['frames']} frames." if result['frames'] else '.'))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_remove_control_rig(Operator):
+    bl_idname='sekiro_retarget.remove_control_rig'
+    bl_label='Remove control rig'
+    bl_description='Remove the control rig, keeping the motion it gives or restoring the action from before it was added'
+    bl_options={'REGISTER','UNDO'}
+    keep: EnumProperty(name='Animation',items=[
+        ('EDITED','Keep the edited motion','Bake what the controls do onto the game bones as a new action'),
+        ('ORIGINAL','Restore the original action','Drop the control rig animation and play the action from before it was added')],
+        default='EDITED')
+    def invoke(self,context,event):
+        return context.window_manager.invoke_props_dialog(self)
+    def execute(self,context):
+        try:
+            action=control_rig.remove(context,control_rig.target(context),self.keep=='EDITED')
+            self.report({'INFO'},'Control rig removed'+(f'; the armature plays {action.name}.' if action else '.'))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_control_rig_switch(Operator):
+    bl_idname='sekiro_retarget.control_rig_switch'
+    bl_label='Switch IK/FK'
+    bl_options={'REGISTER','UNDO'}
+    limb: IntProperty(options={'HIDDEN'})
+    mode: EnumProperty(name='Switch to',items=[('IK','IK',''),('FK','FK','')])
+    every_frame: BoolProperty(name='Match every frame',default=True,
+        description='Match the controls at every frame of the scene range; otherwise at the current frame only')
+    @classmethod
+    def description(cls,context,properties):
+        return f"Match the limb's {properties.mode} controls to its current pose, then switch the limb to {properties.mode}"
+    def execute(self,context):
+        try:
+            rig=control_rig.target(context)
+            frames=control_rig.switch(context,rig,self.limb,self.mode,self.every_frame)
+            label=control_rig.layout(rig)['limbs'][self.limb]['label']
+            self.report({'INFO'},f'{label} switched to {self.mode}, matched over {frames} frame'+('s.' if frames!=1 else '.'))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
 class SKR_UL_bones(UIList):
     def filter_items(self,context,data,property):
         rows=getattr(data,property)
@@ -444,9 +503,38 @@ class SKR_PT_panel(Panel):
         for line in textwrap.wrap(settings.status,width=max(28,int(context.region.width/7))):box.label(text=line)
 
 
+class SKR_PT_control_rig(Panel):
+    bl_label='Control rig'
+    bl_idname='SKR_PT_control_rig'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Retarget'
+    def draw(self,context):
+        layout=self.layout;rig=control_rig.target(context)
+        if not rig:
+            layout.label(text='Select an armature.',icon='INFO');return
+        layout.label(text=rig.name,icon='ARMATURE_DATA')
+        if not control_rig.present(rig):
+            layout.operator('sekiro_retarget.add_control_rig',icon='BONE_DATA');return
+        data=control_rig.layout(rig)
+        for index,limb in enumerate(data['limbs']):
+            bone=rig.pose.bones.get(limb['control'])
+            if not bone:continue
+            column=layout.column(align=True)
+            column.prop(bone,f'["{control_rig.SWITCH}"]',text=limb['label']+' IK',slider=True)
+            row=column.row(align=True)
+            for mode in ('IK','FK'):
+                operator=row.operator('sekiro_retarget.control_rig_switch',text='Switch to '+mode);operator.limb=index;operator.mode=mode
+        if not data['limbs']:layout.label(text='No arms or legs were recognised for IK.',icon='INFO')
+        layout.label(text='Show')
+        grid=layout.grid_flow(columns=2,align=True)
+        for (title,visible),name in zip(control_rig.COLLECTIONS,data['collections']):
+            collection=rig.data.collections.get(name)
+            if collection and title!='MCH':grid.prop(collection,'is_visible',text=title,toggle=True)
+        layout.operator('sekiro_retarget.remove_control_rig',icon='X')
+
+
 CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,SKR_OT_suggestion,
     SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_save_map,SKR_OT_load_map,
-    SKR_UL_bones,SKR_PT_panel)
+    SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_control_rig_switch,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig)
 
 
 def register():

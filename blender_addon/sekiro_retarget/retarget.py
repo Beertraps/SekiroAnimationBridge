@@ -129,7 +129,7 @@ def action_bones(action):
 
 
 def bone_infos(rig, tracked_only=True):
-    bones = list(rig.data.bones)
+    bones = [b for b in rig.data.bones if 'sekiro_control' not in b]  # Not the control rig's bones.
     if tracked_only and any('hkx_track_index' in b for b in rig.pose.bones):
         bones = [b for b in bones if 'hkx_track_index' in rig.pose.bones[b.name]]
     return bones
@@ -140,9 +140,9 @@ def rig_bones(rig, bones=None):
 
     A bone whose parent is left out hangs from its nearest included ancestor,
     so the hierarchy stays connected when only HKX tracks or Rigify's deform
-    bones are matched.
+    bones are matched. The control rig's bones are left out.
     """
-    bones = list(rig.data.bones if bones is None else bones)
+    bones = [bone for bone in (rig.data.bones if bones is None else bones) if 'sekiro_control' not in bone]
     bones = [bone for bone in bones if bone.name.startswith('DEF-')] or bones
     names = {bone.name for bone in bones}
     turn = rig.matrix_world.to_3x3()
@@ -275,6 +275,8 @@ def bake(scene, settings):
     source, target = settings.source, settings.target
     if not source or not target or source == target:
         raise ValueError('Choose two different armatures as Source and Target.')
+    if target.get('sekiro_control_rig'):
+        raise ValueError('The target has a control rig. Remove it under Control rig before baking; you can add it again afterwards.')
     if not source.animation_data or not source.animation_data.action:
         raise ValueError('The source rig has no active animation action.')
     if target.animation_data and any(not track.mute for track in target.animation_data.nla_tracks):
