@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # uv prepares the conversion Python on the user's first start. Pinned with its published checksum.
+  UV_VERSION: '0.12.23'
+  UV_SHA256: '75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90'
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  release:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Check the version
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match VERSION $version."
+          }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Build the decoder
+        run: ./tools/SekiroMotionDecoder/build_decoder.ps1 -SoulsAssetPipelineRoot "$env:RUNNER_TEMP\SoulsAssetPipeline" -OutputDirectory "$env:RUNNER_TEMP\decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\decoder-build"
+
+      - name: Download uv
+        run: |
+          $zip = "$env:RUNNER_TEMP\uv.zip"
+          Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:UV_SHA256) { throw 'The uv download does not match the pinned checksum.' }
+          Expand-Archive $zip "$env:RUNNER_TEMP\uv"
+          Invoke-WebRequest "https://raw.githubusercontent.com/astral-sh/uv/$env:UV_VERSION/LICENSE-MIT" -OutFile "$env:RUNNER_TEMP\uv\LICENSE-MIT"
+
+      - name: Package
+        run: |
+          python tools/package_addon.py
+          python tools/package_release.py --output "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" --decoder "$env:RUNNER_TEMP\decoder" --uv "$env:RUNNER_TEMP\uv"
+          if ($LASTEXITCODE) { throw 'Packaging failed.' }
+          Copy-Item SekiroRetargetAssistant-*.zip dist/
+
+      - name: Test the release ZIP on a fresh profile
+        timeout-minutes: 15
+        run: |
+          Expand-Archive "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" "$env:RUNNER_TEMP\unpacked"
+          $root = "$env:RUNNER_TEMP\unpacked\SekiroAnimationBridge-$env:VERSION"
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\profile"
+          # First start, as a user would run it: the launcher prepares Python, then starts the UI.
+          & "$root\Start Animation Bridge.cmd" --no-browser
+          if ($LASTEXITCODE) { throw "The launcher failed with exit code $LASTEXITCODE." }
+          $instance = "$env:LOCALAPPDATA\SekiroAnimationBridge\ui-instance.json"
+          for ($i = 0; -not (Test-Path $instance) -and $i -lt 60; $i++) { Start-Sleep 1 }
+          $ui = Get-Content $instance -Raw | ConvertFrom-Json
+          $headers = @{ 'X-Bridge-Token' = $ui.token }
+          $checks = Invoke-RestMethod "$($ui.base)/api/environment" -Headers $headers
+          $checks | Format-Table key, ready, detail -AutoSize | Out-String | Write-Host
+          foreach ($key in 'writer', 'decoder') {
+            if (-not ($checks | Where-Object { $_.key -eq $key -and $_.ready })) { throw "The $key check failed." }
+          }
+          $config = (Invoke-RestMethod "$($ui.base)/api/state" -Headers $headers).config
+          if ($config.decoder -ne "$root\decoder\SekiroMotionDecoder.exe") { throw "Unexpected decoder: $($config.decoder)" }
+          Invoke-RestMethod "$($ui.base)/api/shutdown" -Method Post -Headers $headers -ContentType 'application/json' -Body '{}' | Out-Null
+          Push-Location $root
+          & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s standalone/tests -p "test_*.py"
+          if ($LASTEXITCODE) { throw 'The unit tests failed.' }
+          Pop-Location
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SekiroAnimationBridge-${{ env.VERSION }}
+          path: dist/
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $changes = ((Get-Content CHANGELOG.md -Raw) -split '(?m)^# ')[1]
+          $changes = $changes.Substring($changes.IndexOf("`n") + 1).Trim()
+          $addon = (Get-ChildItem dist/SekiroRetargetAssistant-*.zip).Name
+          $notes = @"
+          ## Install
+
+          1. Download **SekiroAnimationBridge-$env:VERSION-win-x64.zip**, extract it and double-click **Start Animation Bridge.cmd**. The first start prepares the conversion Python; it needs an internet connection and takes a few minutes.
+          2. Install [Blender 4.5](https://www.blender.org/download/lts/4-5/) if you do not have it. The bridge finds standard installations; otherwise choose ``blender.exe`` under **Settings & setup**.
+          3. Optional: install **$addon** in Blender to retarget animations between characters.
+
+          No game files are included. KRAK-compressed archives need your game's own ``oo2core_6_win64.dll``, which the bridge finds or asks for.
+
+          ## Changes
+
+          $changes
+          "@
+          $notes | Set-Content "$env:RUNNER_TEMP\notes.md" -Encoding utf8
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist/*).FullName --verify-tag --title "Animation Bridge $env:VERSION" --notes-file "$env:RUNNER_TEMP\notes.md"

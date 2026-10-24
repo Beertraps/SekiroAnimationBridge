@@ -1,0 +1,32 @@
+# Packages: release ZIPs are attached to GitHub releases, not committed
+*.zip
+*.zip.sha256
+dist/
+tools/uv/
+
+# Local work: game-derived inputs, caches, scenes and logs
+work/
+*.blend
+*.blend1
+*.hkx
+*.dcx
+*.flver
+*.tpf
+*.compendium
+*.anibnd
+*.chrbnd
+*.partsbnd
+*.texbnd
+*.mtdbnd
+*.matbinbnd
+oo2core*.dll
+
+# Build output and editor files
+bin/
+obj/
+dependencies/
+__pycache__/
+*.pyc
+.vs/
+.vscode/
+.claude/

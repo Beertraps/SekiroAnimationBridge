@@ -1,0 +1,155 @@
+# Current update: 0.6.1 — GitHub repository and ready-to-run release
+
+- User asked to upload the project as a private GitHub repo (account Greiving99) with a proper About and README, without ZIPs in the repository, and for friendlier distribution than build scripts. They chose release ZIP + automatic setup and GPL-3.0-or-later. Repository: https://github.com/Greiving99/SekiroAnimationBridge (private). Commits use the GitHub noreply address; the machine has no global git identity and no SSH key for GitHub, so pushes go over HTTPS with gh as a one-off credential helper.
+- Release ZIP (tools/package_release.py --decoder --uv): top folder SekiroAnimationBridge-<VERSION>, source + docs + LICENSE + add-on ZIP, decoder/ from build_decoder.ps1 output without SapResources/CompressAnim (SAP uses it only for FBX import), tools/uv/uv.exe + LICENSE-MIT. Binaries are only allowed under decoder/ and tools/uv/; game file extensions are rejected.
+- First start: sekiro_animation_gui.ps1 runs tools/setup_writer.ps1 when writer-env/Scripts/pythonw.exe is missing or writer-env/bridge-requirements.txt differs from requirements-writer.txt (setup copies it there on success). setup_writer.ps1 prefers tools/uv/uv.exe, then uv on PATH (`uv venv --managed-python --python 3.13`, UV_PYTHON_INSTALL_DIR=%LOCALAPPDATA%\SekiroAnimationBridge\python, `uv pip install -r requirements-writer.txt`), else py -3.13/-Python313 with pip. Launcher arguments (e.g. --no-browser) pass through to bridge_ui.py. The development machine has no py launcher; its writer-env came from a uv-managed Python 3.13.16.
+- Decoder discovery: bridge_runtime.default_decoder() = <bridge>/decoder/SekiroMotionDecoder.exe if present, else %LOCALAPPDATA%\SekiroAnimationBridge\decoder. bridge_ui.defaults() swaps a saved decoder for the bundled one when the saved path is missing, is the LOCALAPPDATA default, or sits in another bridge folder (parent.parent/standalone/bridge_runtime.py exists). The CLI's -DecoderExe now defaults to empty, so the runtime decides.
+- .github/workflows/release.yml (windows-2025, tags v* and manual): checks tag = v<VERSION>, builds the decoder with setup-dotnet 9.0.x, downloads uv 0.12.23 (SHA256 pinned) and its LICENSE-MIT, packages, then on a fresh LOCALAPPDATA runs `Start Animation Bridge.cmd --no-browser`, checks /api/environment (writer, decoder ready) and the bundled decoder path, shuts the UI down, runs the unit tests, uploads the artifact and on tags publishes the release with notes from the top CHANGELOG section.
+- Docs: README.md is the GitHub overview; the former README is docs/USER_GUIDE.md; OTHER_GAMES.md, VERIFICATION.md and this file moved to docs/. Absolute paths of the development machine were replaced with ~/. LICENSE is GPL-3.0 (text from the GitHub licenses API).
+
+# Update: 0.6.0 — export options, all-game writing, retarget 0.2.0
+
+- User asked for: better HKX export options (3ds Max Havok filter screenshots were a comparison only), better bone matching and workflow in the retarget add-on, especially its export and link to blend→Havok, a review of the retarget algorithm, less clunky Elden Ring weapon placement, a UI review, and credits for all tools and libraries. They asked whether matching needs identical names (no; see below). Their claim that the UI already used a fixed DCX writer was checked: export used stock Soulstruct Havok and writes raw HKX, not DCX; the real DS3/ER write bugs are now fixed bridge-side in havok_compat.py. Standing rules: no binder packing (WitchyBND stays separate), keep CLI and UI, add-ons optional, keep interleaved and spline, never distribute game files or Oodle, never modify the user's test blends (work on copies), tests use owned synthetic fixtures only.
+- Export (blender_bridge.export_motion + UI + CLI): action/take, frame range scene/action/clip/custom, frame rate resampling, track sets original/keyed/all with parent compensation, root motion auto/object/bone/none with root bone, vertical travel and yaw (extract_root_motion), spline quantization and tolerance, read-back stats. inspect mode lists actions, ranges, untracked keyed bones and defaultRootBone. default_root_bone = body_carrier: LCA of pelvis and the shallowest spine bone (Root, RootPos or DS1 Master).
+- havok_compat.py (Soulstruct Havok 1.5.0): HK2014 packfile section padding and DS3 reusePadding-0 member layout; HK2018 interleaved routed through the 2010 converter, ConstCharArray strings accepted, hkFlags described as the templated type; Sekiro hk2016 classes shadowed by submodules restored for read-back; THREECOMP48 spline read fix. Synthetic write/read-back passes for all five games in both formats.
+- weapon_assets: non-Sekiro Auto uses the WepAbsorpPosParam default row (right 20/30, left 21/31, two-handed 24/21, sheathed 30/30 or 31/31; dummy 30 = left hip, 31 = right hip in DS1/DS3/ER references; DS1 maps 30/31 to the case bones). extra_model_kind classifies scabbard/paired/accessory. dummy:A,B lists are per model. The user's ui-settings still have wp_a_0207=dummy:20 (left alone; they should pick Auto).
+- Retarget add-on 0.2.0 (blender_addon/sekiro_retarget): mapping.py matches by names/aliases, then anatomy from geometry (infer_body, with 3ds Max Biped rules for thighs under the spine and clavicles under the neck), counterpart by mirrored position, helper bones only below matched parents and ignoring tokens shared with the parents. retarget.py: world-space FK from the source rest pose; ALIGN stance via mapping.limb_links; carrier = LCA(hips, spine) gets the residual travel × leg-length ratio; connectors between carrier and hips/spine and unmapped ancestors stay at rest; root modes AUTO/SOURCE/EXTRACT/TARGET/NONE; unmapped KEEP/REST. Bones are keyed if tracked, computed, or moved away from their unanimated pose (`still`: importer-set HKX reference pose, a fraction of a millimetre off the edit-bone rest; identity for animated bones). Re-bakes start from the recorded original action, root action and source text (bake_base; generated data is marked sekiro_retarget). export.py samples with the bridge's blender_bridge.py inside Blender and runs bridge_runtime.py mode 'write' with the conversion Python (Job thread, BRIDGE_EVENT parsing, Esc cancels). Preferences: bridge folder and conversion Python, both auto-detected.
+- bridge_runtime: mode 'write' takes already-sampled motion JSON; remember_location() writes %LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json on every runtime run and on UI start.
+- UI: Settings cards for the retarget add-on and credits; export notice when a scene has no recorded game and Source game is automatic; stale NEW badge removed. CREDITS.md added (Soulstruct/Soulstruct Havok GPL-3.0-or-later per package metadata; SoulsAssetPipeline, SoulsFormats, WitchyBND GPL-3.0).
+- Tests: standalone/tests/humanoids.py (owned conventions incl. scrambled), test_retarget_mapping.py, blender_retarget.py, blender_export_options.py. Game-derived rig dumps and real-scene runs stayed in the session scratchpad. Results are in VERIFICATION.md.
+- Environment: the user's Blender has the old add-on 0.1.0 in AppData\Roaming\Blender Foundation\Blender\4.5\scripts\addons\sekiro_retarget; it shadows the repo copy unless Blender runs with --factory-startup. It was not modified. Most supplied test scenes predate game metadata (only DS3 c5280 has game ds3), so export needs the game chosen. The bridge UI rejects Host headers other than 127.0.0.1:port; review it with a scratch LOCALAPPDATA so settings writes cannot touch the real ui-settings.json.
+- Open: no game launch or playback; ER sword/scabbard Auto placement not looked at in Blender in the final run; SekiroRetargetAssistant-0.1.0.zip still sits in the project root (release packaging uses the 0.2.0 ZIP only).
+
+---
+
+# Current update: 0.5.1 — DS1 / DS3 weapons
+
+- User reports weapons fail in DS1 and DS3. Their DS1 log successfully decodes Master (21 frames/61 tracks) and body parts, then fails the literal skeleton_name.lower()!=c0000 check in character_assets. This check was removed. bridge_runtime now passes actual HKX bone names to prepare_character / weapon_attachment, which validates the target bone.
+- Snapshot of 0.5.0 source/ZIP/settings: Documents/SekiroAnimationBridge-Archive/before-ds-weapons-20261023. Decoder remains 0.5.0 (unchanged for this fix).
+- weapon_assets now has game-aware socket_choice and weapon_attachment, a static supplied WP_A_0201 sword/scabbard profile for ds1/ds1r/ds3, direct named-bone attachment with old-game orientation for DS1, and authored hand/case dummies for DS3. Named hand choices keep a known scabbard on that side's hip. Generic unknown extras require explicit profiles/dummies. Sekiro profiles retain their existing defaults.
+- DS1 right bone basis is Z half-turn; left is X half-turn, based on inspected DSAnimStudio NewChrAsm old-game transform logic. Custom DS1 dummies retain the dummy frame, with left-side correction; DS3 uses the net Y half-turn shared with Sekiro's dummy-frame path. Source input records, not an appearance/playback test.
+- Input records in work/other_games/weapon-input-inventory.json. Actual source HKX skeleton metadata was read by read_player_skeletons.py: DS1 61 and DS3 110 bones, both have R_Weapon/L_Weapon and named case bones. No animation sampled there.
+- UI generic weapon controls now offer Auto/right/left/right hip/left hip/custom dummy. Existing literal dummy:20 overrides put all selected members on that dummy; switch wp_a_0201 to Auto for blade/scabbard separation. Per-member JSON key e.g. wp_a_0201:1 overrides the package choice. Current user had wp_a_0201=dummy:20 (and ER wp_a_0207=dummy:20); only the supplied DS1/DS3 sword should be changed to Auto for review, preserving ER's setting.
+- Python/JS syntax checked; no new tests or Blender/game run requested/performed. Current live UI worker launches fresh Python per conversion, so new import logic is loaded automatically; F5 loads the new HTML/JS controls without closing user Blender sessions.
+
+---
+
+# Current update: 0.5.0 — other FromSoftware games
+
+- User wants the bridge to work with files under Desktop/Test/Other Fromsoft Games (DS1, DS3, ER), reporting c0000 part selection and materials. They added further parts/material/texture files after the initial inventory, followed by the requested base/DLC ER MATBIN libraries.
+- Refreshed production discovery: 15,952 clips / 47 archives / six separate game-character entries, no scan notices. work/other_games/material-inventory.json records actual selected model/material/TPF references: DS1 player 16/16, DS3 player 21/21, DS3 c5280 15/15, ER player 19/21, ER c2190 14/26 base-color slots with available images. DS1 c5370 has 0/22. Some c2190 effect shaders have no albedo sampler. These counts are source reference coverage, not Blender appearance or playback.
+- The base ER MATBIN includes neighboring allmaterial_dlcNN binders automatically. Loose MATBIN/MTD folders are also discoverable and lazily read; .devpatch files are not treated as libraries. Analysis scripts remain in work/other_games and are excluded from release.
+- Prepared UI settings for the supplied parent folder, ER c0000 / a000_004000, four 1690 outfit pieces and the actual MATBIN. outputBlend has a new _bridge05 name and force=False; no scene was created/overwritten. Settings before this preparation were copied to the safety archive. A fresh UI is opened after packaging; existing Blender sessions remain alone.
+- Saved previous source/ZIP/settings under Documents/SekiroAnimationBridge-Archive/before-other-games-20261023; saved prior installed decoder as SekiroMotionDecoder-0.4.0.dll there. Existing Blender/user files are untouched.
+- New standalone/game_profiles.py: actual Havok SDK/packfile metadata, original authoring-path game hints, profile classes for ds1/ds1r/ds3/sekiro/er, and generic per-region player parts. Supplied DS1 is Remastered/HK2015, not original PTDE.
+- asset_discovery catalog schema 2: members retain sourceHavok; game + source-folder + characterKey prevents shared c0000 IDs mixing. MTD/MATBIN and c0000 references scoped to selected source; selected assets folder now populated. Existing schema-1 extraction manifests gain header metadata without rewriting raw members. Old folder catalogs require rescan.
+- Native C# packfiles use HKX.Read; tagfiles retain GenFakeFromTagFile/compendiums. Decoder 0.5 was compiled locally with work/other_games/compile_decoder.ps1 against existing dependencies and installed. Shared runtime attaches game/sourceHavok metadata to the motion JSON; Blender's existing source JSON retention preserves it on export.
+- build_animation selects the native per-game AnimationHKX class. Isolated compression now returns to that class/version. Legacy scenes without game metadata require an explicit exportGame choice or CLI -Game. New scenes reject switching their recorded game through a dropdown; retarget onto a receiving game scene instead.
+- New material_assets.py handles MTD/MATBIN stems and samplers (including definition-only samplers), explicit FLVER path overrides, tiling, DS1 MtdPatch overrides; Blender adds emission preview maps. TPF duplicate selection favors larger DDS images, preventing low TEXBND overwrites. Missing ER MATBIN is reported; no unrelated images are guessed.
+- UI game source dropdown filters game/character catalog entries; player preset uses generic model list. Non-Sekiro weapons initially unselected and require explicit dummy:ID plus that game's c0000 reference. Automatic Sekiro socket profiles are not reused for other games. Weapon placements in other games remain unverified.
+- Initial input-inventory.json predates the final MATBIN addition; material-inventory.json and the refreshed catalog include it. DS1 c5370 character textures and ER shared AAT textures remain missing by their actual referenced names. The ER outfit's belt and frayed materials have no available base color; other body slots have one. No substitute images are guessed.
+- Evidence: Python/JS syntax and decoder compilation; read-only source asset inspection, and actual production folder discovery if folder-scan.log is present. No new tests or Blender round trip were requested/run, and no game launched. Do not present 0.5 as validated across those games. README/OTHER_GAMES.md/VERIFICATION.md state the boundary.
+- No installs/downloads. Reopen the bridge to load new modules; old browser state cannot refresh Python's already-imported modules. Existing settings are preserved unless explicitly prepared for the new folder below.
+
+---
+
+# Current update: 0.4.1 — Wolf weapon attachments
+
+- User reported imported Wolf weapons floating/static, showed WP_A_0310 near the floor, and asked how the rig knows where to attach a weapon. They explicitly requested testing and fixing the tool. This task does not require launching the game.
+- Saved prior source/ZIP/settings under Documents/SekiroAnimationBridge-Archive/before-wolf-weapons-20261023 before changes.
+- New standalone/weapon_assets.py: verified vanilla socket profiles, reference-model discovery/reading, FLVER bone-world matrices, dummy orientation and relative bind transform. Uses c0000.chrbnd.dcx/c0000.flver attachment data; no hardcoded position offsets. Katana 20/147, Mortal Blade stowed 149, prosthetics 112–119/123/124. Unknown profiles require explicit GUI placement/dummy ID.
+- blender_character.weapon_rig creates a distinct local armature per weapon model, driven by a COPY_TRANSFORMS socket empty targeting the animated main bone plus the authored relative socket matrix. Shared weapon bone names no longer collide or pollute the main HKX skeleton. Main rig/export metadata and body animation remain unchanged.
+- GUI: referenceModel field under Textures & materials; weaponAttachments map of package ID to auto/right/left/sheath/back/dummy:NNN; per-weapon selectors under Weapons & extra parts. New keys flow through UI and runtime. CLI: -ReferenceModel and -WeaponAttachmentsFile. Older folder catalogs can resolve their existing c0000 reference from the recorded source list.
+- Checked 21 owned Python tests and standalone/tests/blender_weapons.py in installed Blender 4.5.14. Full details in VERIFICATION.md. Real conversion checks used a000_000202 and a000_030000, then 30 automatic-profile weapon packages / 58 pieces. Separate weapon rigs followed all sampled sockets without changing the 146-bone main skeleton. Both output formats read back correctly.
+- work/weapons_review/wolf_weapons_fixed.blend is a fresh full-character 81-frame demonstration with katana, Mortal Blade and a prosthetic. wolf_attack_weapons.blend is the second 145-frame clip (filename is a review label, not an asserted gameplay classification). Per-clip reports/renders in a000_000202/ and a000_030000/.
+- work/weapons_review/c0000_a000_000202_weapons_repaired.blend repairs the user's saved scene copy (WP_A_0310 only). Every sampled body translation/rotation/scale and root motion matches its saved baseline exactly. Original Desktop/Test/Blender file untouched. Old unused main-rig weapon bones retained in this repaired copy; track export ignores them. User's unsaved Blender edits cannot be copied by reading a saved file.
+- Remaining scope: stable preview placement only. TAE/equipment draw/sheath switching, deployment, auxiliary visibility and weapon-local animations are not simulated. Local rest geometry and approximate shader preview are retained. Extra prop/cutscene variants outside automatic profiles need a manual placement choice. One broad-coverage WP_A_0751_2 base-color texture was absent; this did not block placement checks.
+- Production UI was closed when checked during this update. Existing Blender sessions and production settings were left alone. UI verification used isolated settings, localhost server and existing Chrome headless; Edge headless silently produced no artifacts. No installs/downloads required.
+
+---
+
+# Current update: 0.4.0 — DCX folder input
+
+- Latest user asked for a GUI that accepts a folder of needed DCX files and automatically finds matching inputs, while saving 0.3.1 for safety. This is implemented in the existing Documents project, retaining manual input and raw HKX export.
+- Full rollback copy: `~/Documents/SekiroAnimationBridge-Archive/before-dcx-folder-20261023`. Contains source-0.3.1 (all source/launchers/tools/add-on, excluding work), 0.3.1 ZIP and checksum, ui-settings-0.3.1.json and the old installed SekiroMotionDecoder.dll.
+- New modules: standalone/asset_discovery.py (DCX/loose folder inventory, private extraction cache, TCRF/TCID matching, character/skeleton/model selection), standalone/dcx_codec.py (Soulstruct DCX wrapper + Steam/native DLL selection + safe output), standalone/sekiro_dcx.cmd.
+- UI: inputMethod folder/manual; assetFolder, assetCatalog, assetCharacter, assetClip; searchable clip list; separate skeletonCompendium; oodle setting. Discover jobs use the same cancellable subprocess/event stream as conversions. Catalogs are stored under work/asset-cache/catalogs and only these paths are accepted by the UI endpoints.
+- Runtime re-resolves folder animation/skeleton/compendium paths from the catalog and detects changed source files before import. Models can still be adjusted individually. CLI accepts -AssetFolder/-AssetClip (unique name or ID), optional -AssetCatalog, -RigOnly, -SkeletonCompendium and -OodleDll.
+- Decoder 0.4 preserves 4 arguments and optionally accepts a fifth skeleton-compendium path. Compiled locally against existing pinned dependencies via work/npc_review/compile_decoder_local.ps1 and installed under LOCALAPPDATA. No SDK installed or dependency downloads performed.
+- DCX adapter ships as Python source with existing dependencies; it does not require the modding plugin. KRAK uses the user's own oo2core_6_win64.dll, automatically found from Steam or selected in Settings. This DLL is not copied into the release. DFLT uses zlib. No animation binder packing was added.
+- Real example input folders in work/dcx-folders: Owl has 5 archives, 155 discovered clips; Wolf has 8 archives, 184 discovered clips. Matching input references were resolved for both catalogs; not every clip has been decoded. No new formal tests, Blender round trip or game launch for 0.4; see VERIFICATION.md for exact evidence.
+- The updated production UI was opened with folder mode and the Owl DCX example selected (a000_003041). The old manual selections remain in the rollback settings. Existing Blender session/user scenes were left alone. Source release excludes work, game files, dependencies and user settings. 0.4 release is separate from the saved 0.3.1 release.
+
+---
+
+# Animation Bridge 0.3.1 — continuation context
+
+## Optional retargeting assistant
+
+- User asked for an add-on that matches bones automatically. Existing options researched: Rokoko Studio Live has auto bone detection; Auto-Rig Pro Remap guesses mappings by name; Mwni's add-on documents manual mapping; current Retarget extension requires Blender 5.0+. No third-party add-on was downloaded or installed.
+- Original code is under `blender_addon/sekiro_retarget/`. Installable ZIP `SekiroRetargetAssistant-0.1.0.zip` is produced by `tools/package_addon.py` and bundled with the bridge source ZIP. It needs no external dependencies or account. Persistent installation into Blender preferences is left to the user.
+- Add-on: append a source scene with its metadata/root references, choose source/target armatures, match normalized names/aliases with side/parent context, review uncertain mappings, save/load a mapping JSON, and bake a new target action. Existing actions are retained. It transfers rest-relative FK motion, target proportions and optional root/pelvis movement; it does not solve IK contacts or weapon alignment.
+- Clip timing can adopt source length (updating target metadata) or resample into target length. It sets the bridge export target explicitly. Character IDs are not used to decide mappings.
+- `standalone/blender_bridge.py` now stores/reads actual ID datablock references for the rig, source text and root-motion object, with backward-compatible string fallbacks. This allows Blender to remap references after appending or renaming.
+- Generated local example `work/retarget_review/Owl_to_Wolf.blend`: 95 name matches plus a root-position alias, 96 of 114 Wolf animation tracks mapped, 18 unassigned; 52-frame action baked. Its exported HKX read back with skeleton c0000, 114 tracks and 52 root-motion samples. This is a demonstration, not proof of universal retargeting quality or in-game playback.
+
+## NPC update
+
+- User requested NPC support and an actual c5060 check. Their old UI was closed by the user; reopen the updated UI after checks.
+- `auto` and `npc` presets use a generic model checklist, selected-model count and no Wolf-part requirements. Explicit file selections are restored on refresh. CLI `-CharacterPreset` aliases the existing `-WolfPreset` argument.
+- A real NPC decoder bug was fixed: `HKX.GenFakeFromTagFile` must receive the supplied compendium for the skeleton as well as for the animation. The installed decoder is 0.3.0 and advertises `skeleton-compendiums`; both runtime and setup status check that capability. The normal SDK dependency build was not repeated; the updated source was compiled locally against the existing pinned dependencies.
+- Owl assets are in `~/Desktop/Test/Owl`. His FLVER is `c5060-chrbnd-dcx/c5060.flver`; textures are shared from c5069.texbnd.dcx and common_body.tpf.dcx. The texture field should point to the Owl workspace, not just the common-body subfolder.
+- `a000_003041.hkx`: 52 frames, 112 animation tracks, 120 skeleton bones, one skinned model, 82,183 vertices, 101,747 triangles, 21 packed preview images, no material notices.
+- Local checks under `work/npc_review`: UI and CLI import, a seven-degree Spine1 test edit, interleaved and spline export, binary readback and complete-character re-import. The test edit is separate from the normal scene and is not a feature of the tool.
+- Baseline round-trip maximum translation difference was 7.7e-7 game units. Spline readback maximum translation difference was about 0.000996 and rotation difference 0.2073 degrees. The pose edit and root motion survived both formats.
+- UI checks covered restoring an explicit NPC selection, auto folder discovery, import/export jobs, layouts at 1440/1000/520 px, and Wolf's original four-part outfit controls. Twelve owned synthetic Python checks and the Blender synthetic check passed. No NPC in-game check was performed.
+- Material alpha now honors authored g_AlphaRef thresholds, including blend-mode-zero fur materials; character and material names in Blender are generic. Viewport framing uses the model's actual bounds.
+
+## User decisions
+
+- Keep CLI and UI modes. Make handing the prototype to another experienced modder easy.
+- Blender add-ons are not required. Modders edit the imported animation themselves.
+- Freeze-legs behavior was a test and is not a tool action.
+- Use WitchyBND separately for animation binder replacement. Do not add binder packing to this process.
+- Keep interleaved output and optional spline output; support importing both.
+- Assemble Wolf's separate character parts and their textures on the editable rig.
+- The user authorized a complete UI redesign and tool review.
+
+## Current implementation
+
+- `Start Animation Bridge.cmd` opens the local UI. `standalone/bridge_ui.py` is a standard-library loopback server; `standalone/ui/` contains the interface. Native Windows dialogs are provided by `native_picker.ps1`.
+- `native_picker.cs` supplies the modern folder picker and a browser-owned foreground proxy, with a named cancellation event and single-picker mutex. Cancel uses the existing `/api/pick` route with `kind=cancel`. The user closed the old UI during the NPC update; the updated production UI can be launched after checks.
+- `sekiro_animation_cli.ps1` preserves earlier options and uses `bridge_runtime.py`, the same runner as the UI.
+- `character_assets.py` discovers parts and resolves MTD/TPF material assignments. `flver_geometry.py` combines vertex streams. `blender_character.py` creates skinned parts, packed materials and cutscene bind adapters.
+- `blender_bridge.py` imports sampled actions and exports the main rig. The zero-length edit-bone rest-orientation bug was fixed. Bulk action curves and compressed, wrapped embedded source metadata avoid the old multi-minute text-write slowdown. Older plain-JSON source texts remain readable.
+- Decoder 0.3 supports spline/interleaved input and external skeleton compendiums. The compiled decoder under LOCALAPPDATA has been updated. Source is in `tools/SekiroMotionDecoder/`.
+- `hkx_compression.py` fixes the pinned Soulstruct Havok 1.5.0 2010-packfile header mismatch before running its bundled compressor. Temporary files are private to each conversion. Keep this regression test when upgrading the dependency.
+
+## Checked evidence
+
+- Installed Blender: 4.5.14 LTS. Default Wolf: 81 frames, 114 transform tracks, 146 animation bones, 121,165 vertices, 160,026 triangles, 45 used packed images, four skinned objects.
+- UI import and CLI import succeeded. Tutorial and Mortal Blade presets also imported. The 20 extracted Wolf part/variant binders were all read and built in Blender together as a coverage check; normal use selects one part per body region.
+- Some cutscene parts have substantially different bind poses. Three of the tested parts use hidden driven adapters. Extra model-only bones are added without adding HKX tracks.
+- BD_M_9530's MTDs intentionally have empty texture paths and literal material colors. Do not report those as missing texture assets or guess a replacement.
+- Both export formats decoded and re-imported. Interleaved maximum translation error was about 2e-6 game units; spline about 9.84e-4 game units and 0.171 degrees rotation on this clip. Root motion samples were retained.
+- UI layouts were checked at 1440, 1000 and 520 pixels, with help/navigation checks and no script errors or horizontal overflow.
+- Owned synthetic regression tests cover split vertex streams, unused bone sentinels, preset discovery, overwrite protection, base-sampler selection and the compression header. A Blender synthetic check covers rest orientation and animation round trip.
+
+## Workspace artifacts
+
+- Full editable default scene: `work/wolf_complete.blend`.
+- Extracted local assets, including the three presets and other Wolf variants: `work/input/wolf_default_model/source/parts`, with a subset MTD library under sibling `mtd/`. Game assets are excluded from releases.
+- Selected verification reports and images: `work/verification/`.
+- The user's latest imported scene is `work/wolf_animation.blend`; its saved settings are preserved.
+- Older development files, test scenes, freeze-legs project, original code snapshot and old releases were moved into `~/Documents/SekiroAnimationBridge-Archive/cleanup-20261023-172245/`. Its `manifest.json` records the original paths.
+- Blender 4.5.14 LTS is installed at `~/AppData/Local/Programs/Blender/blender-4.5.14-windows-x64/blender.exe`. The bridge's saved setting and automatic discovery use this permanent installation.
+- The desktop shortcut is `~/Desktop/Sekiro Animation Bridge.lnk` and launches the bridge UI.
+
+## Limits / unverified
+
+- No game launch or new gameplay confirmation was performed for 0.2. Earlier interleaved animation output was confirmed by the user in game.
+- Blender 5.2 is not installed here and has not been run. Do not claim it verified.
+- This is a material/skin preview, not full Sekiro shader or Havok cloth simulation, and does not export FLVER changes.
+- Fixed clip length and skeletal transform tracks only. Additive clips, float tracks, TAE and unrelated HKX metadata are not supported.
+- The full fresh dependency-fetch build was not rerun: this machine has the .NET runtime but no SDK. Updated C# source was compiled against the existing pinned dependencies with the available Roslyn compiler and exercised through the installed decoder. A new source installation still needs the .NET 9 SDK and Git.
+- Sekiro plugin `library_search` and `friction_report` failed because their configured backend referenced obsolete cache 0.3.0. Active skill files are 0.3.1. Development stayed in this standalone workspace; game files were only read.
