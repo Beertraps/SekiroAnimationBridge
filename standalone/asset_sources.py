@@ -97,20 +97,39 @@ def resolve_folders(root, folders):
     return result
 
 
-def kind_files(folders, kind, recursive=False, cache=None):
-    """Files of one kind in the given folders, without duplicates."""
-    seen, result = set(), []
-    for folder in folders:
+def override_name(path):
+    """The name by which a file in an earlier folder hides one in a later folder: any case, with or without DCX."""
+    name = Path(path).name.lower()
+    return name[:-4] if name.endswith('.dcx') else name
+
+
+def layout_files(folders, kind, recursive=False, cache=None):
+    """Files of one kind as (folder index, path), without duplicates.
+
+    A file in an earlier folder hides files of the same name in later folders,
+    the way a mod folder overrides the game's own files. Within one folder,
+    every file is kept.
+    """
+    seen, hidden, result = set(), set(), []
+    for index, folder in enumerate(folders):
+        names = set()
         items = folder.rglob('*') if recursive else folder.iterdir()
         for path in sorted(items):
             if cache and (path == cache or cache in path.parents):
                 continue
             if recursive and any(x.lower() in SKIPPED for x in path.relative_to(folder).parts[:-1]):
                 continue
-            if path.is_file() and matches(path, kind) and path not in seen:
+            if path.is_file() and matches(path, kind) and path not in seen and override_name(path) not in hidden:
                 seen.add(path)
-                result.append(path)
+                names.add(override_name(path))
+                result.append((index, path))
+        hidden |= names
     return result
+
+
+def kind_files(folders, kind, recursive=False, cache=None):
+    """Files of one kind in the given folders; see layout_files."""
+    return [path for _, path in layout_files(folders, kind, recursive, cache)]
 
 
 def leading_id(path):
@@ -134,10 +153,15 @@ def count_folder(root, limit=FOLDER_SCAN_LIMIT):
 
 
 def count_custom(root, folders, recursive=False, limit=FOLDER_SCAN_LIMIT):
-    """Files per kind in a custom layout, looking at no more than limit entries per folder."""
+    """Files per kind in a custom layout, looking at no more than limit entries per folder.
+
+    Files hidden by the same name in an earlier folder are not counted (see layout_files).
+    """
     counts, limited = {kind: 0 for kind in KINDS}, False
     for kind, found in resolve_folders(root, folders).items():
+        hidden = set()
         for folder in found:
+            names = set()
             items = folder.rglob('*') if recursive else folder.iterdir()
             for total, path in enumerate(items, 1):
                 if total > limit:
@@ -145,8 +169,10 @@ def count_custom(root, folders, recursive=False, limit=FOLDER_SCAN_LIMIT):
                     break
                 if recursive and any(x.lower() in SKIPPED for x in path.relative_to(folder).parts[:-1]):
                     continue
-                if path.is_file() and matches(path, kind):
+                if path.is_file() and matches(path, kind) and override_name(path) not in hidden:
+                    names.add(override_name(path))
                     counts[kind] += 1
+            hidden |= names
     return counts, limited
 
 

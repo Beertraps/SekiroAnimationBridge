@@ -1,3 +1,11 @@
+# Version 0.7.1 — 2026-10-24
+
+- Unit tests: 69 pass, 3 of them new in `test_sources.py`, on owned synthetic folders. An earlier folder hides a file of the same name (any case, with or without `.dcx`) only when that file is actually read, copies within one folder stay, and the dialog's counts agree. A custom layout with a mod folder before the game folder takes the mod's animation archive, model, part, c0000 rig attachment model and material library. A tie between material libraries follows folder order. Each new test fails on 0.7.0's code.
+- `prepare_character` with owned empty files and a stubbed FLVER reader listed 3 of 5 texture packages in a mod folder and a game folder: the mod's 2 packages hid the game's packages of the same names.
+- Python sources compile and `app.js` passes `node --check`. Blender 4.5.14 with `--factory-startup`: `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py` and `blender_weapons.py` pass.
+- Before tagging, a ZIP packaged from main as the workflow does, without the decoder and uv (64 files), passed the 69 unit tests from its unpacked folder.
+- Not checked: a real mod folder over the unpacked game in the UI (no mod folder was available).
+
 # Version 0.7.0 — 2026-10-24
 
 - Unit tests: 66 pass, 21 of them new in `test_sources.py`. On owned synthetic folders (empty files with game names) they cover game folder detection by executable, by Elden Ring's material library, through a `Game` subfolder and from a chosen `chr` folder; collected folders; a folder of games; owners of split archives; backup folders; custom folders relative and absolute with the count limit; the index of a game folder (characters, models, references, parts, texture folders, skipped unnamed archives); carry-over of a read character until its archive changes; custom layouts; structured selection of an NPC model and the Wolf preset; the migration of a single assets folder; and sources that survive an older bridge rewriting `ui-settings.json`. After a restart, the scratch UI moved its sources into `ui-sources.json` and restored the active source and selection. Python sources compile, `app.js` passes `node --check` and the CLI script parses.

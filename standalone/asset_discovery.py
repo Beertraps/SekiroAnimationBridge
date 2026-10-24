@@ -19,7 +19,7 @@ from dcx_codec import configure_oodle, unwrap
 from character_assets import asset_id, ROLES, PRESETS
 from game_profiles import GAMES, havok_info, resolve_game, player_parts, path_game
 from asset_sources import (KINDS, LAYOUTS, detect, executable_game, material_game, game_folders,
-                           find_game_root, resolve_folders, kind_files, leading_id, plural)
+                           find_game_root, resolve_folders, kind_files, layout_files, leading_id, plural)
 
 SCHEMA = 2  # archive member manifests
 CATALOG_SCHEMA = 3  # schema 2 catalogs are collected folders
@@ -394,10 +394,12 @@ def index_source(root, cache, notify, game, layout, folders=None, recursive=True
     if unnamed:
         warnings.append(f"{len(unnamed)} animation archive{'s do' if len(unnamed) != 1 else ' does'} not start with a character ID and {'were' if len(unnamed) != 1 else 'was'} skipped: {', '.join(unnamed[:5])}{', …' if len(unnamed) > 5 else ''}.")
     models, references = {}, []
-    for path in kind_files(resolved['characters'], 'characters', recursive, cache):
+    for index, path in layout_files(resolved['characters'], 'characters', recursive, cache):
         ident = asset_id(path)
         if ident == 'c0000':
-            references.append(path)
+            # Only from the first folder that has one; selection uses it when that folder holds exactly one.
+            if not references or references[0][0] == index:
+                references.append((index, path))
         elif re.fullmatch(r'c\d{4}', ident):
             # The first folder wins; within it a binder (with its textures) beats an extracted FLVER.
             previous = models.get(ident)
@@ -431,7 +433,7 @@ def index_source(root, cache, notify, game, layout, folders=None, recursive=True
                            for k, p in sorted(models.items())],
                    materialBinder='', textureDirectory='', referenceModel='', textureFolders=textures,
                    materialLibraries=libraries,
-                   referenceModels=[dict(path=str(p), game=source_game, scope=str(root)) for p in references],
+                   referenceModels=[dict(path=str(p), game=source_game, scope=str(root)) for _, p in references],
                    warnings=warnings, archiveCount=len(archives), errorCount=0, archiveSignatures={})
     destination = structured_catalog_path(cache, root, layout, catalog['folders'], recursive)
     # Characters already inventoried keep their clips while their archives are unchanged.
@@ -605,7 +607,8 @@ def selection(catalog, clip_id, preset='auto'):
         libraries = [m for m in catalog['materialLibraries'] if m['game']==source_game and m['scope']==clip['scope']]
     reference=references[0] if len(references)==1 else ''
     if source_game=='er': libraries=[m for m in libraries if m.get('kind')=='matbin' or '.matbinbnd' in m['path'].lower()]
-    libraries.sort(key=lambda m:(m.get('loose',False), not Path(m['path']).name.lower().startswith(('allmaterial.', 'allmaterialbnd.')), m['path']))
+    # A structured source lists its libraries in folder order and the sort is stable, so the first folder wins a tie.
+    libraries.sort(key=lambda m:(m.get('loose',False), not Path(m['path']).name.lower().startswith(('allmaterial.', 'allmaterialbnd.')), '' if structured else m['path']))
     return dict(animation=clip['path'], skeleton=clip['skeleton'], compendium=clip['compendium'],
                 skeletonCompendium=clip['skeletonCompendium'], materialBinder=libraries[0]['path'] if libraries else '',
                 textureDirectory='' if structured else clip['scope'], characterSource='' if structured else clip['scope'],

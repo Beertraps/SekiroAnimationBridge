@@ -114,6 +114,7 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
     from material_assets import MaterialLibrary, material_samplers, sampler_kind
     from flver_geometry import extract_model
     from dcx_codec import unwrap
+    from asset_sources import kind_files
 
     def read_binder(path):
         return Binder.from_bytes(unwrap(Path(path).read_bytes())[0])
@@ -201,12 +202,8 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
                     if info['texture'] and sampler_kind(info['semantic'].lower()):
                         needed.add(info['texture'].lower())
                         tokens |= texture_tokens(info['texture'])
-        packages = []
-        for folder in texture_folders:
-            folder = Path(folder)
-            if folder.is_dir():
-                packages += [p for p in (folder.rglob("*") if texture_recursive else folder.iterdir())
-                             if p.is_file() and p.name.lower().endswith((".texbnd", ".texbnd.dcx", ".tpf", ".tpf.dcx"))]
+        # A package in an earlier folder hides packages of the same name in later folders.
+        packages = kind_files([Path(f) for f in texture_folders if Path(f).is_dir()], 'textures', texture_recursive)
         chosen = [p for p in packages if texture_family(p) in tokens or "common" in p.name.lower()]
         for p in chosen:
             read_package(p)

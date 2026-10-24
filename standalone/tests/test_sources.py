@@ -80,6 +80,15 @@ class Files(unittest.TestCase):
         self.assertEqual(count_custom(self.root/'base',folders)[0],dict(animations=1,characters=1,parts=0,textures=0,materials=0))
         self.assertEqual(count_custom(self.root/'base',folders,True)[0]['animations'],2)
         self.assertTrue(count_custom(self.root/'base',folders,True,limit=1)[1])
+    def test_earlier_folder_hides_the_same_file_name(self):
+        mod=touch(self.root/'mod','c1000.anibnd','deep/c1010.anibnd.dcx','c1000.texbnd.dcx')
+        game=touch(self.root/'game','C1000.ANIBND.DCX','c1010.anibnd.dcx','c1020.anibnd.dcx','deep/c1020.anibnd.dcx','c1000.texbnd.dcx','c1000_l.texbnd.dcx')
+        names=lambda found:[p.relative_to(self.root).as_posix() for p in found]
+        self.assertEqual(names(kind_files([mod,game],'animations')),['mod/c1000.anibnd','game/c1010.anibnd.dcx','game/c1020.anibnd.dcx'])
+        # A file in a subfolder hides others only when subfolders are read; copies within one folder are kept.
+        self.assertEqual(names(kind_files([mod,game],'animations',True)),['mod/c1000.anibnd','mod/deep/c1010.anibnd.dcx','game/c1020.anibnd.dcx','game/deep/c1020.anibnd.dcx'])
+        self.assertEqual(names(kind_files([mod,game],'textures')),['mod/c1000.texbnd.dcx','game/c1000_l.texbnd.dcx'])
+        self.assertEqual(count_custom(self.root,dict(animations=['mod','game'],textures=['mod','game']),True)[0],dict(animations=4,characters=0,parts=0,textures=2,materials=0))
 
 
 class StructuredIndex(unittest.TestCase):
@@ -127,6 +136,22 @@ class StructuredIndex(unittest.TestCase):
         self.assertEqual(catalog['characters'][0]['archiveCount'],2)
         self.assertEqual(Path(catalog['characters'][0]['model']).name,'c5060.chrbnd.dcx')
         self.assertTrue(catalog['recursive'])
+    def test_custom_layout_first_folder_wins_for_every_kind(self):
+        base=Path(self.temp.name).resolve()
+        mod=touch(base/'Mod','chr/c5060.anibnd.dcx','chr/c5060.chrbnd','chr/c0000.flver','parts/fc_m_0200.partsbnd.dcx','mtd/allmaterialbnd.mtdbnd.dcx')
+        kinds=dict(animations='chr',characters='chr',parts='parts',textures='chr',materials='mtd')
+        folders={kind:[str(mod/sub),str(self.game/sub)] for kind,sub in kinds.items()}
+        _,catalog=discover(base,self.cache,layout='custom',folders=folders,recursive=False)
+        where=lambda path:Path(path).relative_to(base).as_posix()
+        characters={c['id']:c for c in catalog['characters']}
+        self.assertEqual([where(a) for a in characters['c5060']['archives']],['Mod/chr/c5060.anibnd.dcx'])
+        self.assertEqual(where(characters['c5060']['model']),'Mod/chr/c5060.chrbnd')
+        self.assertEqual(characters['c0000']['archiveCount'],3)
+        # The game's c0000.chrbnd.dcx has another name, but the mod's folder comes first.
+        self.assertEqual([where(r['path']) for r in catalog['referenceModels']],['Mod/chr/c0000.flver'])
+        self.assertEqual(sorted((p['id'],where(p['path'])) for p in catalog['parts']),[('am_m_9000','Sekiro/parts/am_m_9000.partsbnd.dcx'),('fc_m_0200','Mod/parts/fc_m_0200.partsbnd.dcx')])
+        self.assertEqual([where(m['path']) for m in catalog['materialLibraries']],['Mod/mtd/allmaterialbnd.mtdbnd.dcx'])
+        self.assertEqual([where(f) for f in catalog['textureFolders']],['Mod/chr','Sekiro/chr'])
     def test_custom_layout_needs_an_animation_folder(self):
         with self.assertRaisesRegex(ValueError,'animation folder'):
             discover(self.game,self.cache,layout='custom',folders={})
@@ -155,6 +180,10 @@ class StructuredSelection(unittest.TestCase):
         self.assertEqual(chosen['preset'],'wolf')
         self.assertEqual(sorted(p['id'] for p in chosen['parts'] if p['selected']),sorted(PRESETS['wolf']))
         self.assertEqual(chosen['missing'],[])
+    def test_material_library_tie_follows_folder_order(self):
+        catalog=self.catalog()
+        catalog['materialLibraries']=[dict(path='b_mod/mtd/allmaterialbnd.mtdbnd.dcx',kind='mtd',loose=False),dict(path='a_game/material/allmaterial.matbinbnd.dcx',kind='matbin',loose=False)]
+        self.assertEqual(selection(catalog,'c5060:0')['materialBinder'],'b_mod/mtd/allmaterialbnd.mtdbnd.dcx')
 
 
 class SettingsMigration(unittest.TestCase):

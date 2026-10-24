@@ -1,3 +1,8 @@
+# 0.7.1 — custom layouts: the first folder wins
+
+- **Custom layouts**: when several folders of one kind hold a file of the same name, the first folder listed wins, the way a mod folder overrides the game's files. This now holds for every kind. Animation archives used to be listed twice under the same name, a game texture could replace the mod's when its image was larger, two c0000 rig attachment models left neither chosen, and a tie between material libraries went to the alphabetically first path. A name with or without `.dcx` counts as the same file, and the dialog's counts leave out hidden files. Scan an existing custom source again (**Scan this source again**) to apply it.
+- 3 new unit tests on owned synthetic folders cover it; see VERIFICATION.md.
+
 # 0.7.0 — sources, redesigned workspace, control rig
 
 - **Sources** replace the single assets folder. **Detect** recognises a game folder in the game's own structure (`chr`, `parts`, `mtd` or `material`, also through `Game` or `DATA`, or from a chosen `chr` folder) and names the game by its executable, by Elden Ring's material library or from one archive. Any other folder is a collected folder, matched by the folders its files share as before. A folder of several games lists them.
