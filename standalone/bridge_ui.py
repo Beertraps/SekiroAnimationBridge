@@ -18,6 +18,9 @@ from bridge_runtime import APP, HERE, HOME, EVENT_PREFIX, default_decoder, remem
 from character_assets import scan_character, asset_id, ROLES
 
 SETTINGS = APP / 'ui-settings.json'
+# Sources have their own file: an older bridge rewrites ui-settings.json with only the keys it knows.
+SOURCES = APP / 'ui-sources.json'
+SOURCE_KEYS = {'sources','activeSource'}
 LOCK = threading.RLock()
 JOB = None
 CONFIG = {}
@@ -25,7 +28,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'textureDirectory','preset','outputBlend','inputBlend','outputHKX','format','includeCharacter','openWhenDone','force','models','previewTexture','lastImportedBlend',
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
-        'quantization','tolerance','verify'}
+        'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme'}
 
 
 def find_blender():
@@ -56,7 +59,8 @@ def defaults():
         outputBlend=str(HOME/'work/wolf_animation.blend'), inputBlend='',
         outputHKX=str(HOME/'work/wolf_animation_edited.hkx'), format='interleaved',
         exportAction='', frameRange='scene', frameStart='', frameEnd='', frameRate='', trackSet='original', rootMotion='auto',
-        rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True)
+        rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
+        sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, theme='auto')
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)
     if SETTINGS.is_file():
@@ -65,6 +69,18 @@ def defaults():
             result.update({k:v for k,v in saved.items() if k in KEYS})
             if 'inputMethod' not in saved: result['inputMethod']='manual'
         except (ValueError, OSError): pass
+    try:
+        saved=json.loads(SOURCES.read_text(encoding='utf-8')) if SOURCES.is_file() else None
+    except (ValueError, OSError): saved=None
+    if isinstance(saved,dict):
+        result.update({k:v for k,v in saved.items() if k in SOURCE_KEYS})
+    elif result['assetFolder'] and not result['sources']:
+        # Before sources existed, the one assets folder was a collected folder.
+        folder=Path(result['assetFolder'])
+        source=dict(id=secrets.token_hex(4),name=folder.name or str(folder),path=str(folder),layout='folder',
+                    game=result.get('game','auto'),folders={},recursive=True,scenes=str(folder/'Blender'),
+                    catalog=result.get('assetCatalog',''),state={})
+        result.update(sources=[source],activeSource=source['id'],sourceLayout='folder')
     # A release ZIP brings its own decoder. It replaces the build_decoder.cmd default
     # and the decoder of another unpacked bridge version; a custom choice stays.
     bundled, saved_decoder = HOME/'decoder/SekiroMotionDecoder.exe', Path(result['decoder'])
@@ -116,8 +132,10 @@ def persist(config):
     with LOCK:
         CONFIG.update({k:v for k,v in config.items() if k in KEYS})
         SETTINGS.parent.mkdir(parents=True,exist_ok=True)
-        staging=SETTINGS.with_suffix('.tmp')
-        staging.write_text(json.dumps(CONFIG,indent=2),encoding='utf-8'); os.replace(staging,SETTINGS)
+        for path,value in ((SETTINGS,{k:v for k,v in CONFIG.items() if k not in SOURCE_KEYS}),
+                           (SOURCES,{k:CONFIG[k] for k in SOURCE_KEYS if k in CONFIG})):
+            staging=path.with_suffix('.tmp')
+            staging.write_text(json.dumps(value,indent=2),encoding='utf-8'); os.replace(staging,path)
 
 
 def snapshot():
@@ -177,10 +195,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/api/'):
             if not self.authorized(): return self.send_json({'error':'This workspace session is not authorized. Reopen the UI launcher.'},403)
-            if self.path=='/api/state': return self.send_json(dict(config=CONFIG,job=snapshot(),root=str(HOME)))
+            if self.path=='/api/state':
+                version=(HOME/'VERSION').read_text(encoding='utf-8').strip() if (HOME/'VERSION').is_file() else ''
+                return self.send_json(dict(config=CONFIG,job=snapshot(),root=str(HOME),version=version))
             if self.path=='/api/environment': return self.send_json(environment())
             return self.send_json({'error':'Unknown route'},404)
-        routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/readability.css':('ui/readability.css','text/css'),'/app.js':('ui/app.js','text/javascript')}
+        routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/app.js':('ui/app.js','text/javascript')}
         if self.path not in routes: return self.send_error(404)
         file,mime=routes[self.path]; data=(HERE/file).read_bytes()
         self.send_response(200); self.send_header('Content-Type',mime+'; charset=utf-8')
@@ -196,12 +216,25 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(length) or b'{}')
             if self.path=='/api/settings':
                 persist(data); return self.send_json({'ok':True})
+            if self.path=='/api/detect':
+                from asset_discovery import detect_source
+                found=detect_source(data.get('path',''),CONFIG.get('oodle',''))
+                # Custom layout folders are relative to the chosen folder unless absolute.
+                folders=data.get('folders') if isinstance(data.get('folders'),dict) else {}
+                base=Path(found['path'])
+                found['missing']=[f'{kind}|{entry}' for kind,entries in folders.items() for entry in entries
+                                  if not (Path(entry) if Path(entry).is_absolute() else base/entry).is_dir()]
+                if folders:
+                    from asset_sources import count_custom
+                    counts,limited=count_custom(base,folders,data.get('recursive') is not False)
+                    found['custom']={'counts':counts,'limited':limited}
+                return self.send_json(found)
             if self.path=='/api/catalog':
-                from asset_discovery import load_catalog
+                from asset_discovery import load_catalog, ui_catalog
                 path=Path(data['path']).resolve()
                 cache=(HOME/'work/asset-cache/catalogs').resolve()
-                if path.parent != cache: raise ValueError('Scan the assets folder to create a catalog first.')
-                return self.send_json(load_catalog(path,data['folder']))
+                if path.parent != cache or not path.is_file(): raise ValueError('Scan the assets folder to create a catalog first.')
+                return self.send_json(ui_catalog(load_catalog(path,data['folder'])))
             if self.path=='/api/resolve':
                 from asset_discovery import load_catalog, selection
                 path=Path(data['path']).resolve()
@@ -216,8 +249,9 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     if JOB and JOB['status']=='running': raise ValueError('A conversion is already running.')
                     request={k:v for k,v in data.items() if k in KEYS or k=='mode'}
-                    if request.get('mode') not in ('import','export','discover','inspect'): raise ValueError('Unknown conversion mode.')
+                    if request.get('mode') not in ('import','export','discover','inventory','inspect'): raise ValueError('Unknown conversion mode.')
                     if request['mode']=='discover': required=['assetFolder','writer']
+                    elif request['mode']=='inventory': required=['assetFolder','assetCatalog','assetCharacter','writer']
                     elif request['mode']=='inspect': required=['blender','inputBlend']
                     elif request['mode']=='import' and request.get('inputMethod')=='folder': required=['blender','assetFolder','assetCatalog','assetClip','outputBlend']
                     else: required=['blender','animation','skeleton','outputBlend'] if request['mode']=='import' else ['blender','inputBlend','outputHKX']

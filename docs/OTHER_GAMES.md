@@ -7,10 +7,10 @@ The bridge handles Sekiro, Dark Souls: Prepare to Die, Dark Souls Remastered, Da
 ## Use the UI
 
 1. Close and reopen the bridge after updating. Existing Blender scenes can stay open.
-2. Choose **Auto detect from files**, select an assets folder and click **Scan folder**. Old saved catalogs need a new scan once.
-3. Pick the game/character entry and one animation. Games sharing `c0000` have separate entries. The assets folder now fills automatically.
+2. Add a source: an unpacked game folder (Dark Souls III and Elden Ring keep their data in `Game`, Prepare to Die in `DATA`; choosing the folder above is enough) or a collected folder of archives. The game is detected; choose it in the source when it is not. Old saved catalogs need a new scan once.
+3. Pick the character and one animation. In a collected folder, games sharing `c0000` have separate entries. The model, textures and material library fill automatically.
 4. Player characters use **Player outfit / modular parts**. A lone piece per body region is selected automatically; competing outfits remain available for selection. Weapons are optional and initially unselected.
-5. Add the textures and appropriate material library below, or turn off **Include model** for rig-only work. Create a new `.blend` and edit normally.
+5. Check the textures and material library under **Textures & materials**, or turn off **Model** for rig-only work. Create a new `.blend` and edit normally.
 
 ## Files required
 
@@ -44,6 +44,7 @@ CLI examples:
 
 ```bat
 standalone\sekiro_animation_cli.cmd import -Game er -AssetFolder "D:\Assets\ER" -AssetClip "a000_004000.hkx" -BlenderExe "C:\Blender\blender.exe" -OutputBlend "D:\Work\ER-player.blend"
+standalone\sekiro_animation_cli.cmd import -AssetFolder "D:\Games\ELDEN RING" -SourceLayout game -AssetCharacter c0000 -AssetClip "a000_004000.hkx" -BlenderExe "C:\Blender\blender.exe" -OutputBlend "D:\Work\ER-player.blend"
 standalone\sekiro_animation_cli.cmd export -Game ds3 -InputBlend "D:\Work\legacy-DS3.blend" -BlenderExe "C:\Blender\blender.exe" -OutputHKX "D:\Work\edited.hkx"
 ```
 

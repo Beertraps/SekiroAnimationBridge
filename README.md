@@ -7,7 +7,7 @@
 ![Blender 4.5](https://img.shields.io/badge/Blender-4.5-E87D0D)
 ![Status: prototype](https://img.shields.io/badge/status-prototype-orange)
 
-![The import page after scanning a folder of Owl archives from Sekiro](docs/images/bridge-ui.png)
+![The import page with an unpacked Sekiro folder as the source, Owl (C5060) and one of his animations chosen](docs/images/bridge-ui.png)
 
 ```mermaid
 flowchart LR
@@ -19,7 +19,8 @@ flowchart LR
 
 ## What it does
 
-- **Import from game archives.** Point the bridge at a folder of the game's `.dcx` archives, pick a character and an animation, and get a Blender scene with the rig, the skinned model, textures and materials. No manual unpacking.
+- **Import from game archives.** Point the bridge at your unpacked game folder or a folder of `.dcx` archives, pick a character and an animation, and get a Blender scene with the rig, the skinned model, textures and materials. No manual unpacking of the archives.
+- **Keep several sources.** The bridge recognises the game's own folder structure, reads collected folders, and takes custom layouts for everything else. Save several sources and switch between them; each remembers your last selection.
 - **Edit in plain Blender.** The animation is a normal action on a normal armature. Constraints, drivers and NLA strips are baked on export.
 - **Export to the game's own format.** Writes the HKX version the game uses, interleaved (lossless) or spline-compressed, with options for frame range, frame rate, tracks and root motion, and reads the file back to check it.
 - **Retarget between characters.** The optional Blender add-on moves an animation from one skeleton to another, also when bone names differ, and exports it directly from Blender.
@@ -48,19 +49,19 @@ That is all: the release includes the HKX decoder and [uv](https://github.com/as
 
 For retargeting and the control rig, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.
 
-> **No game files are included.** Use archives from your own copy of the game, ideally copied outside the game folder. KRAK-compressed archives need `oo2core_6_win64.dll`, which the bridge does not include: it uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it.
+> **No game files are included.** Use archives from your own copy of the game. The bridge only reads a game folder; it extracts what it needs into its own cache and refuses to write outputs into a game installation. KRAK-compressed archives need `oo2core_6_win64.dll`, which the bridge does not include: it uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it.
 
 ## Quick start
 
-1. **Import animation**: choose *Folder of DCX files*, browse to a folder with the character's archives and click **Scan folder**.
-2. Pick the character and an animation, choose where to save the scene and click **Create Blender scene**.
+1. **Add a source**: choose your unpacked game folder or a folder with the character's archives. The bridge detects the layout and the game, then lists the characters.
+2. On **Import animation**, pick the character and an animation, check where the scene is saved and click **Create Blender scene**.
 3. Edit the animation in Blender and save.
 4. **Export animation**: choose the scene, click **Read actions**, set the options and click **Export HKX animation**. You get a raw `.hkx` and a `.motion.json` sidecar.
 5. Replace the animation in a copy of the game's binder with [WitchyBND](https://github.com/ividyon/WitchyBND).
 
 ## Documentation
 
-- [User guide](docs/USER_GUIDE.md): import modes, textures, weapons, export options and the command line
+- [User guide](docs/USER_GUIDE.md): sources and layouts, import, textures, weapons, export options and the command line
 - [Other FromSoftware games](docs/OTHER_GAMES.md): the files each game needs, materials and weapon placement
 - [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig and export
 - [Changelog](CHANGELOG.md), [verification log](docs/VERIFICATION.md) and [credits](CREDITS.md)

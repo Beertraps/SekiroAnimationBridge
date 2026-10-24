@@ -5,7 +5,8 @@ param(
     [string]$DecoderExe,
     [string]$WriterPython=(Join-Path $env:LOCALAPPDATA 'SekiroAnimationBridge\writer-env\Scripts\python.exe'),
     [string]$Animation,[string]$Compendium,[string]$Skeleton,[string]$SkeletonCompendium,
-    [string]$AssetFolder,[string]$AssetCatalog,[string]$AssetClip,[string]$OodleDll,
+    [string]$AssetFolder,[string]$AssetCatalog,[string]$AssetClip,[string]$AssetCharacter,[string]$OodleDll,
+    [ValidateSet('auto','folder','game','custom')][string]$SourceLayout='folder',[string]$SourceLayoutFile,
     [switch]$RigOnly,
     [ValidateSet('auto','sekiro','ds1','ds1r','ds3','er')][string]$Game='auto',
     [string]$CharacterSource,
@@ -38,10 +39,14 @@ if($PreviewModel){$models+=@($PreviewModel)}
 if($PreviewTexture -and !$models.Count -and !$CharacterSource){throw 'A texture override requires a character model.'}
 $weaponAttachments=@{}
 if($WeaponAttachmentsFile){$weaponAttachments=Get-Content -LiteralPath $WeaponAttachmentsFile -Raw | ConvertFrom-Json}
+# A custom layout names the folders per kind: {"animations":["anims"],"characters":["models"],...}
+$sourceFolders=@{}
+if($SourceLayoutFile){$sourceFolders=Get-Content -LiteralPath $SourceLayoutFile -Raw | ConvertFrom-Json; if($SourceLayout -eq 'folder'){$SourceLayout='custom'}}
 $request=@{
     mode=$Mode; game=$Game; exportGame=$Game; blender=$BlenderExe; decoder=$DecoderExe; writer=$WriterPython;
     animation=$Animation; compendium=$Compendium; skeleton=$Skeleton; skeletonCompendium=$SkeletonCompendium;
-    assetFolder=$AssetFolder; assetCatalog=$AssetCatalog; assetClip=$AssetClip; oodle=$OodleDll;
+    assetFolder=$AssetFolder; assetCatalog=$AssetCatalog; assetClip=$AssetClip; assetCharacter=$AssetCharacter; oodle=$OodleDll;
+    sourceLayout=$SourceLayout; sourceFolders=$sourceFolders; sourceRecursive=$true;
     inputMethod=$(if($AssetFolder){'folder'}else{'manual'});
     characterSource=$CharacterSource; preset=$WolfPreset; models=@($models);
     includeCharacter=[bool](($CharacterSource -or $models.Count -or $AssetFolder) -and !$RigOnly);

@@ -110,17 +110,52 @@ def writer_arguments(request, fmt, stats):
     return args
 
 
+def discover_source(request):
+    from asset_discovery import discover
+    return discover(request.get('assetFolder', ''), HOME/'work/asset-cache', event, request.get('oodle', ''), request.get('game', 'auto'),
+                    request.get('sourceLayout') or 'folder', request.get('sourceFolders'), request.get('sourceRecursive', True))
+
+
+def catalog_file(request):
+    path = Path(request.get('assetCatalog') or '').resolve()
+    if path.parent != (HOME/'work/asset-cache/catalogs').resolve() or not path.is_file():
+        raise ValueError('Scan the source first.')
+    return path
+
+
+def character_clips(catalog, character):
+    """Clip names repeat across characters; a chosen character narrows a name to its own clips."""
+    if not character:
+        return catalog
+    return dict(catalog, clips=[c for c in catalog['clips'] if character in (c['characterKey'], c['character'])])
+
+
 def convert(request):
     mode = request.get('mode', 'import')
     from dcx_codec import configure_oodle
     configure_oodle(request.get('oodle', ''))
     if mode == 'discover':
-        from asset_discovery import discover
-        output, catalog = discover(request.get('assetFolder', ''), HOME/'work/asset-cache', event, request.get('oodle', ''), request.get('game', 'auto'))
-        event('done', f"Found {len(catalog['clips'])} animations in {catalog['archiveCount']} archives", 100,
-              output=str(output), report=dict(catalog=str(output), folder=catalog['folder'],
+        output, catalog = discover_source(request)
+        structured = catalog['layout'] != 'folder'
+        from asset_sources import plural
+        found = plural(len(catalog['characters']), 'character') if structured else plural(len(catalog['clips']), 'animation')
+        event('done', f"Found {found} in {plural(catalog['archiveCount'], 'archive')}", 100,
+              output=str(output), report=dict(catalog=str(output), folder=catalog['folder'], layout=catalog['layout'], game=catalog.get('game', ''),
               clips=len(catalog['clips']), characters=len(catalog['characters']), warnings=catalog['warnings']))
         return str(output)
+    if mode == 'inventory':
+        from asset_discovery import load_catalog, inventory_character
+        from asset_sources import plural
+        path = catalog_file(request)
+        load_catalog(path, request.get('assetFolder', ''))
+        catalog = inventory_character(path, request.get('assetCharacter', ''), HOME/'work/asset-cache', event, request.get('oodle', ''))
+        entry = next(c for c in catalog['characters'] if request.get('assetCharacter') in (c['id'], c['character']))
+        for problem in entry.get('errors', []):
+            print('NOTICE: ' + problem, flush=True)
+        event('done', f"Read {plural(entry['count'], 'animation')} of {entry['name']}", 100, output=str(path),
+              report=dict(catalog=str(path), folder=catalog['folder'], character=entry['id'], clips=entry['count'],
+                          ready=entry['ready'], warnings=entry.get('errors', [])))
+        return str(path)
     if mode not in ('import', 'export', 'inspect', 'write'):
         raise ValueError('Choose import, export or inspect.')
     event('validate', 'Checking files and output', 4)
@@ -142,13 +177,26 @@ def convert(request):
             event('done', f"Read {count} action{'' if count == 1 else 's'} from {Path(blend).name}", 100, output=blend, report=dict(scene=info))
             return blend
         if mode == 'import':
+            refreshed = False
             if request.get('inputMethod') == 'folder':
-                from asset_discovery import load_catalog, selection, discover
+                from asset_discovery import load_catalog, selection, inventory_character, refresh_clip
+                cache, character, clip = HOME/'work/asset-cache', request.get('assetCharacter', ''), request.get('assetClip')
                 if not request.get('assetCatalog'):
-                    _, catalog = discover(request.get('assetFolder', ''), HOME/'work/asset-cache', event, request.get('oodle',''), request.get('game','auto'))
+                    path, catalog = discover_source(request)
+                    if catalog['layout'] != 'folder':
+                        if not character:
+                            raise ValueError(f"This source holds {len(catalog['characters'])} characters. Choose one, for example -AssetCharacter c0000.")
+                        catalog = inventory_character(path, character, cache, event, request.get('oodle', ''))
                 else:
-                    catalog = load_catalog(request['assetCatalog'], request.get('assetFolder', ''), check_sources=True)
-                resolved = selection(catalog, request.get('assetClip'), request.get('preset', 'auto'))
+                    path = catalog_file(request)
+                    catalog = load_catalog(path, request.get('assetFolder', ''), check_sources=True)
+                    if catalog['layout'] != 'folder':
+                        # A mod's archive may change between imports; read it again instead of using stale members.
+                        catalog, clip = refresh_clip(path, catalog, clip, cache, event, request.get('oodle', ''))
+                if not any(c['id'] == clip for c in catalog['clips']):
+                    catalog = character_clips(catalog, character)
+                resolved = selection(catalog, clip, request.get('preset', 'auto'))
+                refreshed = clip != request.get('assetClip')
                 requested_game = request.get('game', 'auto')
                 if requested_game not in ('', 'auto', resolved['game']):
                     raise ValueError('The selected clip belongs to a different game. Choose Auto detect or the matching source game.')
@@ -161,6 +209,7 @@ def convert(request):
                     request['models'] = [p['path'] for p in resolved['parts'] if p['selected']]
                 for key in ('textureDirectory', 'materialBinder', 'referenceModel'):
                     if not request.get(key): request[key] = resolved[key]
+                request['textureFolders'], request['textureRecursive'] = resolved['textureFolders'], resolved['textureRecursive']
             animation = existing(request.get('animation'), 'Animation HKX')
             skeleton = existing(request.get('skeleton'), 'Skeleton HKX')
             compendium = existing(request['compendium'], 'Compendium') if request.get('compendium') else '-'
@@ -199,7 +248,8 @@ def convert(request):
             document.update(game=source_game, sourceHavok=source_info, clip=Path(animation).name)
             motion.write_text(json.dumps(document), encoding='utf-8')
             report = dict(clip=Path(animation).name, frames=document['frameCount'], tracks=document['trackCount'],
-                          game=GAMES[source_game], compression=document.get('compression', 'spline'), parts=0, textures=0, warnings=[])
+                          game=GAMES[source_game], compression=document.get('compression', 'spline'), parts=0, textures=0, warnings=[],
+                          catalogRefreshed=refreshed)
             character_args = []
             if request.get('includeCharacter', bool(request.get('characterSource') or request.get('models'))):
                 from character_assets import scan_character, prepare_character
@@ -215,7 +265,8 @@ def convert(request):
                 manifest = prepare_character(sources, temp / 'character', request.get('textureDirectory', ''),
                     request.get('materialBinder', ''), request.get('previewTexture', ''),
                     request.get('referenceModel', ''), request.get('weaponAttachments', {}), document['skeletonName'], source_game,
-                    [bone['name'] for bone in document['skeleton']['bones']])
+                    [bone['name'] for bone in document['skeleton']['bones']],
+                    request.get('textureFolders') or None, bool(request.get('textureRecursive')))
                 character = json.loads(manifest.read_text(encoding='utf-8'))
                 report.update(parts=len(character['models']), textures=character['texture_count'], warnings=character['warnings'],
                               vertices=sum(m['stats']['vertices'] for m in character['models']),
