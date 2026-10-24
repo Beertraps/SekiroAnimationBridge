@@ -13,6 +13,8 @@ See [OTHER_GAMES.md](OTHER_GAMES.md) for the files each game needs, the source-g
 
 The release ZIP includes the HKX decoder, so no Python, .NET or Git installation is needed. **Settings & setup** checks every tool. To repeat or repair the Python setup, run `tools\setup_writer.cmd`.
 
+The optional *Spline* export format runs Soulstruct Havok's 32-bit `CompressAnim.exe`, which needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported). Many games install it already; the **Spline compression** check in **Settings & setup** shows whether it is present. Interleaved export, the default, does not need it.
+
 To update, extract the new version and start it. Settings and the conversion Python carry over, the new version uses its own decoder, and the retarget add-on finds the version you started last. To remove the bridge, delete its folder and `%LOCALAPPDATA%\SekiroAnimationBridge`; uv keeps its download cache in `%LOCALAPPDATA%\uv\cache`.
 
 From a source checkout, run `tools\setup_writer.cmd` and `tools\SekiroMotionDecoder\build_decoder.cmd` once instead. The README's "Build from source" section lists what they need.
@@ -140,7 +142,7 @@ Edit the main animation rig in Blender and save the scene. On the UI's export pa
 - **Action**: the active action, or another action that keys the rig, to export another take.
 - **Frame range**: the scene range, the action's keys, the imported clip length, or custom frames. The evaluated pose is sampled by time, so constraints, drivers and NLA strips are baked.
 - **Tracks, frame rate and root motion**: *Source clip tracks* keeps the imported track list and is the safest choice; *Source tracks + keyed bones* and *Every skeleton bone* add tracks. The frame rate defaults to the source clip's. Root motion comes from the `HKX_RootMotion` empty, from a bone's travel, or is left out. Bone extraction uses the bone above pelvis and spine by default (Root, RootPos or Master), optionally with vertical travel and turning.
-- **Format**: *Interleaved* stores every frame uncompressed; the earlier Sekiro export path was confirmed in game by the user. *Spline* is smaller and lossy, with 40-bit, 48-bit or full-float rotations and a position tolerance. In-game confirmation of spline output is still needed.
+- **Format**: *Interleaved* stores every frame uncompressed; the earlier Sekiro export path was confirmed in game by the user. *Spline* is smaller and lossy, with 40-bit, 48-bit or full-float rotations and a position tolerance. It needs the Visual C++ 2010 runtime (x86), see [Install and start](#install-and-start). In-game confirmation of spline output is still needed.
 - **Read the HKX back**: decodes the written file and reports the largest rotation and translation difference from the sampled pose.
 
 Export creates a raw `.hkx` and adjacent `.motion.json` sidecar. Use WitchyBND to replace the relevant member in your own binder. This tool does not repack animation binders, create a mod profile or launch the game.

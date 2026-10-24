@@ -75,6 +75,16 @@ jobs:
           $config = (Invoke-RestMethod "$($ui.base)/api/state" -Headers $headers).config
           if ($config.decoder -ne "$root\decoder\SekiroMotionDecoder.exe") { throw "Unexpected decoder: $($config.decoder)" }
           Invoke-RestMethod "$($ui.base)/api/shutdown" -Method Post -Headers $headers -ContentType 'application/json' -Body '{}' | Out-Null
+          # Spline export runs Soulstruct Havok's 32-bit CompressAnim.exe, which needs the Visual C++ 2010 runtime.
+          # Install it from Microsoft, as the README tells users, so the unit tests cover spline export too.
+          $redist = "$env:RUNNER_TEMP\vcredist_x86.exe"
+          Invoke-WebRequest 'https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe' -OutFile $redist
+          $signature = Get-AuthenticodeSignature $redist
+          Write-Host "vcredist_x86.exe: $($signature.Status), $($signature.SignerCertificate.Subject), SHA256 $((Get-FileHash $redist).Hash)"
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Unexpected signature on vcredist_x86.exe.' }
+          $install = Start-Process $redist -ArgumentList '/q', '/norestart' -Wait -PassThru
+          if ($install.ExitCode -notin 0, 1638, 3010) { throw "The Visual C++ 2010 runtime did not install: $($install.ExitCode)." }
+          if (-not (Test-Path "$env:SystemRoot\SysWOW64\msvcr100.dll")) { throw 'msvcr100.dll is still missing.' }
           Push-Location $root
           & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s standalone/tests -p "test_*.py"
           if ($LASTEXITCODE) { throw 'The unit tests failed.' }
@@ -100,7 +110,7 @@ jobs:
           2. Install [Blender 4.5](https://www.blender.org/download/lts/4-5/) if you do not have it. The bridge finds standard installations; otherwise choose ``blender.exe`` under **Settings & setup**.
           3. Optional: install **$addon** in Blender to retarget animations between characters.
 
-          No game files are included. KRAK-compressed archives need your game's own ``oo2core_6_win64.dll``, which the bridge finds or asks for.
+          No game files are included. KRAK-compressed archives need your game's own ``oo2core_6_win64.dll``, which the bridge finds or asks for. The optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported); **Settings & setup** shows whether it is installed.
 
           ## Changes
 

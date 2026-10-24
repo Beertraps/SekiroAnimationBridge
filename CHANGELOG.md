@@ -3,6 +3,7 @@
 - Release ZIPs include the prebuilt HKX decoder and uv. Extract the ZIP and double-click **Start Animation Bridge.cmd**: the first start downloads Python 3.13 and the pinned libraries into `%LOCALAPPDATA%\SekiroAnimationBridge`. No Python, .NET SDK or Git installation is needed; Blender 4.5 stays a separate install.
 - The launcher repeats that setup when an update pins different libraries. `tools\setup_writer.cmd` uses the included or an installed uv, and still accepts Python 3.13 with pip.
 - The bridge prefers the decoder in its own folder over the one `build_decoder.cmd` builds, and replaces a decoder path saved by another unpacked version. A custom decoder choice stays. The CLI uses the same default.
+- Spline export needs the Microsoft Visual C++ 2010 Redistributable (x86): Soulstruct Havok's `CompressAnim.exe` is a 32-bit program linked against `MSVCR100.dll`. **Settings & setup** shows an optional Spline compression check, and a missing runtime now gives a clear message instead of error 0xC0000135. Interleaved export does not need it.
 - A GitHub Actions workflow builds each tagged version: the decoder from the pinned SoulsAssetPipeline commit, uv with a pinned checksum, then a first start of the packaged bridge and the unit tests on a fresh profile, then the release with both ZIPs.
 - The project is licensed GPL-3.0-or-later. The README is now an overview; its previous content is `docs/USER_GUIDE.md`, next to `OTHER_GAMES.md`, `VERIFICATION.md` and `PROJECT_CONTEXT.md`.
 

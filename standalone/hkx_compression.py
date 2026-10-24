@@ -40,6 +40,10 @@ def compress_spline(animation, quantization=DEFAULT_QUANTIZATION, tolerance=DEFA
         result=subprocess.run([str(utility),str(source),str(target),str(QUANTIZATION[quantization]),f'{tolerance:g}'],cwd=folder,
             capture_output=True,text=True,encoding='utf-8',errors='replace',
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        # STATUS_DLL_NOT_FOUND: the 32-bit compressor links against MSVCR100.dll.
+        if result.returncode & 0xffffffff == 0xC0000135:
+            raise RuntimeError('The spline compressor needs the Microsoft Visual C++ 2010 Redistributable (x86), '
+                               'which is not installed on this computer. Install it from Microsoft, or export as Interleaved.')
         if result.returncode or not target.is_file():
             detail=(result.stdout+'\n'+result.stderr).strip()
             raise RuntimeError(f'Spline compressor failed (0x{result.returncode & 0xffffffff:08X}). {detail}')

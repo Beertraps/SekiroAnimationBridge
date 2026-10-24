@@ -287,9 +287,9 @@ async function checkEnvironment(){
  $('check-environment').disabled=true;
  try{
   config=values();await api('settings',config);const env=await api('environment');
-  $('environment-cards').innerHTML=env.map(e=>`<div class="environment-card"><span><i class="dot ${e.ready?'green':''}"></i>${e.ready?'READY':'SETUP NEEDED'}</span><h3>${escape(e.title)}</h3><p>${escape(e.detail)}</p></div>`).join('');
+  $('environment-cards').innerHTML=env.map(e=>`<div class="environment-card"><span><i class="dot ${e.ready?'green':''}"></i>${e.ready?'READY':e.optional?'OPTIONAL':'SETUP NEEDED'}</span><h3>${escape(e.title)}</h3><p>${escape(e.detail)}</p></div>`).join('');
   const b=env.find(e=>e.key==='blender');$('blender-ready').innerHTML=`<i class="dot ${b.ready?'green':''}"></i><span>${b.ready?'Blender executable selected':'Choose Blender in Settings'}</span><button class="text-button" data-page="settings">Change</button>`;
-  $('setup-dot').classList.toggle('green',env.every(e=>e.ready));
+  $('setup-dot').classList.toggle('green',env.every(e=>e.ready||e.optional));
  }catch(e){toast(e.message,true);}finally{$('check-environment').disabled=false;}
 }
 function requireFields(keys){

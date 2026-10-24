@@ -96,7 +96,8 @@ class WeaponAttachments(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'cycle'):bone_worlds([bone(parent=0)])
     def test_reference_is_required_and_finds_an_existing_binder(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp);source=root/'wp_a_0300.partsbnd.dcx';source.touch()
+            # Resolved: TEMP can use an 8.3 short name, and reference_file returns full paths.
+            root=Path(tmp).resolve();source=root/'wp_a_0300.partsbnd.dcx';source.touch()
             with self.assertRaisesRegex(ValueError,'c0000.chrbnd'):reference_file([source])
             reference=root/'c0000.chrbnd.dcx';reference.write_bytes(b'owned reference fixture')
             self.assertEqual(reference_file([source]),reference)

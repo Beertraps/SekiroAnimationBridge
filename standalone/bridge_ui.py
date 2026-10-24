@@ -94,6 +94,11 @@ def environment():
                 detail='Tagfile + packfile decoder ready' if ready else 'Select the decoder of a current release ZIP, or rebuild it with tools\\SekiroMotionDecoder\\build_decoder.cmd'
             except (OSError, subprocess.TimeoutExpired): ready=False; detail='The decoder could not start'
         result.append(dict(key=key,title=title,ready=ready,detail=detail))
+    # Soulstruct Havok's 32-bit CompressAnim.exe links against the Visual C++ 2010 runtime.
+    runtime=Path(os.environ.get('SystemRoot','C:/Windows'))/'SysWOW64/msvcr100.dll'
+    result.append(dict(key='spline',title='Spline compression',ready=runtime.is_file(),optional=True,
+        detail='Visual C++ 2010 runtime ready' if runtime.is_file() else
+            'Spline export needs the Microsoft Visual C++ 2010 Redistributable (x86). Interleaved export works without it.'))
     try:
         path=CONFIG.get('writer', '')
         p=subprocess.run([path,'-E','-X','utf8',str(HERE/'dcx_codec.py'),'status','--oodle',CONFIG.get('oodle','')],

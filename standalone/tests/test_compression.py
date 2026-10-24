@@ -1,5 +1,6 @@
-import sys,json,math,struct,tempfile,unittest
+import sys,json,math,struct,subprocess,tempfile,unittest
 from pathlib import Path
+from unittest import mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from soulstruct.havok.fromsoft.sekiro.core import AnimationHKX
 from soulstruct.havok.utilities.maths.trs_transform import TRSTransform
@@ -49,6 +50,11 @@ class Compression(unittest.TestCase):
                 spline=compress_spline(source,name,.0005)
                 written=readable(AnimationHKX).from_bytes(spline.to_bytes())
                 self.assertLess(compare(expected,decoded_frames(written),['root','child'])['maxRotationDegrees'],.5)
+    def test_missing_visual_cpp_runtime_is_named(self):
+        # Windows reports STATUS_DLL_NOT_FOUND when MSVCR100.dll (Visual C++ 2010, x86) is missing.
+        missing=subprocess.CompletedProcess([],0xC0000135,'','')
+        with mock.patch('hkx_compression.subprocess.run',return_value=missing):
+            with self.assertRaisesRegex(RuntimeError,r'Visual C\+\+ 2010'):compress_spline(self.fixture())
     def test_invalid_spline_settings_are_rejected(self):
         with self.assertRaisesRegex(ValueError,'quantization'):compress_spline(self.fixture(),'straight16')
         with self.assertRaisesRegex(ValueError,'tolerance'):compress_spline(self.fixture(),'threecomp40',1.0)
