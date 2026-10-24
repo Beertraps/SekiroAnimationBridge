@@ -1,11 +1,12 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FromSoftware · Animation Bridge</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/readability.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Animation Bridge</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
 <body>
 <svg class="symbols" aria-hidden="true"><defs>
 <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
 <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"/></symbol>
 <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5"/></symbol>
+<symbol id="i-library" viewBox="0 0 24 24"><path d="M12 3 3 7.5l9 4.5 9-4.5Zm-9 9 9 4.5 9-4.5m-18 4.5L12 21l9-4.5"/></symbol>
 <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5h7l2 2h9v13H3ZM3 10h18"/></symbol>
 <symbol id="i-settings" viewBox="0 0 24 24"><path d="m10 3-1 3-3 1-2 3 2 2v3l3 2 1 4h4l1-4 3-2v-3l2-2-2-3-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
@@ -14,106 +15,235 @@
 <symbol id="i-log" viewBox="0 0 24 24"><path d="m4 6 5 5-5 5m8 1h8"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
 <symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6m-5-4 2-2a5 5 0 0 1 7 7l-3 3M8 11l-3 3a5 5 0 0 0 7 7l2-2"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11A8 8 0 0 0 5.1 7.1M4 3v4.5h4.5M4 13a8 8 0 0 0 14.9 3.9M20 21v-4.5h-4.5"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16Zm9-13 4 4"/></symbol>
+<symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.5 2.5 20h19ZM12 10v4.5m0 2.5v.5"/></symbol>
+<symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3.5"/><path d="M5 21v-1.5a7 7 0 0 1 14 0V21"/></symbol>
+<symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7.5 4v16m9-16v16M3 9h4.5M3 15h4.5m9-6H21m-4.5 6H21"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="M4 4h7v7H4Zm9 9h7v7h-7ZM7.5 11v5.5H13"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-9.5v.5"/></symbol>
 </defs></svg>
-<div class="app-shell">
-<aside class="sidebar">
-  <a class="brand" href="#" aria-label="Animation Bridge home"><span class="brand-mark">隻</span><span><strong>FROMSOFT</strong><small>ANIMATION BRIDGE</small></span></a>
-  <div class="sidebar-caption">WORKSPACE</div>
-  <nav aria-label="Workspace"><button class="nav-item active" data-page="import"><svg><use href="#i-import"/></svg><span>Import animation<small>HKX → Blender</small></span><span class="nav-index">01</span></button><button class="nav-item" data-page="export"><svg><use href="#i-export"/></svg><span>Export animation<small>Blender → HKX</small></span><span class="nav-index">02</span></button></nav>
-  <div class="sidebar-note"><svg><use href="#i-link"/></svg><p>Your rig. Your workflow.<small>Edit the animation directly in Blender. Every model part follows the same rig.</small></p></div>
-  <div class="sidebar-bottom"><button class="nav-item" data-page="settings"><svg><use href="#i-settings"/></svg><span>Settings & setup</span><span id="setup-dot" class="dot"></span></button><div class="version"><span>PROTOTYPE 0.6.1</span><span class="connection"><i class="dot green"></i> Local</span></div><button id="shutdown" class="shutdown">Close workspace</button></div>
-</aside>
-<main>
-  <header class="topbar"><div class="breadcrumbs">WORKSPACE <span>/</span> <b id="breadcrumb">IMPORT ANIMATION</b></div><div class="local-badge"><i class="dot green"></i><span id="connection-text">On this computer</span></div></header>
-  <div class="main-content">
-    <section id="page-import" class="page active">
-      <div class="page-heading"><div><div class="eyebrow">FROM GAME TO WORKSPACE</div><h1>Animation <span class="title-arrow">→</span> Blender</h1><p>Bring a character’s animation, rig and model into one editable scene.</p></div><span class="file-badge">HKX <svg><use href="#i-arrow"/></svg> .BLEND</span></div>
-      <div class="workspace-grid"><div class="form-column">
-        <section class="card folder-card">
-          <div class="card-header"><svg><use href="#i-folder"/></svg><div><h2>Choose your inputs</h2><p>Use a folder of game archives, or select unpacked files.</p></div></div>
-          <div class="card-body">
-            <div class="field"><label for="inputMethod">Input method</label><select id="inputMethod" data-config class="wide-select"><option value="folder">Folder of DCX files · automatic</option><option value="manual">Individual files · manual</option></select></div>
-            <div class="field"><label for="game">Source game <button class="help" data-help="game" aria-label="About source game">?</button></label><select id="game" data-config class="wide-select"><option value="auto">Auto detect from files</option><option value="sekiro">Sekiro</option><option value="ds1">Dark Souls: Prepare to Die</option><option value="ds1r">Dark Souls Remastered</option><option value="ds3">Dark Souls III</option><option value="er">Elden Ring</option></select></div>
-            <div id="folder-fields" hidden>
-              <div class="field"><label for="assetFolder">Character archives folder <button class="help" data-help="assetFolder" aria-label="About character archives folder">?</button></label><div class="path-row"><input id="assetFolder" data-config spellcheck="false" placeholder="A folder with ANIBND, CHRBND / PARTSBND and texture packages"><button class="browse" data-pick="assetFolder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-              <div class="folder-toolbar"><button id="scan-folder" class="secondary"><svg><use href="#i-cube"/></svg>Scan folder</button><span id="folder-count">Original archives stay in place. No unpacking step needed.</span></div>
-              <div id="folder-selection" hidden>
-                <div class="field-grid"><div class="field"><label for="assetCharacter">Character</label><select id="assetCharacter" data-config class="wide-select"></select></div><div class="field"><label for="clip-filter">Find an animation</label><input id="clip-filter" class="clip-filter" placeholder="Search clip or archive name" spellcheck="false"></div></div>
-                <div class="field"><label for="assetClip">Animation <button class="help" data-help="assetClip" aria-label="About animation selection">?</button></label><select id="assetClip" data-config class="wide-select"></select></div>
-                <div id="folder-match" class="folder-match" role="status"></div>
+<div class="app">
+<nav class="rail" aria-label="Workspace">
+  <a class="rail-brand" href="#" aria-label="Animation Bridge"><span class="mark">隻</span></a>
+  <button class="rail-item active" data-page="import" aria-label="Import animation"><svg><use href="#i-import"/></svg><span>Import</span></button>
+  <button class="rail-item" data-page="export" aria-label="Export animation"><svg><use href="#i-export"/></svg><span>Export</span></button>
+  <button class="rail-item" data-page="sources" aria-label="Sources"><svg><use href="#i-library"/></svg><span>Sources</span></button>
+  <span class="rail-spacer"></span>
+  <button class="rail-item" data-page="settings" aria-label="Settings and setup"><svg><use href="#i-settings"/></svg><span>Setup</span><i id="setup-dot" class="dot rail-dot"></i></button>
+  <button id="shutdown" class="rail-item quiet" aria-label="Close workspace" title="Close workspace"><svg><use href="#i-power"/></svg><span>Close</span></button>
+</nav>
+<div class="main">
+  <header class="topbar">
+    <div class="title-block"><span class="eyebrow" id="page-eyebrow">FROM GAME TO BLENDER</span><h1 id="page-title">Import animation</h1></div>
+    <div class="source-switch" id="source-switch">
+      <button id="source-button" class="source-button" aria-haspopup="menu" aria-expanded="false" aria-controls="source-menu">
+        <span class="glyph" id="source-glyph">+</span>
+        <span class="source-text"><b id="source-name">No source yet</b><small id="source-meta">Add a game or asset folder</small></span>
+        <svg class="chev"><use href="#i-chevron"/></svg>
+      </button>
+      <button id="rescan" class="icon-button" title="Scan this source again" aria-label="Scan this source again"><svg><use href="#i-refresh"/></svg></button>
+    </div>
+    <div class="topbar-end"><span class="status-pill" id="connection"><i class="dot green"></i><span id="connection-text">On this computer</span></span><span class="version" id="app-version"></span></div>
+  </header>
+  <div class="pages">
+
+  <section id="page-import" class="page active" aria-labelledby="page-title">
+    <div class="import-bar">
+      <div class="segmented" role="tablist" aria-label="Input">
+        <button class="seg active" role="tab" data-input="folder" aria-selected="true"><svg><use href="#i-library"/></svg>Source library</button>
+        <button class="seg" role="tab" data-input="manual" aria-selected="false"><svg><use href="#i-folder"/></svg>Individual files</button>
+      </div>
+      <p class="bar-note" id="import-note">Pick a character and an animation. The scene settings follow your choice.</p>
+    </div>
+    <div class="import-grid">
+      <section class="pane characters-pane" id="characters-pane" aria-label="Characters">
+        <header class="pane-head"><h2><svg><use href="#i-person"/></svg>Characters</h2><span class="count" id="character-count"></span></header>
+        <div class="pane-tools"><label class="search"><svg><use href="#i-search"/></svg><input id="character-filter" type="search" placeholder="Filter characters" spellcheck="false" aria-label="Filter characters"></label></div>
+        <div id="character-list" class="list" role="listbox" aria-label="Characters"></div>
+        <div id="library-empty" class="empty" hidden></div>
+      </section>
+      <section class="pane clips-pane" id="clips-pane" aria-label="Animations">
+        <header class="pane-head"><h2><svg><use href="#i-film"/></svg><span id="clips-title">Animations</span></h2><span class="count" id="clip-count"></span><button class="help" data-help="assetClip" aria-label="About choosing an animation">?</button></header>
+        <div class="pane-tools"><label class="search grow"><svg><use href="#i-search"/></svg><input id="clip-filter" type="search" placeholder="Search animations" spellcheck="false" aria-label="Search animations"></label><select id="archive-filter" aria-label="Archive"><option value="">All archives</option></select></div>
+        <div id="clip-list" class="list virtual" role="listbox" tabindex="0" aria-label="Animations"><div class="virtual-spacer"></div><div class="virtual-rows"></div></div>
+        <div id="clip-empty" class="empty" hidden></div>
+        <div id="folder-notice" class="notice warn" hidden></div>
+      </section>
+      <section class="pane files-pane" id="files-pane" aria-label="Individual files" hidden>
+        <header class="pane-head"><h2><svg><use href="#i-folder"/></svg>Animation files</h2><span class="count">EXTRACTED HKX</span></header>
+        <div class="pane-body">
+          <div class="field"><label for="game">Source game <button class="help" data-help="game" aria-label="About source game">?</button></label><select id="game" data-config><option value="auto">Auto detect from files</option><option value="sekiro">Sekiro</option><option value="ds1">Dark Souls: Prepare to Die</option><option value="ds1r">Dark Souls Remastered</option><option value="ds3">Dark Souls III</option><option value="er">Elden Ring</option></select></div>
+          <div class="field"><label for="animation">Animation HKX <button class="help" data-help="animation" aria-label="About animation HKX">?</button></label><div class="path-row"><input id="animation" data-config placeholder="a000_000100.hkx, extracted with WitchyBND" spellcheck="false"><button class="browse" data-pick="animation"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="field"><label for="skeleton">Skeleton HKX <button class="help" data-help="skeleton" aria-label="About skeleton">?</button></label><div class="path-row"><input id="skeleton" data-config placeholder="skeleton.hkx from the same character’s ANIBND" spellcheck="false"><button class="browse" data-pick="skeleton"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="field"><label for="compendium">Matching compendium <button class="help" data-help="compendium" aria-label="About compendium">?</button></label><div class="path-row"><input id="compendium" data-config placeholder="The .compendium beside the HKX, if it has one" spellcheck="false"><button class="browse" data-pick="compendium"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <details class="disclosure"><summary>Separate skeleton compendium <span>Optional</span></summary><div class="field"><label for="skeletonCompendium">Skeleton compendium <button class="help" data-help="skeletonCompendium" aria-label="About skeleton compendium">?</button></label><div class="path-row"><input id="skeletonCompendium" data-config placeholder="Only when the skeleton uses another compendium" spellcheck="false"><button class="browse" data-pick="skeletonCompendium"><svg><use href="#i-folder"/></svg>Browse</button></div></div></details>
+          <p class="hint"><svg><use href="#i-check"/></svg>Spline and interleaved animations are both read.</p>
+        </div>
+      </section>
+
+      <aside class="pane scene-pane" aria-label="Blender scene">
+        <div class="scene-scroll">
+          <section class="scene-head">
+            <span class="eyebrow">NEW BLENDER SCENE</span>
+            <h2 id="scene-clip">Choose an animation</h2>
+            <p id="scene-clip-meta" class="muted">Its rig, model and textures are put together here.</p>
+            <ul id="scene-checks" class="checks" hidden></ul>
+            <div id="clip-issues" class="notice error" hidden></div>
+          </section>
+          <section class="block" id="model-block">
+            <header class="block-head">
+              <svg class="figure" id="figure" viewBox="0 0 64 120" aria-hidden="true"><g class="region" data-region="head"><circle cx="32" cy="13" r="9"/></g><g class="region" data-region="arms"><path d="M19 27 9 59l5.5 2L24 33Zm26 0 10 32-5.5 2L40 33Z"/></g><g class="region" data-region="torso"><path d="M21 26h22l3 31H18Z"/></g><g class="region" data-region="legs"><path d="M18 59h13l-1.5 56h-8Zm15 0h13l-3.5 56h-8Z"/></g><g class="bones"><path d="M32 22v35M22 29h20M22 29l-8 29m28-29 8 29M32 57l-6 3-1 54m7-57 6 3 2 54"/></g></svg>
+              <div class="block-title"><h3>Character model</h3><p id="model-summary">Choose an animation first.</p></div>
+              <label class="switch" title="Include the character model"><input id="includeCharacter" type="checkbox" data-config checked><span></span><b id="character-mode">Model</b></label>
+            </header>
+            <div id="character-fields">
+              <div id="manual-model-tools" class="manual-model" hidden>
+                <div class="field"><label for="characterSource">Character assets folder <button class="help" data-help="characterSource" aria-label="About character assets">?</button></label><div class="path-row"><input id="characterSource" data-config placeholder="A model or parts folder" spellcheck="false"><button class="browse" data-pick="characterSource"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
               </div>
-              <div id="folder-notice" class="notice" hidden></div>
-              <p class="field-note">Include the base cXXXX.anibnd.dcx for the skeleton and the animation archives you need. Player bodies use outfit PARTSBND files. Add TEXBND / TPF textures and the game’s material library: MTD for older games, MATBIN for Elden Ring. Subfolders are included.</p>
+              <div class="tool-row model-tools"><select id="preset" data-config aria-label="Character type"><option value="auto">Auto detect</option><option value="npc">NPC / custom character</option><option value="player">Player outfit / modular parts</option><option value="wolf">Standard Wolf</option><option value="tutorial">Before the prosthetic</option><option value="mortal">With the Mortal Blade</option></select><button id="scan" class="secondary"><svg><use href="#i-cube"/></svg>Find models</button><button id="add-models" class="text-button">Choose files…</button></div>
+              <div id="parts" class="parts"></div>
+              <div id="scan-notice" class="notice" hidden></div>
             </div>
-          </div>
-        </section>
-        <section class="card"><div class="card-header"><span class="step">01</span><div><h2>Animation sources</h2><p>The animation and the skeleton it belongs to.</p></div><span class="tag">REQUIRED</span></div>
-          <div class="card-body">
-            <div class="field"><label for="animation">Animation HKX <button class="help" data-help="animation" aria-label="About animation HKX">?</button></label><div class="path-row"><input id="animation" data-config placeholder="Choose an animation, e.g. a000_000100.hkx" spellcheck="false"><button class="browse" data-pick="animation"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-            <div class="field-grid"><div class="field"><label for="compendium">Matching compendium <button class="help" data-help="compendium" aria-label="About compendium">?</button></label><div class="path-row"><input id="compendium" data-config placeholder="Matching animation / skeleton compendium" spellcheck="false"><button class="browse" data-pick="compendium" aria-label="Browse compendium"><svg><use href="#i-folder"/></svg>Browse</button></div></div><div class="field"><label for="skeleton">Skeleton HKX <button class="help" data-help="skeleton" aria-label="About skeleton">?</button></label><div class="path-row"><input id="skeleton" data-config placeholder="skeleton.hkx from this character’s animation binder" spellcheck="false"><button class="browse" data-pick="skeleton" aria-label="Browse skeleton"><svg><use href="#i-folder"/></svg>Browse</button></div></div></div>
-            <div class="hint"><svg><use href="#i-check"/></svg>Spline and interleaved animations are supported.</div>
-            <details class="advanced"><summary>Separate skeleton compendium <span>Automatic in folder mode</span></summary><div class="advanced-body"><div class="field"><label for="skeletonCompendium">Skeleton compendium <span class="optional">OPTIONAL</span><button class="help" data-help="skeletonCompendium" aria-label="About skeleton compendium">?</button></label><div class="path-row"><input id="skeletonCompendium" data-config placeholder="Only needed when the skeleton uses a different compendium" spellcheck="false"><button class="browse" data-pick="skeletonCompendium"><svg><use href="#i-folder"/></svg>Browse</button></div></div></div></details>
-          </div>
-        </section>
-        <section class="card"><div class="card-header"><span class="step">02</span><div><h2>Character model</h2><p>Connect player outfit parts or an NPC model to its animation rig.</p></div><label class="switch"><input id="includeCharacter" type="checkbox" data-config checked><span></span><b id="character-mode">Include model</b></label></div>
-          <div class="card-body" id="character-fields">
-            <div class="field"><label for="characterSource">Character assets folder <button class="help" data-help="characterSource" aria-label="About character assets">?</button></label><div class="path-row"><input id="characterSource" data-config placeholder="Filled from the scanned folder, or choose a model / parts folder" spellcheck="false"><button class="browse" data-pick="characterSource"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-            <div class="scan-toolbar"><label class="preset-label" for="preset">Character</label><select id="preset" data-config><option value="auto">Auto detect</option><option value="npc">NPC / custom character</option><option value="player">Player outfit / modular parts</option><option value="wolf">Standard Wolf</option><option value="tutorial">Before the prosthetic</option><option value="mortal">With the Mortal Blade</option></select><button id="scan" class="secondary"><svg><use href="#i-cube"/></svg>Find models</button><button id="add-models" class="text-button">Choose files…</button></div>
-            <div id="scan-notice" class="notice" hidden></div>
-            <div id="parts" class="parts-list"><div class="empty-parts">Choose an assets folder, then select <strong>Find models</strong>.<small>Reads CHRBND, PARTSBND and loose FLVER models.</small></div></div>
-            <details class="advanced"><summary>Textures & materials <span>Automatic when available</span></summary><div class="advanced-body"><div class="field"><label for="referenceModel">Rig attachment model <span class="optional">FOR SEPARATE WEAPONS</span><button class="help" data-help="referenceModel" aria-label="About rig attachment model">?</button></label><div class="path-row"><input id="referenceModel" data-config spellcheck="false" placeholder="Auto-detect c0000.chrbnd.dcx or its c0000.flver"><button class="browse" data-pick="referenceModel"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-              <div class="field"><label for="materialBinder">Material library <button class="help" data-help="materialBinder" aria-label="About material library">?</button></label><div class="path-row"><input id="materialBinder" data-config placeholder="MTD library, or Elden Ring’s allmaterial.matbinbnd.dcx" spellcheck="false"><button class="browse" data-pick="materialBinder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-              <div class="field"><label for="textureDirectory">Additional textures <span class="optional">OPTIONAL</span><button class="help" data-help="textureDirectory" aria-label="About additional textures">?</button></label><div class="path-row"><input id="textureDirectory" data-config placeholder="Folder containing TEXBND / TPF packages or images" spellcheck="false"><button class="browse" data-pick="textureDirectory"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-              <p class="field-note">Each material gets its own matching base-color and normal map. Texture images are packed into the Blender file.</p>
-            </div></details>
-          </div><div class="rig-only" id="rig-only" hidden><svg><use href="#i-link"/></svg>Only the editable animation rig will be imported.</div>
-        </section>
-        <section class="card output-card"><div class="card-header"><span class="step">03</span><div><h2>Blender scene</h2><p>Choose where to save your editable animation.</p></div></div><div class="card-body"><div class="field"><label for="outputBlend">Save scene as <button class="help" data-help="outputBlend" aria-label="About Blender output">?</button></label><div class="path-row"><input id="outputBlend" data-config placeholder="D:\SekiroWork\wolf_animation.blend" spellcheck="false"><button class="browse" data-pick="outputBlend"><svg><use href="#i-folder"/></svg>Browse</button></div></div><div class="output-options"><label class="checkbox"><input id="import-force" type="checkbox">Replace existing output</label><label class="checkbox"><input id="openWhenDone" type="checkbox" data-config>Open Blender when ready</label></div><button id="run-import" class="primary full"><svg><use href="#i-import"/></svg>Create Blender scene<svg class="end-icon"><use href="#i-arrow"/></svg></button></div></section>
-      </div>
-      <aside class="inspector">
-        <section class="assembly-card"><div class="specimen-top"><span>CHARACTER PREVIEW</span><b id="assembly-id">NPC / CUSTOM</b></div>
-          <svg class="rig-illustration" viewBox="0 0 260 235" aria-label="Illustration of an assembled character rig"><defs><pattern id="grid" width="22" height="22" patternUnits="userSpaceOnUse"><path d="M22 0H0v22" fill="none" stroke="#ffffff" stroke-opacity=".035"/></pattern></defs><path fill="url(#grid)" d="M0 0h260v235H0z"/><ellipse cx="130" cy="214" rx="77" ry="12" fill="none" stroke="#ffffff" stroke-opacity=".1"/><path d="m130 15-12 6-5 17 7 15-6 11-29 11-14 37-12 31 9 5 22-29 17-28 1 40-8 26 6 27-4 25h18l7-30 4-28 7 27 5 30h19l-6-28 3-30-8-24 1-35 18 29 19 28 11-5-13-34-14-35-27-12-6-12 8-16-6-16Z" fill="#e6b586" fill-opacity=".055" stroke="#cdb195" stroke-opacity=".34"/><g class="rig-bones" fill="none" stroke="#de9366" stroke-width="2"><path d="M130 38v26m0 0-27 14-18 33-20 34m65-81 27 14 17 33 20 34M130 64v35l-1 32m0 0-15 19-3 29 0 25m18-73 15 19 3 29 4 25M103 78h54M114 150h30"/><g fill="#222a27"><circle cx="130" cy="38" r="4"/><circle cx="130" cy="64" r="4"/><circle cx="103" cy="78" r="4"/><circle cx="157" cy="78" r="4"/><circle cx="85" cy="111" r="4"/><circle cx="174" cy="111" r="4"/><circle cx="129" cy="131" r="5"/><circle cx="114" cy="150" r="4"/><circle cx="144" cy="150" r="4"/><circle cx="111" cy="179" r="4"/><circle cx="147" cy="179" r="4"/></g></g><path d="M26 39h21m-10-10v20M214 183h20m-10-10v20" stroke="#ffffff" stroke-opacity=".15"/><text id="rig-caption" x="17" y="223" fill="#9aab9f" font-family="monospace" font-size="8">ONE RIG · CHARACTER MODEL</text></svg>
-          <div class="assembly-info"><div><h3 id="assembly-title">Ready to assemble</h3><p id="assembly-subtitle">Player outfit parts or an NPC model.</p></div><span class="assembly-count" id="assembly-count">0<span>/ 4</span></span></div><div class="assembly-tags" id="assembly-tags"><span>Head</span><span>Arms</span><span>Torso</span><span>Legs</span></div>
-        </section>
-        <section class="info-card"><h3>A continuous workflow</h3><ol><li><span>1</span><div><b>Create your scene</b><p>Rig, action, model parts and textures.</p></div></li><li><span>2</span><div><b>Edit in Blender</b><p>Pose and keyframe the rig as usual.</p></div></li><li><span>3</span><div><b>Export the animation</b><p>Write an HKX, then repack with WitchyBND.</p></div></li></ol><div class="quiet-note">No Blender add-on required. Character materials are a preview; Havok cloth is not simulated.</div></section>
-        <div id="blender-ready" class="environment-note"><i class="dot"></i><span>Checking Blender…</span><button class="text-button" data-page="settings">Change</button></div>
-      </aside></div>
-    </section>
-    <section id="page-export" class="page"><div class="page-heading"><div><div class="eyebrow">BACK TO THE GAME</div><h1>Blender <span class="title-arrow">→</span> Animation</h1><p>Sample your edited action and write an HKX for its original game.</p></div><span class="file-badge">.BLEND <svg><use href="#i-arrow"/></svg> HKX</span></div>
-      <div class="workspace-grid"><div class="form-column">
-        <section class="card"><div class="card-header"><span class="step">01</span><div><h2>Your edited scene</h2><p>Save your changes in Blender before exporting.</p></div></div><div class="card-body">
-          <div class="field"><label for="inputBlend">Blender scene <button class="help" data-help="inputBlend" aria-label="About edited scene">?</button></label><div class="path-row"><input id="inputBlend" data-config placeholder="Choose a .blend created by Animation Bridge" spellcheck="false"><button class="browse" data-pick="inputBlend"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-          <div class="folder-toolbar"><button id="inspect-scene" class="secondary"><svg><use href="#i-cube"/></svg>Read actions</button><button id="use-import" class="text-button"><svg><use href="#i-link"/></svg>Use the last imported scene</button></div>
-          <div id="scene-info" class="folder-match" role="status" hidden></div>
-        </div></section>
-        <section class="card"><div class="card-header"><span class="step">02</span><div><h2>Animation to export</h2><p>Choose the action and the frames that become the clip.</p></div></div><div class="card-body">
-          <div class="field"><label for="exportAction">Action <button class="help" data-help="exportAction" aria-label="About action">?</button></label><select id="exportAction" data-config class="wide-select"><option value="">Active action in the saved scene</option></select></div>
-          <div class="field-grid"><div class="field"><label for="frameRange">Frame range <button class="help" data-help="frameRange" aria-label="About frame range">?</button></label><select id="frameRange" data-config class="wide-select"><option value="scene">Scene start to end</option><option value="action">Action keyframe range</option><option value="clip">Imported clip length</option><option value="custom">Custom frames…</option></select></div><div class="field" id="custom-range" hidden><label for="frameStart">Frames</label><div class="range-row"><input id="frameStart" data-config class="text-input" inputmode="decimal" placeholder="Start" aria-label="Start frame"><span>to</span><input id="frameEnd" data-config class="text-input" inputmode="decimal" placeholder="End" aria-label="End frame"></div></div></div>
-          <p id="range-note" class="field-note"></p>
-          <details class="advanced" id="sampling-options"><summary>Tracks, frame rate and root motion <span id="sampling-summary"></span></summary><div class="advanced-body">
-            <div class="field-grid"><div class="field"><label for="trackSet">Tracks <button class="help" data-help="trackSet" aria-label="About tracks">?</button></label><select id="trackSet" data-config class="wide-select"><option value="original">Source clip tracks</option><option value="keyed">Source tracks + keyed bones</option><option value="all">Every skeleton bone</option></select></div><div class="field"><label for="frameRate">Frame rate <span class="optional">FPS</span> <button class="help" data-help="frameRate" aria-label="About frame rate">?</button></label><input id="frameRate" data-config class="text-input" inputmode="decimal" placeholder="Source clip rate" spellcheck="false"></div></div>
-            <p id="track-note" class="notice" hidden></p>
-            <div class="field"><label for="rootMotion">Root motion <button class="help" data-help="rootMotion" aria-label="About root motion">?</button></label><select id="rootMotion" data-config class="wide-select"><option value="auto">HKX_RootMotion empty · when present</option><option value="bone">Extract from a bone’s travel</option><option value="none">No root motion</option></select></div>
-            <div id="root-bone-fields" hidden><div class="field"><label for="rootBone">Extract from bone</label><input id="rootBone" data-config class="text-input" list="bone-names" placeholder="Automatic" spellcheck="false"><datalist id="bone-names"></datalist></div><div class="output-options"><label class="checkbox"><input id="rootVertical" type="checkbox" data-config>Include vertical travel</label><label class="checkbox"><input id="rootYaw" type="checkbox" data-config>Include turning (yaw)</label></div></div>
-          </div></details>
-        </div></section>
-        <section class="card"><div class="card-header"><span class="step">03</span><div><h2>Animation output</h2><p>Choose the format and destination.</p></div></div><div class="card-body">
-          <div class="field"><label for="exportGame">Source game <button class="help" data-help="exportGame" aria-label="About export source game">?</button></label><select id="exportGame" data-config class="wide-select"><option value="auto">Stored in scene · automatic</option><option value="sekiro">Sekiro · legacy scene</option><option value="ds1">Dark Souls: Prepare to Die · legacy scene</option><option value="ds1r">Dark Souls Remastered · legacy scene</option><option value="ds3">Dark Souls III · legacy scene</option><option value="er">Elden Ring · legacy scene</option></select><p class="field-note">New scenes retain their source game. For a scene from an earlier bridge version, choose its original game or import it again.</p><p id="game-note" class="notice" hidden></p></div>
-          <div class="format-options"><label class="format-option"><input type="radio" name="format" value="interleaved" checked><div><b>Interleaved <span class="tag">DEFAULT</span></b><p>Uncompressed transforms in the source game’s Havok version. Sekiro’s earlier interleaved output was confirmed in game.</p></div></label><label class="format-option"><input type="radio" name="format" value="spline"><div><b>Spline compressed</b><p>Smaller HKX with lossy animation compression. Needs the Visual C++ 2010 runtime (x86). In-game confirmation is still needed.</p></div></label></div>
-          <div id="spline-options" class="field-grid" hidden><div class="field"><label for="quantization">Rotation precision <button class="help" data-help="quantization" aria-label="About rotation precision">?</button></label><select id="quantization" data-config class="wide-select"><option value="threecomp40">40-bit · default</option><option value="threecomp48">48-bit · finer</option><option value="uncompressed">Full floats · largest</option></select></div><div class="field"><label for="tolerance">Spline tolerance <button class="help" data-help="tolerance" aria-label="About spline tolerance">?</button></label><input id="tolerance" data-config class="text-input" inputmode="decimal" placeholder="0.001" spellcheck="false"></div></div>
-          <div class="field"><label for="outputHKX">Save HKX as <button class="help" data-help="outputHKX" aria-label="About HKX output">?</button></label><div class="path-row"><input id="outputHKX" data-config placeholder="D:\SekiroWork\a000_000100_edited.hkx" spellcheck="false"><button class="browse" data-pick="outputHKX"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-          <div class="output-options"><label class="checkbox"><input id="export-force" type="checkbox">Replace existing output</label><label class="checkbox"><input id="verify" type="checkbox" data-config checked>Read the HKX back and report the difference</label></div>
-          <button id="run-export" class="primary full"><svg><use href="#i-export"/></svg>Export HKX animation<svg class="end-icon"><use href="#i-arrow"/></svg></button>
-        </div></section>
-      </div>
-      <aside class="inspector"><section class="info-card"><span class="round-icon"><svg><use href="#i-export"/></svg></span><h3>Ready for your mod workflow</h3><p class="info-text">The output is a raw animation HKX and a motion JSON sidecar. Replace the animation member in your binder with WitchyBND.</p><div class="quiet-note">Export bakes the evaluated pose: constraints, drivers and NLA strips are included. Mesh edits and TAE events are outside this exporter.</div></section></aside></div></section>
-    <section id="page-settings" class="page"><div class="page-heading"><div><div class="eyebrow">YOUR LOCAL TOOLS</div><h1>Settings & setup</h1><p>Choose your installations. Paths are remembered on this computer.</p></div><button id="check-environment" class="secondary">Check again</button></div><div id="environment-cards" class="environment-cards"></div><section class="card settings-card"><div class="card-header"><svg><use href="#i-settings"/></svg><div><h2>Tool locations</h2><p>The same tools are used by the UI and the CLI.</p></div></div><div class="card-body"><div class="field"><label for="blender">Blender executable <button class="help" data-help="blender" aria-label="About Blender executable">?</button></label><div class="path-row"><input id="blender" data-config placeholder="C:\Program Files\Blender Foundation\Blender\blender.exe" spellcheck="false"><button class="browse" data-pick="blender"><svg><use href="#i-folder"/></svg>Browse</button></div></div><div class="field"><label for="writer">Conversion Python <button class="help" data-help="writer" aria-label="About conversion Python">?</button></label><div class="path-row"><input id="writer" data-config placeholder="Writer environment / Scripts / python.exe" spellcheck="false"><button class="browse" data-pick="writer"><svg><use href="#i-folder"/></svg>Browse</button></div></div><div class="field"><label for="decoder">Animation decoder <button class="help" data-help="decoder" aria-label="About animation decoder">?</button></label><div class="path-row"><input id="decoder" data-config placeholder="SekiroMotionDecoder.exe" spellcheck="false"><button class="browse" data-pick="decoder"><svg><use href="#i-folder"/></svg>Browse</button></div></div></div></section><section class="card settings-card"><div class="card-header"><svg><use href="#i-folder"/></svg><div><h2>DCX archive support</h2><p>Built in through the conversion libraries. No Sekiro plugin required.</p></div></div><div class="card-body"><div class="field"><label for="oodle">Oodle library <span class="optional">AUTO-DETECTED WHEN AVAILABLE</span><button class="help" data-help="oodle" aria-label="About Oodle library">?</button></label><div class="path-row"><input id="oodle" data-config placeholder="Auto-detect, or choose your game’s oo2core_6_win64.dll" spellcheck="false"><button class="browse" data-pick="oodle"><svg><use href="#i-folder"/></svg>Browse</button></div></div><p class="field-note">KRAK DCX uses your game’s Oodle library in place. DFLT needs no native library. The standalone DCX command can also compress a wrapper; animation export still produces a raw HKX for WitchyBND.</p></div></section><section class="card settings-card"><div class="card-header"><div><h2>Setup</h2><p>Release ZIPs set themselves up on the first start.</p></div></div><div class="card-body setup-commands"><div><b>1. Conversion libraries</b><p>Prepared on the first start: uv downloads Python 3.13, Soulstruct and NumPy into the tool’s own environment. Run this to repeat or repair the setup.</p><code>tools\setup_writer.cmd</code></div><div><b>2. HKX decoder</b><p>Included in release ZIPs. A source checkout builds it once with this command, which requires Git and the .NET 9 SDK.</p><code>tools\SekiroMotionDecoder\build_decoder.cmd</code></div><p class="field-note">The .cmd launchers handle PowerShell’s process execution policy. No machine-wide policy change is needed.</p></div></section><section class="card settings-card"><div class="card-header"><div><h2>Retarget add-on</h2><p>Optional. Moves an animation from one character to another inside Blender.</p></div></div><div class="card-body setup-commands"><div><b>1. Install it in Blender</b><p>Edit › Preferences › Add-ons › Install from Disk, then choose the SekiroRetargetAssistant ZIP from this tool’s folder. Its tools are in the 3D Viewport sidebar under Retarget.</p></div><div><b>2. Bake and export</b><p>Match the bones, bake onto a character imported here, then use Export HKX in the add-on. It writes the HKX with this bridge’s conversion Python and settings. Starting this workspace lets the add-on find the bridge.</p></div></div></section><section class="card settings-card"><div class="card-header"><div><h2>Credits</h2><p>Built on community and open-source work. CREDITS.md lists every tool and library with its license.</p></div></div><div class="card-body setup-commands credits"><div><b><a href="https://github.com/Grimrukh/soulstruct" target="_blank" rel="noopener noreferrer">Soulstruct</a> and <a href="https://github.com/Grimrukh/soulstruct-havok" target="_blank" rel="noopener noreferrer">Soulstruct Havok</a></b><p>Grimrukh · DCX, binders, FLVER models, materials and HKX writing</p></div><div><b><a href="https://github.com/Meowmaritus/SoulsAssetPipeline" target="_blank" rel="noopener noreferrer">SoulsAssetPipeline</a> and <a href="https://github.com/JKAnderson/SoulsFormats" target="_blank" rel="noopener noreferrer">SoulsFormats</a></b><p>Meowmaritus and JKAnderson · HKX decoding</p></div><div><b><a href="https://www.blender.org/" target="_blank" rel="noopener noreferrer">Blender</a>, Python, NumPy and .NET</b><p>Scene editing, conversion and decoding</p></div><div><b><a href="https://github.com/ividyon/WitchyBND" target="_blank" rel="noopener noreferrer">WitchyBND</a></b><p>ividyon · recommended for packing HKX files into binders</p></div><div><b>Oodle</b><p>RAD Game Tools · loaded from your game installation, never copied</p></div></div></section></section>
-    <section id="activity" class="activity"><div class="activity-top"><button id="toggle-log" class="activity-toggle" aria-expanded="false"><svg><use href="#i-log"/></svg><span id="job-message">Ready when you are</span><span id="job-status" class="job-status">IDLE</span></button><span id="job-time"></span><button id="cancel-job" class="text-button danger" hidden>Cancel</button></div><div id="progress-track" class="progress-track" hidden><div id="progress-fill"></div></div><div id="job-stages" class="job-stages" hidden></div><div id="result" class="result" hidden></div><div id="log-panel" class="log-panel" hidden><div class="log-header"><span>CONVERSION ACTIVITY</span><button id="copy-log" class="text-button">Copy log</button></div><pre id="log" tabindex="0">No conversion has started.</pre></div></section>
-    <footer>Animation Bridge <span>0.6.1</span><span class="footer-right">Built for editing. Ready for iteration.</span></footer>
+            <p id="rig-only" class="muted rig-only" hidden><svg><use href="#i-link"/></svg>Only the editable animation rig is imported.</p>
+          </section>
+          <details class="block disclosure" id="materials-block">
+            <summary><span class="block-title"><h3>Textures &amp; materials</h3><span id="materials-summary">Found automatically</span></span></summary>
+            <div class="field"><label for="materialBinder">Material library <button class="help" data-help="materialBinder" aria-label="About material library">?</button></label><div class="path-row"><input id="materialBinder" data-config placeholder="MTD library, or Elden Ring’s allmaterial.matbinbnd.dcx" spellcheck="false"><button class="browse" data-pick="materialBinder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+            <div class="field"><label for="textureDirectory">Additional textures <span class="optional">OPTIONAL</span><button class="help" data-help="textureDirectory" aria-label="About additional textures">?</button></label><div class="path-row"><input id="textureDirectory" data-config placeholder="A folder of TEXBND / TPF packages or images" spellcheck="false"><button class="browse" data-pick="textureDirectory"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+            <div class="field"><label for="referenceModel">Rig attachment model <span class="optional">WEAPONS</span><button class="help" data-help="referenceModel" aria-label="About rig attachment model">?</button></label><div class="path-row"><input id="referenceModel" data-config spellcheck="false" placeholder="c0000.chrbnd.dcx of the same game"><button class="browse" data-pick="referenceModel"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+            <p class="note">Each material gets its matching base-color, normal and emission maps. Images are packed into the .blend, so it can be moved.</p>
+          </details>
+          <details class="block disclosure" id="resolved-block">
+            <summary><span class="block-title"><h3>Matched files</h3><span id="resolved-summary">Animation, skeleton and compendium</span></span></summary>
+            <dl id="resolved-files" class="resolved"></dl>
+          </details>
+        </div>
+        <footer class="scene-foot">
+          <div class="field"><label for="outputBlend">Save scene as <button class="help" data-help="outputBlend" aria-label="About Blender output">?</button></label><div class="path-row"><input id="outputBlend" data-config placeholder="D:\AnimationWork\c5060_a000_003000.blend" spellcheck="false"><button class="browse" data-pick="outputBlend" aria-label="Choose the scene file"><svg><use href="#i-folder"/></svg></button></div></div>
+          <div class="check-row"><label class="checkbox"><input id="import-force" type="checkbox">Replace existing</label><label class="checkbox"><input id="openWhenDone" type="checkbox" data-config>Open in Blender</label></div>
+          <button id="run-import" class="primary wide"><svg><use href="#i-import"/></svg>Create Blender scene<svg class="end"><use href="#i-arrow"/></svg></button>
+          <p id="blender-ready" class="foot-note"><i class="dot"></i><span>Checking Blender…</span></p>
+        </footer>
+      </aside>
+    </div>
+  </section>
+
+  <section id="page-export" class="page">
+    <div class="export-grid">
+      <section class="pane" aria-label="Edited scene">
+        <header class="pane-head"><h2><svg><use href="#i-film"/></svg>Edited scene</h2><span class="count">STEP 1</span></header>
+        <div class="pane-body">
+          <div class="field"><label for="inputBlend">Blender scene <button class="help" data-help="inputBlend" aria-label="About edited scene">?</button></label><div class="path-row"><input id="inputBlend" data-config placeholder="A .blend created by Animation Bridge" spellcheck="false"><button class="browse" data-pick="inputBlend"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="tool-row"><button id="inspect-scene" class="secondary"><svg><use href="#i-cube"/></svg>Read actions</button><button id="use-import" class="text-button"><svg><use href="#i-link"/></svg>Use the last imported scene</button></div>
+          <div id="scene-info" class="scene-info" role="status" hidden></div>
+          <div class="field"><label for="exportAction">Action <button class="help" data-help="exportAction" aria-label="About action">?</button></label><select id="exportAction" data-config class="sr-only" tabindex="-1" aria-hidden="true"></select><div id="action-list" class="action-list" role="radiogroup" aria-label="Action"></div></div>
+          <div class="field"><span class="label">Frame range <button class="help" data-help="frameRange" aria-label="About frame range">?</button></span><select id="frameRange" data-config class="sr-only" tabindex="-1" aria-hidden="true"><option value="scene">Scene start to end</option><option value="action">Action keyframe range</option><option value="clip">Imported clip length</option><option value="custom">Custom frames</option></select>
+            <div class="segmented small" id="range-buttons" role="radiogroup" aria-label="Frame range"><button class="seg" data-range="scene" role="radio">Scene</button><button class="seg" data-range="action" role="radio">Action keys</button><button class="seg" data-range="clip" role="radio">Clip length</button><button class="seg" data-range="custom" role="radio">Custom</button></div>
+            <div id="custom-range" class="range-row" hidden><input id="frameStart" data-config class="text-input" inputmode="decimal" placeholder="Start" aria-label="Start frame"><span>to</span><input id="frameEnd" data-config class="text-input" inputmode="decimal" placeholder="End" aria-label="End frame"></div>
+            <p id="range-note" class="note"></p></div>
+          <details class="disclosure" id="sampling-options"><summary>Tracks, frame rate and root motion <span id="sampling-summary"></span></summary>
+            <div class="field-grid"><div class="field"><label for="trackSet">Tracks <button class="help" data-help="trackSet" aria-label="About tracks">?</button></label><select id="trackSet" data-config><option value="original">Source clip tracks</option><option value="keyed">Source tracks + keyed bones</option><option value="all">Every skeleton bone</option></select></div><div class="field"><label for="frameRate">Frame rate <span class="optional">FPS</span> <button class="help" data-help="frameRate" aria-label="About frame rate">?</button></label><input id="frameRate" data-config class="text-input" inputmode="decimal" placeholder="Source clip rate" spellcheck="false"></div></div>
+            <p id="track-note" class="notice warn" hidden></p>
+            <div class="field"><label for="rootMotion">Root motion <button class="help" data-help="rootMotion" aria-label="About root motion">?</button></label><select id="rootMotion" data-config><option value="auto">HKX_RootMotion empty · when present</option><option value="bone">Extract from a bone’s travel</option><option value="none">No root motion</option></select></div>
+            <div id="root-bone-fields" hidden><div class="field"><label for="rootBone">Extract from bone</label><input id="rootBone" data-config class="text-input" list="bone-names" placeholder="Automatic" spellcheck="false"><datalist id="bone-names"></datalist></div><div class="check-row"><label class="checkbox"><input id="rootVertical" type="checkbox" data-config>Include vertical travel</label><label class="checkbox"><input id="rootYaw" type="checkbox" data-config>Include turning (yaw)</label></div></div>
+          </details>
+        </div>
+      </section>
+      <section class="pane" aria-label="HKX output">
+        <header class="pane-head"><h2><svg><use href="#i-export"/></svg>HKX output</h2><span class="count">STEP 2</span></header>
+        <div class="pane-body">
+          <div class="field"><label for="exportGame">Source game <button class="help" data-help="exportGame" aria-label="About export source game">?</button></label><select id="exportGame" data-config><option value="auto">Stored in scene · automatic</option><option value="sekiro">Sekiro · legacy scene</option><option value="ds1">Dark Souls: Prepare to Die · legacy scene</option><option value="ds1r">Dark Souls Remastered · legacy scene</option><option value="ds3">Dark Souls III · legacy scene</option><option value="er">Elden Ring · legacy scene</option></select><p id="game-note" class="notice warn" hidden></p></div>
+          <div class="format-options" role="radiogroup" aria-label="Format"><label class="format-option"><input type="radio" name="format" value="interleaved" checked><span><b>Interleaved <i class="tag">DEFAULT</i></b><small>Uncompressed transforms in the game’s Havok version. Sekiro’s interleaved output is confirmed in game.</small></span></label><label class="format-option"><input type="radio" name="format" value="spline"><span><b>Spline compressed</b><small>Smaller and lossy. Needs the Visual C++ 2010 runtime (x86). Not yet confirmed in game.</small></span></label></div>
+          <div id="spline-options" class="field-grid" hidden><div class="field"><label for="quantization">Rotation precision <button class="help" data-help="quantization" aria-label="About rotation precision">?</button></label><select id="quantization" data-config><option value="threecomp40">40-bit · default</option><option value="threecomp48">48-bit · finer</option><option value="uncompressed">Full floats · largest</option></select></div><div class="field"><label for="tolerance">Spline tolerance <button class="help" data-help="tolerance" aria-label="About spline tolerance">?</button></label><input id="tolerance" data-config class="text-input" inputmode="decimal" placeholder="0.001" spellcheck="false"></div></div>
+          <div class="field"><label for="outputHKX">Save HKX as <button class="help" data-help="outputHKX" aria-label="About HKX output">?</button></label><div class="path-row"><input id="outputHKX" data-config placeholder="D:\AnimationWork\a000_003000_edited.hkx" spellcheck="false"><button class="browse" data-pick="outputHKX"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="check-row"><label class="checkbox"><input id="export-force" type="checkbox">Replace existing</label><label class="checkbox"><input id="verify" type="checkbox" data-config checked>Read it back and report the difference</label></div>
+          <button id="run-export" class="primary wide"><svg><use href="#i-export"/></svg>Export HKX animation<svg class="end"><use href="#i-arrow"/></svg></button>
+          <p class="note">You get a raw HKX and a .motion.json sidecar. Replace the animation in a copy of your binder with WitchyBND. Export bakes the evaluated pose, including constraints, drivers and NLA strips.</p>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <section id="page-sources" class="page">
+    <div class="page-intro">
+      <div><h2>Your sources</h2><p>Folders the bridge reads game files from. Each one remembers its layout, game and your last selection; switch between them from the Import page.</p></div>
+      <button id="add-source" class="primary"><svg><use href="#i-plus"/></svg>Add source</button>
+    </div>
+    <div id="source-cards" class="source-grid"></div>
+    <div class="layout-cards">
+      <article><svg><use href="#i-layers"/></svg><h3>Game folder</h3><p>An unpacked game or a mod folder in the game’s own structure: <code>chr</code>, <code>parts</code>, <code>mtd</code> or <code>material</code>. Characters are listed at once; a character’s archives are read when you choose it.</p></article>
+      <article><svg><use href="#i-folder"/></svg><h3>Collected folder</h3><p>Archives you copied together for one or a few characters, in any subfolders. Files that share a folder belong together.</p></article>
+      <article><svg><use href="#i-edit"/></svg><h3>Custom layout</h3><p>For unusual setups: name the folders for animations, models, parts, textures and materials yourself, inside the source or anywhere else.</p></article>
+    </div>
+  </section>
+
+  <section id="page-settings" class="page">
+    <div class="page-intro"><div><h2>Your tools</h2><p>What the bridge runs on this computer. Paths are remembered on this computer and shared with the command line.</p></div><button id="check-environment" class="secondary"><svg><use href="#i-refresh"/></svg>Check again</button></div>
+    <div id="environment-cards" class="environment-cards"></div>
+    <div class="settings-grid">
+      <section class="card"><header class="card-head"><h3>Tool locations</h3><p>The UI and the CLI use the same tools.</p></header>
+        <div class="field"><label for="blender">Blender executable <button class="help" data-help="blender" aria-label="About Blender executable">?</button></label><div class="path-row"><input id="blender" data-config placeholder="C:\Program Files\Blender Foundation\Blender 4.5\blender.exe" spellcheck="false"><button class="browse" data-pick="blender"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+        <div class="field"><label for="writer">Conversion Python <button class="help" data-help="writer" aria-label="About conversion Python">?</button></label><div class="path-row"><input id="writer" data-config placeholder="writer-env\Scripts\python.exe" spellcheck="false"><button class="browse" data-pick="writer"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+        <div class="field"><label for="decoder">Animation decoder <button class="help" data-help="decoder" aria-label="About animation decoder">?</button></label><div class="path-row"><input id="decoder" data-config placeholder="SekiroMotionDecoder.exe" spellcheck="false"><button class="browse" data-pick="decoder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+      </section>
+      <section class="card"><header class="card-head"><h3>DCX archives</h3><p>Built in through the conversion libraries.</p></header>
+        <div class="field"><label for="oodle">Oodle library <span class="optional">AUTO-DETECTED</span><button class="help" data-help="oodle" aria-label="About Oodle library">?</button></label><div class="path-row"><input id="oodle" data-config placeholder="Auto-detect, or the game’s oo2core_6_win64.dll" spellcheck="false"><button class="browse" data-pick="oodle"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+        <p class="note">KRAK archives use your game’s Oodle library in place; it is never copied. DFLT needs no native library.</p>
+        <header class="card-head spaced"><h3>Appearance</h3><p>Follow Windows, or keep one theme.</p></header>
+        <div class="segmented small" id="theme-buttons" role="radiogroup" aria-label="Theme"><button class="seg" data-theme-choice="auto" role="radio">System</button><button class="seg" data-theme-choice="light" role="radio">Light</button><button class="seg" data-theme-choice="dark" role="radio">Dark</button></div>
+      </section>
+      <section class="card"><header class="card-head"><h3>Setup</h3><p>Release ZIPs set themselves up on the first start.</p></header>
+        <div class="steps"><div><b>Conversion libraries</b><p>uv installs Python 3.13, Soulstruct and NumPy into the tool’s own environment. Run this to repeat or repair it.</p><code>tools\setup_writer.cmd</code></div><div><b>HKX decoder</b><p>Included in release ZIPs. A source checkout builds it once; that needs Git and the .NET 9 SDK.</p><code>tools\SekiroMotionDecoder\build_decoder.cmd</code></div></div>
+      </section>
+      <section class="card"><header class="card-head"><h3>Retarget add-on</h3><p>Optional. Moves an animation between characters inside Blender.</p></header>
+        <div class="steps"><div><b>Install it in Blender</b><p>Edit › Preferences › Add-ons › Install from Disk, then choose the SekiroRetargetAssistant ZIP from this tool’s folder. Its tools are in the 3D Viewport sidebar under Retarget.</p></div><div><b>Bake and export</b><p>Match the bones, bake onto a character imported here, then use Export HKX in the add-on. It uses this bridge’s conversion Python and settings.</p></div></div>
+      </section>
+      <section class="card credits"><header class="card-head"><h3>Credits</h3><p>Built on community and open-source work. CREDITS.md lists every component and its license.</p></header>
+        <ul><li><b><a href="https://github.com/Grimrukh/soulstruct" target="_blank" rel="noopener noreferrer">Soulstruct</a> and <a href="https://github.com/Grimrukh/soulstruct-havok" target="_blank" rel="noopener noreferrer">Soulstruct Havok</a></b><span>Grimrukh · DCX, binders, FLVER, materials and HKX writing</span></li><li><b><a href="https://github.com/Meowmaritus/SoulsAssetPipeline" target="_blank" rel="noopener noreferrer">SoulsAssetPipeline</a> and <a href="https://github.com/JKAnderson/SoulsFormats" target="_blank" rel="noopener noreferrer">SoulsFormats</a></b><span>Meowmaritus and JKAnderson · HKX decoding</span></li><li><b><a href="https://www.blender.org/" target="_blank" rel="noopener noreferrer">Blender</a>, Python, NumPy and .NET</b><span>Scene editing, conversion and decoding</span></li><li><b><a href="https://github.com/ividyon/WitchyBND" target="_blank" rel="noopener noreferrer">WitchyBND</a></b><span>ividyon · packing HKX files into binders</span></li><li><b>Oodle</b><span>RAD Game Tools · loaded from your game, never copied</span></li></ul>
+      </section>
+    </div>
+  </section>
   </div>
-</main>
+
+  <section id="activity" class="dock" aria-label="Activity">
+    <div class="dock-bar">
+      <button id="toggle-log" class="dock-toggle" aria-expanded="false" aria-controls="log-panel"><span class="dock-icon"><svg><use href="#i-log"/></svg></span><span class="dock-text"><b id="job-message">Ready when you are</b><span id="job-stages" class="stages" hidden></span></span></button>
+      <div id="progress-track" class="progress" hidden><div id="progress-fill"></div></div>
+      <span id="job-time" class="mono"></span><span id="job-status" class="job-status">IDLE</span>
+      <button id="cancel-job" class="text-button danger" hidden>Cancel</button>
+    </div>
+    <div id="result" class="result" hidden></div>
+    <div id="log-panel" class="log-panel" hidden><div class="log-head"><span>CONVERSION LOG</span><button id="copy-log" class="text-button">Copy log</button></div><pre id="log" tabindex="0">No conversion has started.</pre></div>
+  </section>
 </div>
+</div>
+
+<div id="source-menu" class="menu" role="menu" hidden></div>
+
+<dialog id="source-dialog" class="sheet" aria-labelledby="source-dialog-title">
+  <form id="source-form" method="dialog">
+    <header class="sheet-head"><div><span class="eyebrow">SOURCE</span><h2 id="source-dialog-title">Add a source</h2></div><button type="button" class="icon-button" data-close aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+    <div class="sheet-body">
+      <div class="field"><label for="src-path">Folder <button type="button" class="help" data-help="source" aria-label="About sources">?</button></label><div class="path-row"><input id="src-path" spellcheck="false" placeholder="An unpacked game, a mod folder, or a folder of archives"><button type="button" class="browse" id="src-browse"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+      <div id="src-detect" class="detect" hidden></div>
+      <div class="field-grid"><div class="field"><label for="src-name">Name</label><input id="src-name" class="text-input" spellcheck="false" placeholder="Sekiro, My mod, Owl test…"></div><div class="field"><label for="src-game">Game <button type="button" class="help" data-help="sourceGame" aria-label="About the source game">?</button></label><select id="src-game"><option value="auto">Auto detect</option><option value="sekiro">Sekiro</option><option value="ds1">Dark Souls: Prepare to Die</option><option value="ds1r">Dark Souls Remastered</option><option value="ds3">Dark Souls III</option><option value="er">Elden Ring</option></select></div></div>
+      <div class="field"><span class="label">Layout <button type="button" class="help" data-help="layout" aria-label="About layouts">?</button></span><div class="segmented" id="src-layout" role="radiogroup" aria-label="Layout"><button type="button" class="seg" data-layout="auto" role="radio">Detect</button><button type="button" class="seg" data-layout="game" role="radio">Game folder</button><button type="button" class="seg" data-layout="folder" role="radio">Collected</button><button type="button" class="seg" data-layout="custom" role="radio">Custom</button></div><p id="src-layout-note" class="note"></p></div>
+      <div id="src-custom" class="custom-layout" hidden>
+        <div id="src-folders" class="folder-table"></div>
+        <div class="tool-row"><label class="checkbox"><input id="src-recursive" type="checkbox" checked>Include subfolders</label><button type="button" id="src-from-game" class="text-button">Start from the game structure</button></div>
+      </div>
+      <div class="field"><label for="src-scenes">Scenes folder <button type="button" class="help" data-help="scenes" aria-label="About the scenes folder">?</button></label><div class="path-row"><input id="src-scenes" spellcheck="false" placeholder="Where new Blender scenes are suggested"><button type="button" class="browse" id="src-scenes-browse"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+    </div>
+    <footer class="sheet-foot"><button type="button" id="src-remove" class="text-button danger" hidden>Remove source</button><span class="grow"></span><button type="button" class="secondary" data-close>Cancel</button><button type="submit" id="src-save" class="primary">Save and scan</button></footer>
+  </form>
+</dialog>
+
 <div id="picker-status" role="status" class="picker-status" hidden><span id="picker-message">Browse window open…</span><button id="cancel-picker" class="secondary">Cancel Browse</button></div>
 <div id="toast" role="status" class="toast" hidden></div>
-<dialog id="help-dialog"><div class="dialog-heading"><h2 id="help-title"></h2><button id="close-help" class="icon-button" aria-label="Close help"><svg><use href="#i-close"/></svg></button></div><p id="help-text"></p><button id="help-ok" class="primary">Got it</button></dialog>
+<dialog id="help-dialog" class="help-sheet"><div class="sheet-head"><h2 id="help-title"></h2><button id="close-help" class="icon-button" aria-label="Close help"><svg><use href="#i-close"/></svg></button></div><p id="help-text"></p><button id="help-ok" class="primary">Got it</button></dialog>
 </body></html>

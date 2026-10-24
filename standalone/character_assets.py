@@ -30,6 +30,16 @@ def asset_id(path):
     return Path(str(path).replace("\\", "/")).name.lower().split(".")[0]
 
 
+def texture_tokens(text):
+    """Character and part IDs named by a model, material or texture: c5069, bd_m_9000."""
+    return set(re.findall(r"c\d{4}|[a-z]{2}_[a-z]_\d{4}", str(text).lower()))
+
+
+def texture_family(path):
+    """c2190_h.texbnd and c2190_l.texbnd both belong to c2190."""
+    return re.sub(r"_[hlm]$", "", asset_id(path))
+
+
 def model_files(source):
     path = Path(source).expanduser().resolve()
     if not path.exists():
@@ -95,7 +105,10 @@ def scan_character(source, preset="auto", game='auto'):
 
 
 def prepare_character(sources, output_dir, texture_dir="", material_binder="", texture_override="",
-                      reference_model="", weapon_attachments=None, skeleton_name='', game='sekiro', skeleton_bones=None):
+                      reference_model="", weapon_attachments=None, skeleton_name='', game='sekiro', skeleton_bones=None,
+                      texture_folders=None, texture_recursive=False):
+    """texture_folders are a game's shared folders (chr, parts): only packages named
+    after the models and their materials are read there, not every package."""
     from soulstruct.containers import Binder, TPF
     from soulstruct.flver import FLVER
     from material_assets import MaterialLibrary, material_samplers, sampler_kind
@@ -134,7 +147,8 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
     for source in sources:
         if not source.is_file():
             raise ValueError(f"Model file not found: {source}")
-        search_dirs.add(source.parent)
+        if not texture_folders:
+            search_dirs.add(source.parent)
         if source.name.lower().endswith((".flver", ".flver.dcx")):
             models.append((asset_id(source), FLVER.from_bytes(unwrap(source.read_bytes())[0]), str(source)))
         else:
@@ -154,19 +168,20 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
         for candidate in [root / "textures", root.parent / "textures", root.parent / "source/parts"]:
             if candidate.is_dir():
                 search_dirs.add(candidate)
+    def read_package(p):
+        low = p.name.lower()
+        if p.suffix.lower() in IMAGE_EXTS:
+            images[p.stem.lower()] = str(p.resolve())
+        elif low.endswith((".tpf", ".tpf.dcx")):
+            add_tpf(p.read_bytes(), str(p))
+        elif low.endswith((".texbnd", ".texbnd.dcx")) or (low.endswith((".partsbnd", ".partsbnd.dcx")) and asset_id(p) in {name for name, _, _ in models}):
+            for entry in read_binder(p).entries:
+                if entry.path.lower().endswith((".tpf", ".tpf.dcx")):
+                    add_tpf(entry.data, f"{p}:{entry.path}")
     for root in sorted(search_dirs):
         for p in root.rglob("*"):
-            if not p.is_file():
-                continue
-            low = p.name.lower()
-            if p.suffix.lower() in IMAGE_EXTS:
-                images[p.stem.lower()] = str(p.resolve())
-            elif low.endswith((".tpf", ".tpf.dcx")):
-                add_tpf(p.read_bytes(), str(p))
-            elif low.endswith((".texbnd", ".texbnd.dcx")) or (low.endswith((".partsbnd", ".partsbnd.dcx")) and asset_id(p) in {name for name, _, _ in models}):
-                for entry in read_binder(p).entries:
-                    if entry.path.lower().endswith((".tpf", ".tpf.dcx")):
-                        add_tpf(entry.data, f"{p}:{entry.path}")
+            if p.is_file():
+                read_package(p)
     if not material_binder:
         material_binder = next((m for s in sources if (m := find_materials(s, game))), "")
     if material_binder:
@@ -174,6 +189,35 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
         if not p.exists():
             raise ValueError(f"Material library not found: {p}")
     library = MaterialLibrary(material_binder, game)
+    if texture_folders:
+        # Texture names stay exact; the IDs only choose which packages to open.
+        needed, tokens = set(), set()
+        for name, flver, _ in models:
+            tokens |= texture_tokens(name)
+            for mesh in flver.meshes:
+                mtd_name = PureWindowsPath(mesh.material.mat_def_path).name.lower()
+                tokens |= texture_tokens(mtd_name)
+                for info in material_samplers(mesh.material, library.get(mtd_name)):
+                    if info['texture'] and sampler_kind(info['semantic'].lower()):
+                        needed.add(info['texture'].lower())
+                        tokens |= texture_tokens(info['texture'])
+        packages = []
+        for folder in texture_folders:
+            folder = Path(folder)
+            if folder.is_dir():
+                packages += [p for p in (folder.rglob("*") if texture_recursive else folder.iterdir())
+                             if p.is_file() and p.name.lower().endswith((".texbnd", ".texbnd.dcx", ".tpf", ".tpf.dcx"))]
+        chosen = [p for p in packages if texture_family(p) in tokens or "common" in p.name.lower()]
+        for p in chosen:
+            read_package(p)
+        if needed - textures.keys() - images.keys():
+            # Variants share a family prefix: Owl c5060's packages include c5061 and c5069.
+            families = {t[:4] for t in tokens if re.fullmatch(r"c\d{4}", t)}
+            extra = [p for p in packages if p not in chosen and re.fullmatch(r"c\d{4}", texture_family(p)) and texture_family(p)[:4] in families]
+            for p in extra:
+                read_package(p)
+            chosen += extra
+        print(f"Texture packages: read {len(chosen)} of {len(packages)} in the source's texture folders", flush=True)
     if game == 'er' and not library.has_matbin:
         warnings.append('Elden Ring material assignments need material/allmaterial.matbinbnd.dcx. The legacy allmaterialbnd.mtdbnd.dcx does not supply them. Add the MATBIN binder and rescan, or choose it under Textures & materials. Explicit FLVER overrides can still be read.')
     elif not material_binder:
