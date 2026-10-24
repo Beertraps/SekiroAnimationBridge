@@ -23,7 +23,7 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 
 ## Not distributed
 
-- **Oodle** (`oo2core_6_win64.dll`) by RAD Game Tools / Epic Games decompresses KRAK DCX archives. The bridge loads it from your own game installation and never copies it.
+- **Oodle** (`oo2core_6_win64.dll`) by RAD Game Tools / Epic Games decompresses KRAK DCX archives. The bridge loads it from your game installation or from Soulstruct's package, and never copies it into its releases.
 - Game files, models, textures and animations stay on your computer. No game data is included in this project.
 
 Animation Bridge is not affiliated with or endorsed by FromSoftware, its publishers, or Havok. Game names are trademarks of their owners.

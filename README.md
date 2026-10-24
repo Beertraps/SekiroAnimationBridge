@@ -7,6 +7,8 @@
 ![Blender 4.5](https://img.shields.io/badge/Blender-4.5-E87D0D)
 ![Status: prototype](https://img.shields.io/badge/status-prototype-orange)
 
+![The import page after scanning a folder of Owl archives from Sekiro](docs/images/bridge-ui.png)
+
 ```mermaid
 flowchart LR
     A["Game archives<br/>.anibnd · .chrbnd · .partsbnd"] -- import --> B["Blender scene<br/>rig, model, textures"]
@@ -45,7 +47,7 @@ That is all: the release includes the HKX decoder and [uv](https://github.com/as
 
 For retargeting, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.
 
-> **No game files are included.** Use archives from your own copy of the game, ideally copied outside the game folder. KRAK-compressed archives need the game's own `oo2core_6_win64.dll`; the bridge finds it in Steam libraries or asks for it.
+> **No game files are included.** Use archives from your own copy of the game, ideally copied outside the game folder. KRAK-compressed archives need `oo2core_6_win64.dll`, which the bridge does not include: it uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it.
 
 ## Quick start
 

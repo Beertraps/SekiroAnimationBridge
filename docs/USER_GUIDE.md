@@ -52,7 +52,7 @@ For already extracted inputs, choose **Individual files · manual**. Previous se
 
 The standalone `dcx_codec.py` and `sekiro_dcx.cmd` ship with the bridge, using the same pinned Soulstruct environment as the writer. The installed Sekiro Modding Agents plugin is not needed. Its bridge’s DCX/DFLT/KRAK handling was inspected; this implementation uses the existing Python codec and also accepts the older DFLT reserved-header variant.
 
-KRAK-compressed DCX requires `oo2core_6_win64.dll` from the user’s own game installation. Steam libraries and Soulstruct’s existing locations are searched automatically. If needed, choose the DLL in **Settings & setup → DCX archive support**, or pass `--oodle` / `-OodleDll` on the CLI. It is used in place and is not distributed with the bridge. DFLT uses Python’s built-in zlib.
+KRAK-compressed DCX requires `oo2core_6_win64.dll`. The bridge first looks for Sekiro’s copy in your Steam libraries, then for the copy that comes with Soulstruct. If needed, choose the DLL in **Settings & setup → DCX archive support**, or pass `--oodle` / `-OodleDll` on the CLI. It is used in place and is not distributed with the bridge. DFLT uses Python’s built-in zlib.
 
 Optional DCX command, from a terminal in the tool folder:
 

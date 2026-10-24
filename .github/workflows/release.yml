@@ -110,7 +110,7 @@ jobs:
           2. Install [Blender 4.5](https://www.blender.org/download/lts/4-5/) if you do not have it. The bridge finds standard installations; otherwise choose ``blender.exe`` under **Settings & setup**.
           3. Optional: install **$addon** in Blender to retarget animations between characters.
 
-          No game files are included. KRAK-compressed archives need your game's own ``oo2core_6_win64.dll``, which the bridge finds or asks for. The optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported); **Settings & setup** shows whether it is installed.
+          No game files are included. KRAK-compressed archives need ``oo2core_6_win64.dll``: the bridge uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it. The optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported); **Settings & setup** shows whether it is installed.
 
           ## Changes
 
