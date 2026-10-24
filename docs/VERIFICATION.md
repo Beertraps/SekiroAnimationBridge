@@ -4,6 +4,7 @@
 - `prepare_character` with owned empty files and a stubbed FLVER reader listed 3 of 5 texture packages in a mod folder and a game folder: the mod's 2 packages hid the game's packages of the same names.
 - Python sources compile and `app.js` passes `node --check`. Blender 4.5.14 with `--factory-startup`: `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py` and `blender_weapons.py` pass.
 - Before tagging, a ZIP packaged from main as the workflow does, without the decoder and uv (64 files), passed the 69 unit tests from its unpacked folder.
+- Tagged run 40122167539 (v0.7.1, commit cc89448, windows-2025 runner) built the decoder and the release ZIP (275 files, 65,605,248 bytes). On a fresh profile the first start downloaded Python 3.13.16 and installed the 15 pinned packages; the UI reported the conversion libraries, the decoder and DCX ready and selected the packaged decoder. With the Visual C++ 2010 runtime installed, the 69 unit tests passed from the unpacked ZIP. The run published the release: `SekiroAnimationBridge-0.7.1-win-x64.zip` (65,605,248 bytes, with its `.sha256`) and `SekiroRetargetAssistant-0.3.0.zip` (47,199 bytes).
 - Not checked: a real mod folder over the unpacked game in the UI (no mod folder was available).
 
 # Version 0.7.0 — 2026-10-24
