@@ -8,6 +8,14 @@ target's own. Body travel goes to the bone above both the pelvis and the
 spine (Root, RootPos or Master in FromSoftware rigs), so legs and upper body
 move together, scaled by leg length. Root motion comes from the source's root
 object, from the body's travel, from the target's original clip, or is left out.
+
+A weapon that the target and source bones both carry as an elongated mesh is
+turned in its bone so that the two blades stay parallel, whatever the bones'
+own axes are. With body clearance, a hand that would go into the target's
+torso, with the weapon it holds, is moved out through its arm, easing in and
+out over neighbouring frames, because a thinner source can hold its hands
+closer to its body than the target can. Clipping that the source has in its
+own body stays: only what goes deeper, at the target's size, is moved out.
 """
 import base64
 import json
@@ -17,7 +25,9 @@ import statistics
 import textwrap
 import zlib
 import bpy
+import numpy as np
 from mathutils import Matrix, Quaternion, Vector
+from mathutils.bvhtree import BVHTree
 from . import mapping as matching
 
 BONE_CURVE = re.compile(r'pose\.bones\["((?:[^"\\]|\\.)*)"\]')
@@ -117,15 +127,35 @@ def write_action(rig, name, channels):
     return action
 
 
+def action_curves(action):
+    """The F-curves of an action, in legacy and Blender 4.4+ layered actions."""
+    if action is None:
+        return []
+    layers = getattr(action, 'layers', None)
+    return [curve for layer in layers for strip in layer.strips for bag in strip.channelbags for curve in bag.fcurves] \
+        if layers else list(getattr(action, 'fcurves', ()))
+
+
 def action_bones(action):
     """Names of the bones an action animates, in legacy and Blender 4.4+ layered actions."""
-    if action is None:
-        return set()
-    layers = getattr(action, 'layers', None)
-    curves = [curve for layer in layers for strip in layer.strips for bag in strip.channelbags for curve in bag.fcurves] \
-        if layers else list(getattr(action, 'fcurves', ()))
-    matches = (BONE_CURVE.match(curve.data_path) for curve in curves)
+    matches = (BONE_CURVE.match(curve.data_path) for curve in action_curves(action))
     return {re.sub(r'\\(.)', r'\1', match.group(1)) for match in matches if match}
+
+
+def hidden_bones(rig):
+    """Bones that the rig's action shrinks below 1% on every key, as FromSoftware clips hide unused weapons.
+
+    Isshin's clips scale his gun to zero and his spear to 0.001.
+    """
+    largest = {}
+    for curve in action_curves(rig.animation_data.action if rig.animation_data else None):
+        match = BONE_CURVE.match(curve.data_path)
+        if match and curve.data_path.endswith('.scale') and len(curve.keyframe_points):
+            values = [0.0] * (2 * len(curve.keyframe_points))
+            curve.keyframe_points.foreach_get('co', values)
+            name = re.sub(r'\\(.)', r'\1', match.group(1))
+            largest[name] = max(largest.get(name, 0.0), max(abs(value) for value in values[1::2]))
+    return {name for name, value in largest.items() if value < .01}
 
 
 def bone_infos(rig, tracked_only=True):
@@ -271,6 +301,463 @@ def _trs(matrix):
         rotation=[-rotation.x, -rotation.z, -rotation.y, rotation.w], scale=[scale.x, scale.z, scale.y])
 
 
+def deformers(rig):
+    """(mesh, armature) for each mesh that a rig deforms, directly or through a bridge bind adapter."""
+    result = []
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH':
+            continue
+        for modifier in obj.modifiers:
+            armature = modifier.object if modifier.type == 'ARMATURE' else None
+            if armature and (armature == rig or (armature.parent == rig and armature.get('sekiro_internal_bind_adapter'))):
+                result.append((obj, armature))
+                break
+    return result
+
+
+def carried_meshes(rig, bone):
+    """Meshes that follow a bone rigidly: on a bridge weapon socket, or parented to the bone."""
+    holders = [obj for obj in bpy.data.objects
+               if (obj.parent == rig and obj.parent_type == 'BONE' and obj.parent_bone == bone) or
+               any(c.type == 'COPY_TRANSFORMS' and c.target == rig and c.subtarget == bone and not c.mute and c.influence > .999
+                   for c in obj.constraints)]
+    return list(dict.fromkeys(mesh for holder in holders for mesh in [holder, *holder.children_recursive] if mesh.type == 'MESH'))
+
+
+def strongest_groups(obj, names):
+    """Per vertex, the index of the vertex group among the given bone names that weighs most on it, or -1."""
+    allowed = {group.index for group in obj.vertex_groups if group.name in names}
+    result = np.full(len(obj.data.vertices), -1, dtype=np.int64)
+    for vertex in obj.data.vertices:
+        best, weight = -1, 0.0
+        for item in vertex.groups:
+            if item.weight > weight and item.group in allowed:
+                best, weight = item.group, item.weight
+        result[vertex.index] = best
+    return result
+
+
+def evaluated_points(obj, graph, indices=None):
+    """World positions of an object's evaluated mesh vertices, or of some of them."""
+    evaluated = obj.evaluated_get(graph)
+    mesh = evaluated.to_mesh()
+    try:
+        coordinates = np.empty(len(mesh.vertices) * 3)
+        mesh.vertices.foreach_get('co', coordinates)
+        coordinates = coordinates.reshape(-1, 3)
+        if indices is not None:
+            if len(coordinates) != len(obj.data.vertices):
+                return np.empty((0, 3))  # A modifier changed the vertices; their groups no longer apply.
+            coordinates = coordinates[indices]
+        matrix = np.array(evaluated.matrix_world)
+        return coordinates @ matrix[:3, :3].T + matrix[:3, 3]
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def weapon_axis(rig, bone, graph):
+    """The long axis of the weapon a bone carries, in the bone's own space, pointing from the bone to its far end.
+
+    The weapon is the meshes that follow the bone, else the vertices that the bone deforms most, such as an
+    enemy's katana inside its character mesh. None without such a mesh or when it is not clearly elongated.
+    """
+    chunks = [evaluated_points(obj, graph) for obj in carried_meshes(rig, bone)]
+    if not chunks:
+        names = set(rig.data.bones.keys())
+        for obj, armature in deformers(rig):
+            group = obj.vertex_groups.get(bone)
+            if group is not None:
+                indices = np.flatnonzero(strongest_groups(obj, names) == group.index)
+                if len(indices):
+                    chunks.append(evaluated_points(obj, graph, indices))
+    points = np.concatenate(chunks) if chunks else np.empty((0, 3))
+    if len(points) < 4:
+        return None
+    inverse = np.array((rig.matrix_world @ rig.pose.bones[bone].matrix).inverted())
+    local = points @ inverse[:3, :3].T + inverse[:3, 3]
+    centred = local - local.mean(0)
+    values, vectors = np.linalg.eigh(centred.T @ centred)
+    if values[2] < 9 * max(values[1], 1e-12):
+        return None  # Less than three times longer than wide: no clear blade or shaft direction.
+    axis = Vector(vectors[:, 2])
+    tip = Vector(local[np.argmax((local ** 2).sum(1))])
+    return axis if axis.dot(tip) >= 0 else -axis
+
+
+def weapon_turns(source, target, bone_map, stance, rotation, graph):
+    """Per mapped weapon bone, a turn in its own space that keeps its weapon parallel to the source's.
+
+    A mapped bone takes its source bone's rotation change from rest. Both weapon meshes are fixed to their
+    bones, so turning the target bone by the difference of the two long axes at rest keeps the blades parallel
+    at every frame, also where a game authored the two weapon bones with different axes.
+    """
+    turns = {}
+    for name, source_name in bone_map.items():
+        if not (matching.weapon_name(name) or carried_meshes(target, name)):
+            continue
+        if not (matching.weapon_name(source_name) or carried_meshes(source, source_name)):
+            continue
+        target_axis, source_axis = weapon_axis(target, name, graph), weapon_axis(source, source_name, graph)
+        if target_axis is None or source_axis is None:
+            continue
+        wanted = (target.data.bones[name].matrix_local.to_quaternion().inverted() @ stance.get(name, Quaternion()).inverted() @
+                  rotation @ source.data.bones[source_name].matrix_local.to_quaternion() @ source_axis)
+        turns[name] = target_axis.rotation_difference(wanted)
+    return turns
+
+
+def subtree(bones, name):
+    return {name} | {child.name for child in bones[name].children_recursive}
+
+
+def thin(points, cell):
+    """One point per grid cell, so a dense mesh costs no more than a coarse one."""
+    if not len(points):
+        return points
+    _, first = np.unique(np.floor(points[:, :3] / cell).astype(np.int64), axis=0, return_index=True)
+    return points[np.sort(first)]
+
+
+def body_geometry(rig, body, graph):
+    """The torso and hand geometry of a rig's meshes, for keep_clear; None without a torso to keep clear of.
+
+    The torso is the mesh that the hips, the spine and the bones above them deform most, so cloth, limbs and
+    the head are left out. A hand's points are the vertices that the hand, its fingers or a weapon bone in it
+    deform most, and the meshes those bones carry; each point stays fixed to its bone.
+    """
+    hips, spine, bones = body.get(('', 'hips')), body['spine'], rig.data.bones
+    if not hips or not spine or not body.get('forward'):
+        return None
+    torso = {hips, *spine} | {parent.name for name in (hips, spine[0]) for parent in bones[name].parent_recursive}
+    sides = {}
+    for side in 'LR':
+        chain = [body.get((side, role)) for role in ('upperarm', 'forearm', 'hand')]
+        if all(chain) and chain[1] in subtree(bones, chain[0]) and chain[2] in subtree(bones, chain[1]):
+            heads = [bones[name].head_local for name in chain]
+            sides[side] = dict(chain=chain, arm=(heads[1] - heads[0]).length + (heads[2] - heads[1]).length,
+                               held=subtree(bones, chain[2]), points=[])
+    if not sides:
+        return None
+    holder = {name: side for side, item in sides.items() for name in item['held']}
+    cell = min(item['arm'] for item in sides.values()) / 50
+    names, to_rig = set(bones.keys()), rig.matrix_world.inverted()
+    chunks, faces, offset = [], [], 0
+    for obj, armature in deformers(rig):
+        mesh = obj.data
+        if not len(mesh.vertices):
+            continue
+        coordinates = np.empty(len(mesh.vertices) * 3)
+        mesh.vertices.foreach_get('co', coordinates)
+        premat = np.array(armature.matrix_world.inverted() @ obj.matrix_world)
+        rest = np.c_[coordinates.reshape(-1, 3) @ premat[:3, :3].T + premat[:3, 3], np.ones(len(mesh.vertices))]
+        post = np.array(to_rig @ armature.matrix_world)
+        # A bind adapter's bones follow the rig's bones of the same name from its own rest pose.
+        known = names & set(armature.data.bones.keys())
+        groups = {group.index: group.name for group in obj.vertex_groups if group.name in known}
+        influences = [[(groups[item.group], item.weight) for item in vertex.groups if item.group in groups and item.weight > 0]
+                      for vertex in mesh.vertices]
+        strongest = [max(items, key=lambda item: item[1])[0] if items else '' for items in influences]
+        selected = [i for i, name in enumerate(strongest) if name in torso]
+        if selected:
+            used = sorted({name for i in selected for name, weight in influences[i]})
+            column = {name: k for k, name in enumerate(used)}
+            index = np.zeros((len(selected), max(len(influences[i]) for i in selected)), dtype=np.int64)
+            weight = np.zeros(index.shape)
+            for row, i in enumerate(selected):
+                total = sum(w for name, w in influences[i])
+                for k, (name, w) in enumerate(influences[i]):
+                    index[row, k], weight[row, k] = column[name], w / total
+            chunks.append(dict(names=used, index=index, weight=weight, rest=rest[selected], post=post,
+                               inverse_rest=np.array([np.array(armature.data.bones[name].matrix_local.inverted()) for name in used])))
+            remap = {i: offset + row for row, i in enumerate(selected)}
+            faces += [[remap[i] for i in polygon.vertices] for polygon in mesh.polygons
+                      if all(i in remap for i in polygon.vertices)]
+            offset += len(selected)
+        for name in {name for name in strongest if name in holder}:
+            indices = [i for i, other in enumerate(strongest) if other == name]
+            local = thin(rest[indices] @ np.array(armature.data.bones[name].matrix_local.inverted()).T, cell)
+            sides[holder[name]]['points'].append((name, local, post))
+    if not faces:
+        return None
+    for name, side in holder.items():
+        for obj in carried_meshes(rig, name):
+            world = evaluated_points(obj, graph)
+            inverse = np.array((rig.matrix_world @ rig.pose.bones[name].matrix).inverted())
+            local = np.c_[world @ inverse[:3, :3].T + inverse[:3, 3], np.ones(len(world))]
+            sides[side]['points'].append((name, thin(local, cell), np.identity(4)))
+    return dict(chunks=chunks, faces=faces, sides=sides, torso=torso)
+
+
+def skin(chunks, poses):
+    """The torso's vertices in armature space at one pose: linear blend skinning, as the Armature modifier does."""
+    result = []
+    for chunk in chunks:
+        matrices = np.array([np.array(poses[name]) for name in chunk['names']]) @ chunk['inverse_rest']
+        moved = np.zeros((len(chunk['rest']), 3))
+        for k in range(chunk['index'].shape[1]):
+            moved += chunk['weight'][:, k, None] * np.einsum('nij,nj->ni', matrices[chunk['index'][:, k], :3], chunk['rest'])
+        post = chunk['post']
+        result.append(moved @ post[:3, :3].T + post[:3, 3])
+    return np.concatenate(result)
+
+
+def farthest(tree, point, direction, limit):
+    """Distance along a direction to the last torso surface within limit, or None when there is none."""
+    travelled, last, step = 0.0, None, limit * 1e-5
+    for _ in range(32):
+        hit = tree.ray_cast(point + direction * travelled, direction, limit - travelled)
+        if hit[0] is None:
+            break
+        last = travelled + hit[3]
+        travelled = last + step
+        if travelled >= limit:
+            break
+    return last
+
+
+def inside(tree, point, forward, limit):
+    """A point is inside the torso when torso surface lies both ahead of and behind it."""
+    return tree.ray_cast(point, forward, limit)[0] is not None and tree.ray_cast(point, -forward, limit)[0] is not None
+
+
+def escape(tree, points, directions, limit):
+    """Per direction, the shortest move along it that takes every point out of the torso, or None where none does.
+
+    Each point leaves past the last torso surface in that direction, so clothing layers count as one body.
+    Returns None when no point is inside.
+    """
+    forward, step = directions[0], limit * 1e-4
+    caught = [point for point in points if inside(tree, point, forward, limit)]
+    if not caught:
+        return None
+    result = []
+    for direction in directions:
+        distances = [farthest(tree, point, direction, limit) for point in caught]
+        if None in distances:
+            result.append(None)  # A side opening in the torso mesh; this way out is not certain.
+            continue
+        need = max(distances)
+        for _ in range(3):
+            # Past one surface a point can still be inside another part of the torso; move on in the same direction.
+            moved = [point + direction * (need + step) for point in caught]
+            more = [farthest(tree, point, direction, limit) for point in moved if inside(tree, point, forward, limit)]
+            more = [distance for distance in more if distance is not None]
+            if not more:
+                break
+            need += step + max(more)
+        result.append(need)
+    return result
+
+
+def ease(values, reach):
+    """Widen each frame's push to its neighbours, then average twice: smooth ramps that still reach every push."""
+    count = len(values)
+    widened = [max(values[max(0, i - reach):i + reach + 1]) for i in range(count)]
+    half = reach // 2  # Two averages over half the widening keep every frame at or above its own push.
+    for _ in range(2 if half else 0):
+        widened = [sum(widened[max(0, i - half):i + half + 1]) / len(widened[max(0, i - half):i + half + 1]) for i in range(count)]
+    return widened
+
+
+def move_hand(poses, chain, held, upper_part, fore_part, shift):
+    """Move a hand by shift through two-bone IK: the elbow stays in its plane and the hand keeps its rotation.
+
+    A goal beyond the arm's reach leaves the arm straight, pointing at it.
+    """
+    upper, fore, hand = chain
+    shoulder, elbow, wrist = poses[upper].translation, poses[fore].translation, poses[hand].translation
+    a, b = (elbow - shoulder).length, (wrist - elbow).length
+    goal = wrist + shift
+    reach = goal - shoulder
+    d = min(max(reach.length, abs(a - b) + 1e-6), a + b - 1e-6)
+    u = reach.normalized()
+    bend = (elbow - shoulder) - u * (elbow - shoulder).dot(u)
+    bend = bend.normalized() if bend.length > 1e-6 * a else u.orthogonal().normalized()
+    cosine = max(-1.0, min(1.0, (a * a + d * d - b * b) / (2 * a * d)))
+    new_elbow = shoulder + (u * cosine + bend * math.sqrt(1 - cosine * cosine)) * a
+    new_wrist = shoulder + u * d
+    turn_upper = (elbow - shoulder).rotation_difference(new_elbow - shoulder)
+    turn_fore = (turn_upper @ (wrist - elbow)).rotation_difference(new_wrist - new_elbow) @ turn_upper
+    moves = ((upper_part, Matrix.Translation(shoulder) @ turn_upper.to_matrix().to_4x4() @ Matrix.Translation(-shoulder)),
+             (fore_part, Matrix.Translation(new_elbow) @ turn_fore.to_matrix().to_4x4() @ Matrix.Translation(-elbow)),
+             (held, Matrix.Translation(new_wrist - wrist)))
+    for names, move in moves:
+        for name in names:
+            poses[name] = move @ poses[name]
+
+
+def merged(first, second):
+    """Per direction, the push that clears both hands, or None where either cannot leave that way."""
+    if first is None or second is None:
+        return first or second
+    return [None if a is None or b is None else max(a, b) for a, b in zip(first, second)]
+
+
+def runs(flags):
+    """(start, end) of each stretch of consecutive true flags, end excluded."""
+    result, start = [], None
+    for index, flag in enumerate(list(flags) + [False]):
+        if flag and start is None:
+            start = index
+        elif not flag and start is not None:
+            result.append((start, index))
+            start = None
+    return result
+
+
+def torso_frames(rig, body, geometry, pose_frames):
+    """Per frame: the torso's ways out, its surface as a BVH tree, a ray length beyond its size, and per hand the
+    points within half an arm of the wrist and within the torso's bounds.
+
+    The ways out are forward, back and both sideways in the torso's frame. A bone scaled below 1%, as
+    FromSoftware clips hide unused weapons, carries no points. The tree is None when no hand has points there.
+    """
+    spine, bones = body['spine'][0], rig.data.bones
+    rest_turn = bones[spine].matrix_local.to_quaternion().inverted()
+    to_rig = rig.matrix_world.to_quaternion().inverted()
+    forward_rest = (to_rig @ Vector(body['forward'])).normalized()
+    across_rest = forward_rest.cross((to_rig @ Vector((0, 0, 1))).normalized()).normalized()
+    for poses in pose_frames:
+        turn = poses[spine].to_quaternion() @ rest_turn
+        forward, across = turn @ forward_rest, turn @ across_rest
+        torso = skin(geometry['chunks'], poses)
+        low, high = torso.min(0), torso.max(0)
+        near = {}
+        for side, item in geometry['sides'].items():
+            wrist = np.array(poses[item['chain'][2]].translation)
+            points = [(np.array(poses[name]) @ local.T)[:3].T @ post[:3, :3].T + post[:3, 3]
+                      for name, local, post in item['points'] if max(poses[name].to_scale()) >= .01]
+            points = np.concatenate(points) if points else np.empty((0, 3))
+            points = points[(((points - wrist) ** 2).sum(1) < (.5 * item['arm']) ** 2) & np.all((points > low) & (points < high), axis=1)]
+            near[side] = [Vector(point) for point in points]
+        tree = BVHTree.FromPolygons(torso.tolist(), geometry['faces']) if any(near.values()) else None
+        yield (forward, -forward, across, -across), tree, float(np.linalg.norm(high - low)) * 1.5, near
+
+
+def source_clipping(source, body, geometry, source_frames, target_geometry, bone_map):
+    """Per target hand and frame, how deep the matching source hand and what it holds go into the source's own
+    torso, scaled to the target by the ratio of arm lengths: the clipping that the source animation has.
+
+    The depth is the deepest point's distance to the nearest torso surface. The way out along one direction
+    can be far longer where clothing wraps around the hand: 12 cm for Isshin's left hand, whose deepest point
+    lies 4 cm inside his kimono.
+    """
+    depths = {side: [] for side in geometry['sides']}
+    for directions, tree, limit, near in torso_frames(source, body, geometry, source_frames):
+        for side, points in near.items():
+            depths[side].append(max((tree.find_nearest(point)[3] for point in points if inside(tree, point, directions[0], limit)),
+                                    default=0.0))
+    allowed = {}
+    for side, item in target_geometry['sides'].items():
+        match = next((other for other, source_item in geometry['sides'].items()
+                      if source_item['chain'][2] == bone_map.get(item['chain'][2])), None)
+        if match:
+            allowed[side] = [depth * item['arm'] / geometry['sides'][match]['arm'] for depth in depths[match]]
+    return allowed
+
+
+def keep_clear(rig, body, geometry, pose_frames, rate, allowed=None):
+    """Move each hand out of the torso where it, or what it holds, would go in; returns what moved per hand.
+
+    allowed gives, per hand and frame, how deep the hand may stay: as deep as the source's own hand goes into
+    the source's body, so clipping that the source animation already has stays. A hand whose shortest way out
+    is no longer than that is left alone. Otherwise a push takes out the rest of the way, forward, back or
+    sideways in the torso's frame, so no point stays deeper; where the source's hand is clear of its body,
+    the push goes 2% of the arm's length further. Each stretch of frames in contact keeps one direction, the
+    one whose largest push is smallest, so the hand does not switch sides. Each push is widened to its
+    neighbours over 0.2 s and averaged, so it eases in and out and
+    still covers every frame. Hands that come close together within a stretch, as on one hilt, are pushed
+    as one for all of it. A push longer than 35% of the arm is left out and reported, since a hand that far
+    inside is not a matter of proportions.
+    """
+    bones = rig.data.bones
+    sides = geometry['sides']
+    for item in sides.values():
+        upper, fore, hand = item['chain']
+        item['fore_part'] = subtree(bones, fore) - item['held']
+        item['upper_part'] = subtree(bones, upper) - subtree(bones, fore)
+    count = len(pose_frames)
+    allowed = {side: allowed[side] if allowed and side in allowed else [0.0] * count for side in sides}
+    options = {side: [None] * count for side in sides}
+    frames = []
+    for t, (directions, tree, limit, near) in enumerate(torso_frames(rig, body, geometry, pose_frames)):
+        frames.append(directions)
+        for side, points in near.items():
+            need = escape(tree, points, directions, limit) if points else None
+            if need is None or min((value for value in need if value is not None), default=math.inf) <= allowed[side][t]:
+                continue
+            # A source hand that touches its body leaves the target's touching too; a clear one, clear by the margin.
+            floor = allowed[side][t] or -.02 * sides[side]['arm']
+            options[side][t] = [None if value is None else value - floor for value in need]
+    reach = max(1, round(.2 * rate))
+    spread = reach + 2 * (reach // 2)  # How far ease() carries a push beyond its own frame.
+    together = [False] * count
+    if len(sides) == 2:
+        span = .4 * min(item['arm'] for item in sides.values())
+        close = [(poses[sides['L']['chain'][2]].translation - poses[sides['R']['chain'][2]].translation).length < span
+                 for poses in pose_frames]
+        together = [any(close[max(0, t - spread):t + spread + 1]) for t in range(count)]
+    stretches = []  # (sides pushed alike, first frame, choices per frame)
+    for start, end in runs(any(options[side][t] is not None for side in sides) for t in range(count)):
+        if len(sides) == 2 and any(together[start:end]):
+            stretches.append((list(sides), start, [merged(options['L'][t], options['R'][t]) for t in range(start, end)]))
+            continue
+        for side in sides:
+            for first, last in runs(options[side][t] is not None for t in range(start, end)):
+                stretches.append(([side], start + first, options[side][start + first:start + last]))
+    channels = {side: [[0.0] * count for _ in range(4)] for side in sides}
+    for item in sides.values():
+        item['unresolved'] = []
+    for pushed, start, choices in stretches:
+        arm = min(sides[side]['arm'] for side in pushed)
+        whole = [index for index in range(4) if all(choice[index] is not None for choice in choices)]
+        steady = min(whole, key=lambda index: max(choice[index] for choice in choices)) if whole else None
+        for t, choice in enumerate(choices, start):
+            valid = [(push, index) for index, push in enumerate(choice) if push is not None]
+            push, index = (choice[steady], steady) if steady is not None else min(valid) if valid else (math.inf, 0)
+            for side in pushed:
+                if push > .35 * arm:
+                    sides[side]['unresolved'].append(t + 1)
+                else:
+                    channels[side][index][t] = push
+    shifts = {}
+    for side in sides:
+        eased = [ease(values, reach) if any(values) else values for values in channels[side]]
+        shifts[side] = [sum((direction * channel[t] for direction, channel in zip(frames[t], eased)), Vector()) for t in range(count)]
+    moves = {side: [] for side in sides}
+    for side, item in sides.items():
+        for t, poses in enumerate(pose_frames):
+            if shifts[side][t].length > 1e-7:
+                move_hand(poses, item['chain'], item['held'], item['upper_part'], item['fore_part'], shifts[side][t])
+                moves[side].append((t + 1, shifts[side][t].length))
+    # How deep each hand still goes where the source's own hand goes into its body too.
+    kept = dict.fromkeys(sides, 0.0)
+    shared = [t for t in range(count) if any(allowed[side][t] > 0 for side in sides)]
+    for t, (directions, tree, limit, near) in zip(shared, torso_frames(rig, body, geometry, [pose_frames[t] for t in shared])):
+        for side, points in near.items():
+            if allowed[side][t] > 0:
+                kept[side] = max([kept[side]] + [tree.find_nearest(point)[3] for point in points if inside(tree, point, directions[0], limit)])
+    report, scale = [], uniform_scale(rig)
+    for side, item in sides.items():
+        moved = moves[side]
+        if moved or item['unresolved'] or kept[side] * scale >= .001:
+            report.append(dict(side=side, hand=item['chain'][2], frames=[t for t, length in moved],
+                               largest=max((length for t, length in moved), default=0.0) * scale, kept=kept[side] * scale,
+                               unresolved=item['unresolved']))
+    return report
+
+
+def spans(frames):
+    """Frame numbers as ranges, such as 3–7, 12."""
+    parts, start = [], None
+    for frame, following in zip(frames, list(frames[1:]) + [None]):
+        start = frame if start is None else start
+        if following != frame + 1:
+            parts.append(f'{start}–{frame}' if frame > start else str(frame))
+            start = None
+    return ', '.join(parts)
+
+
 def bake(scene, settings):
     source, target = settings.source, settings.target
     if not source or not target or source == target:
@@ -366,6 +853,14 @@ def bake(scene, settings):
     for obj, current in replaced:
         assign_action(obj, base_action if obj == target else base_root)
     try:
+        scene.frame_set(1)
+        bpy.context.view_layer.update()
+        graph = bpy.context.evaluated_depsgraph_get()
+        weapons = weapon_turns(source, target, bone_map, stance, rotation, graph)
+        geometry = body_geometry(target, target_body, graph) if settings.body_clearance else None
+        # The source's own torso and hands show the clipping that its animation already has.
+        source_geometry = body_geometry(source, source_body, graph) if geometry else None
+        source_frames = []
         # Sample both rigs before assigning a new action; the original target clip
         # supplies animation for bones that deliberately remain unmapped.
         for i in range(count):
@@ -374,6 +869,8 @@ def bake(scene, settings):
             scene.frame_set(whole, subframe=source_frame - whole)
             bpy.context.view_layer.update()
             source_poses = {bone.name: source.pose.bones[bone.name].matrix.copy() for bone in source.data.bones}
+            if source_geometry:
+                source_frames.append(source_poses)
             if src_root:
                 source_root_samples.append((src_root.location.copy(), src_root.rotation_euler.copy()))
             scene.frame_set(i + 1)
@@ -395,7 +892,8 @@ def bake(scene, settings):
                 keywords = dict(parent_matrix=parent_pose, parent_matrix_local=target_rest[bone.parent.name]) if bone.parent else {}
                 if name in bone_map or name == carrier:
                     if name in bone_map:
-                        orientation = turn(bone_map[name]) @ stance.get(name, Quaternion()) @ target_rest[name].to_quaternion()
+                        orientation = (turn(bone_map[name]) @ stance.get(name, Quaternion()) @ target_rest[name].to_quaternion() @
+                                       weapons.get(name, Quaternion()))
                     else:
                         # An unmapped carrier turns with the source bone above its hips and spine.
                         orientation = turn(source_carrier) @ target_rest[name].to_quaternion()
@@ -455,6 +953,8 @@ def bake(scene, settings):
                            for location, euler in source_root_samples]
         elif mode == 'TARGET':
             root_values = [(location.copy(), euler.z) for location, euler in target_root_samples]
+        allowed = source_clipping(source, source_body, source_geometry, source_frames, geometry, bone_map) if source_geometry else None
+        clearance = keep_clear(target, target_body, geometry, pose_frames, rate, allowed) if geometry else []
 
         channels, previous, keyed = {}, {}, set()
         tracked = {b.name for b in target.pose.bones if 'hkx_track_index' in b}
@@ -536,9 +1036,24 @@ def bake(scene, settings):
         if untracked:
             warnings.append(f'{len(untracked)} mapped bones have no HKX track in the target clip; '
                             'export with the "Original tracks + keyed bones" track set to include them.')
+        notes = [f"{name} turned {math.degrees(turn.angle):.0f}° so that its weapon points like the source's."
+                 for name, turn in sorted(weapons.items()) if math.degrees(turn.angle) >= .5]
+        for item in clearance:
+            hand = 'Left' if item['side'] == 'L' else 'Right'
+            if item['frames']:
+                notes.append(f"{hand} hand kept out of the body on frames {spans(item['frames'])}, by up to {item['largest'] * 100:.1f} cm.")
+            if item['kept'] >= .001:
+                notes.append(f"{hand} hand keeps up to {item['kept'] * 100:.1f} cm of clipping where the source's own hand goes into its body.")
+            if item['unresolved']:
+                warnings.append(f"{hand} hand left inside the body on frames {spans(item['unresolved'])}: "
+                                'it goes in too deep to move out through the arm.')
+        if any(item['frames'] for item in clearance) and not source_geometry:
+            notes.append('The source has no body mesh to compare with, so clipping already in its animation was removed too.')
         result = dict(source=source.name, target=target.name, mapped=len(bone_map), frames=count, scale=factor,
                       action=action.name, root_motion=mode, rest_mode=settings.rest_mode, carrier=carrier or '',
-                      keyed=len(keyed), untracked=untracked, warnings=warnings,
+                      keyed=len(keyed), untracked=untracked, warnings=warnings, notes=notes, clearance=clearance,
+                      source_clipping=source_geometry is not None,
+                      weapons={name: round(math.degrees(turn.angle), 1) for name, turn in weapons.items()},
                       method='World-space FK from the source rest pose' + (' with matched rest stances' if align else '') +
                              '; target proportions retained')
         scene['sekiro_retarget_report'] = json.dumps(result)

@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 3, 0), 'blender': (4, 5, 0),
+    'version': (0, 4, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget', 'category': 'Animation',
     'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, add a control rig and export HKX',
 }
@@ -89,6 +89,10 @@ class SKR_Settings(PropertyGroup):
     travel_scale: FloatProperty(name='Travel scale',default=1.0,min=.01,max=20.0)
     body_translation: BoolProperty(name='Move body with source hips', default=True,
         description='The bone above the target hips and spine follows the source hips, so legs and upper body move together')
+    body_clearance: BoolProperty(name='Keep hands out of the body', default=True,
+        description='Where a hand, or what it holds, would go into the target torso deeper than the source\'s hand goes '
+                    'into its own body, move it out through the arm, easing in and out; for a target with a thicker body '
+                    'than the source')
     timing: EnumProperty(name='Clip timing', items=[
         ('SOURCE','Use source length','Update target metadata to the source duration'),
         ('TARGET','Fit target length','Resample source motion across the target clip length')], default='SOURCE')
@@ -127,7 +131,7 @@ def build_mapping(settings):
         raise ValueError('Choose two different armatures.')
     def infos(rig):
         return retarget.rig_bones(rig,retarget.bone_infos(rig,settings.tracked_only))
-    rows = mapping.match_bones(infos(settings.source),infos(settings.target))
+    rows = mapping.match_bones(infos(settings.source),infos(settings.target),retarget.hidden_bones(settings.source))
     settings.rows.clear()
     for item in rows:
         row=settings.rows.add()
@@ -278,7 +282,7 @@ class SKR_OT_bake(Operator):
         try:
             result=retarget.bake(context.scene,settings)
             settings.status=(f"Baked {result['frames']} frames from {result['mapped']} mapped bones; travel scale {result['scale']:.3f}; "
-                             f"root motion {result['root_motion'].lower()}."+''.join(' '+warning for warning in result['warnings']))
+                             f"root motion {result['root_motion'].lower()}."+''.join(' '+line for line in result['notes']+result['warnings']))
             if not settings.export_path and bpy.data.filepath:
                 clip=(retarget.read_motion(settings.target) or {}).get('clip','')
                 if clip:settings.export_path='//'+Path(clip).stem+'.hkx'
@@ -482,7 +486,7 @@ class SKR_PT_panel(Panel):
         layout.prop(settings,'rest_mode');layout.prop(settings,'root_motion')
         if settings.root_motion in ('AUTO','EXTRACT'):layout.prop(settings,'root_yaw')
         layout.prop(settings,'unmapped');layout.prop(settings,'timing')
-        layout.prop(settings,'body_translation');layout.prop(settings,'auto_scale')
+        layout.prop(settings,'body_translation');layout.prop(settings,'body_clearance');layout.prop(settings,'auto_scale')
         if not settings.auto_scale:layout.prop(settings,'travel_scale')
         row=layout.row();row.enabled=bool(settings.rows)
         row.operator('sekiro_retarget.bake',icon='ACTION')

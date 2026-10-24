@@ -9,8 +9,10 @@ the finger nearest the front, and a bone takes the side of the limb it belongs
 to. Spine and neck chains are matched by their position below the head, so
 chains of different lengths still line up, and fingers by finger and segment.
 A bone between two matched bones in both hierarchies is matched structurally,
-and a helper beside a matched parent by a shared name part. Uncertain bones
-stay unassigned with a suggestion for review.
+a helper beside a matched parent by a shared name part, and a weapon bone in a
+matched hand by the weapon bone in the other rig's hand, leaving out weapons
+that the source clip hides. Uncertain bones stay unassigned with a suggestion
+for review.
 """
 from collections import Counter
 from dataclasses import dataclass
@@ -50,6 +52,11 @@ FINGERS = {'thumb': 0, 'index': 1, 'middle': 2, 'mid': 2, 'ring': 3, 'pinky': 4,
 LIMBS = ('clavicle', 'upperarm', 'forearm', 'hand', 'thigh', 'calf', 'foot', 'toe')
 # Rigify names its whole torso spine.NNN: hips, three spine bones, two neck bones and the head.
 RIGIFY_TORSO = ['hips', 'spine', 'spine', 'spine', 'neck', 'neck', 'head']
+# A weapon held in the hand: Sekiro's R_Weapon dummy, an enemy's R_Katana. Storage bones such as
+# Katana_Saya_Storage and B_Wepon_Case hold a sheathed weapon elsewhere on the body.
+WEAPONS = {'weapon', 'wepon', 'wpn', 'katana', 'sword', 'blade', 'yari', 'spear', 'lance', 'axe', 'hammer', 'mace',
+           'club', 'gun', 'bow', 'staff', 'dagger', 'knife', 'whip', 'scythe', 'sickle', 'naginata', 'halberd'}
+STORAGE = {'storage', 'case', 'saya', 'sheath', 'scabbard', 'holster', 'quiver'}
 
 
 def words(name):
@@ -80,6 +87,12 @@ def semantic(name):
     side, stem = identity(name)
     letters = re.sub(r'\d+', '', stem)
     return side, ROLES.get(letters, CONTEXT.get(letters, letters))
+
+
+def weapon_name(name):
+    """Whether a bone name says it holds a weapon (R_Weapon, R_Katana) rather than storing one (Katana_Saya_Storage)."""
+    tokens = set(words(name))
+    return bool(tokens & WEAPONS) and not tokens & STORAGE
 
 
 def sub(a, b):
@@ -462,6 +475,18 @@ class Rig:
     def finger(self, name):
         return self.fingers.get(name)
 
+    def held(self, hand):
+        """Weapon bones below a hand, outside its fingers."""
+        found, stack = [], list(self.children.get(hand, ()))
+        while stack:
+            name = stack.pop()
+            if self.finger(name):
+                continue
+            if weapon_name(name):
+                found.append(name)
+            stack.extend(self.children.get(name, ()))
+        return found
+
     def position(self, name):
         """Rest position relative to the hips in leg lengths (left, forward, up), or None."""
         if not self.body:
@@ -493,13 +518,15 @@ def assignment(target, source, confidence, reason):
     return dict(target=target, source=source, confidence=confidence, reason=reason, suggestion='')
 
 
-def match_bones(source, target):
+def match_bones(source, target, hidden=()):
     """Return one row per target; uncertain fuzzy suggestions stay unassigned.
 
     Left/right differences are forbidden. Source bones are used at most once.
     Anatomical roles and chains come before exact names, so a FromSoftware
     L_Shoulder helper cannot take Mixamo's LeftShoulder clavicle, and a
     three-bone spine maps its chest onto a two-bone spine's top bone.
+    Source bones in hidden, such as the weapons that an enemy's clip scales
+    to zero, are not taken as the weapon in a hand.
     """
     source_bones, target_bones = list(source), list(target)
     src, dst = Rig(source_bones), Rig(target_bones)
@@ -584,6 +611,20 @@ def match_bones(source, target):
     unique_phase(lambda info: info.key, 1.0, 'Same normalized name')
     unique_phase(lambda info: (info.side, ROLES.get(info.letters, info.letters)), .94, 'Common bone-name alias')
 
+    # The weapon in a matched hand: Sekiro's R_Weapon dummy takes an enemy's R_Katana. Isshin's hand also
+    # holds R_Gun and R_Katana_Wire; his clip hides the gun, and the katana is the hand's own child. Only a
+    # single weapon bone on each side is matched; the bake turns weapons with meshes so that blades point alike.
+    for side in ('L', 'R'):
+        hand = dst.roles.get((side, 'hand'))
+        if hand not in assigned:
+            continue
+        targets = [name for name in dst.held(hand) if name not in assigned]
+        sources = [name for name in src.held(assigned[hand]['source']) if name not in used and name not in hidden]
+        direct = [name for name in sources if src.bones[name].parent == assigned[hand]['source']]
+        sources = direct if len(sources) > 1 and len(direct) == 1 else sources
+        if len(targets) == 1 and len(sources) == 1:
+            assign(targets[0], sources[0], .9, 'Weapon in the matched hand')
+
     changed = True
     while changed:
         changed = False
@@ -651,11 +692,13 @@ def counterpart(name, bones):
 
 
 def anatomy(bones):
-    """Role -> bone name for hips, head and limbs, plus the spine and neck chains, used by the retarget."""
+    """Role -> bone name for hips, head and limbs, plus the spine and neck chains and the direction the
+    rest pose faces (None when the body is not found), used by the retarget."""
     rig = Rig(bones)
     result = dict(rig.roles)
     result['spine'] = rig.chain('spine')
     result['neck'] = rig.chain('neck')
+    result['forward'] = rig.body['forward'] if rig.body else None
     return result
 
 

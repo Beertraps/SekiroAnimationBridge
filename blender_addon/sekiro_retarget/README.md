@@ -1,10 +1,10 @@
-# Sekiro Retarget Assistant 0.3.0
+# Sekiro Retarget Assistant 0.4.0
 
 An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand. The bridge's own import and export need no add-on.
 
 ## Install
 
-In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.3.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
+In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.4.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
 
 The add-on needs no external Python libraries, account or network connection. To export HKX from Blender it uses the Animation Bridge on this computer and finds it by itself: the bridge records its folder each time its UI or CLI runs, and the conversion Python comes from the bridge's settings. The add-on preferences show what was found and can override both paths. This version was exercised in Blender 4.5.14; other Blender versions have not been run.
 
@@ -26,7 +26,7 @@ Bone names do not have to match. The matcher uses three kinds of evidence:
 - **Anatomy.** The hierarchy and rest positions of each rig identify the hips, spine, neck, head, arms, legs, hands, feet and fingers, also in rigs with meaningless names such as `Bone_017`. Chains of different length are matched end to end, so a three-bone spine maps onto a two-bone spine chest to chest.
 - **Position.** Left and right come from the rest position when the names do not tell them.
 
-Helper bones (twist, weapon, cloth and similar) are matched by name only, and only below matched parents. A source bone is used at most once. Uncertain matches stay suggestions until you accept them. Percentages describe match strength, not measured probabilities.
+Helper bones (twist, cloth and similar) are matched by name only, and only below matched parents. A weapon bone in a matched hand, such as Sekiro's `R_Weapon` dummy, takes the weapon bone in the source's matching hand, such as an enemy's `R_Katana`. Weapons that the source clip hides by shrinking them to almost nothing do not count, so Isshin's gun and spear stay out; of several that remain, the hand's own child wins. Bones that store a weapon on the body, such as `Katana_Saya_Storage`, are not weapons in the hand. A source bone is used at most once. Uncertain matches stay suggestions until you accept them. Percentages describe match strength, not measured probabilities.
 
 On synthetic test rigs of 15 conventions (Mixamo, Unreal, 3ds Max Biped, VRoid, Character Creator, Rigify, Daz, two FromSoftware styles, and six rigs with scrambled bone names), every core body bone matched in every pairing.
 
@@ -37,6 +37,7 @@ On synthetic test rigs of 15 conventions (Mixamo, Unreal, 3ds Max Biped, VRoid, 
 - **Unmapped bones.** *Keep target animation* keeps the original clip's motion for cloth, face, weapon and other unmapped bones. *Rest pose* holds them at rest; for bridge rigs, rest is the HKX reference pose.
 - **Clip timing.** *Use source length* gives the clip the source's duration. *Fit target length* resamples the source over the target clip's length.
 - **Move body with source hips** and **Scale travel by leg length** control body travel; see below.
+- **Keep hands out of the body** (on by default). Where a hand, or what it holds, would go into the target's torso, the hand is moved out through its arm; see below. It needs the target's character mesh in the scene.
 
 ## How the bake works
 
@@ -45,6 +46,22 @@ Each mapped bone takes its source bone's world-space rotation change from the so
 Body travel goes to the bone above both the hips and the spine: Root in Dark Souls III and Sekiro enemies, RootPos in Sekiro, Dark Souls III and Elden Ring player rigs, and Master in Dark Souls (DS1) player rigs. Legs and upper body therefore move together. Unmapped bones between that bone and the hips or spine follow it rigidly; bones above it hold their rest pose. Travel is scaled by the ratio of hip heights above the feet, or by a manual scale.
 
 The new action keys the mapped bones, the bones that carry the body and the target clip's tracks. It keys any other bone only if it moved by more than 0.01 mm or 0.001 degrees. A mapped bone without a track in the target clip gets a warning: export with **Original tracks + keyed bones** to include it.
+
+### Weapons
+
+When a mapped weapon bone and its source bone both carry a clearly elongated mesh, the target bone is turned in its own space so that its blade points like the source's. The target's weapon is the mesh on its bridge weapon socket; the source's may also be the vertices its weapon bone deforms most, as with an enemy's katana inside the character mesh. Wolf's `R_Weapon` and Isshin's `R_Katana` differ by 6°; bones authored along other axes can differ by 90°. The status lists each turn.
+
+### Body clearance
+
+The target keeps its own proportions, so a source with a thinner body or longer arms can hold its hands closer to its body than the target's mesh allows. With **Keep hands out of the body**, the bake finds, frame by frame, where the hand meshes, the fingers and what the hands carry come within half an arm of the wrist and inside the torso: the mesh that the hips and spine deform most, without arms, legs, head or cloth bones. It also measures how deep the source's own hands and weapons go into the source's torso, as the distance from their deepest point to the nearest surface, so clipping that the source animation already has, such as a hilt pressed into a sash, stays at the target's size. A source without a body mesh is not compared, and then all clipping is removed. Where the target's hand goes in deeper than the source's, the bake moves it out through a two-bone arm solve that keeps the elbow in its plane and the hand's rotation:
+
+- The push takes out what goes deeper than the source's own hand, scaled by the ratio of arm lengths. Where the source's hand is clear of its body, it goes 2% of the arm's length further; where the source's hand touches its body, the target's ends touching too.
+- Each stretch of frames in contact gets one direction, forward, back or sideways in the torso's frame, the one whose largest push is smallest.
+- Pushes ease in and out over 0.2 s, so the frames around the contact move too, and every frame still gets at least its own push.
+- Hands that come close together within a stretch, as on one hilt, move as one.
+- A push longer than about a third of the arm is left out and reported, since that is not a matter of proportions. An arm that would have to be longer than it is stays straight, pointing toward the push.
+
+The status lists the frames each hand moved, the largest push and how much of the source's own clipping a hand keeps. Arms, legs and heads can still pass into each other; the control rig helps with that cleanup.
 
 ## Export
 
@@ -79,6 +96,6 @@ Arms and legs get IK where the matcher finds them; other skeletons get FK contro
 
 ## Current scope
 
-The retarget bake transfers humanoid FK animation. It does not solve foot contacts, hand-to-weapon alignment, cloth or facial animation; the control rig's IK limbs help with that cleanup by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
+The retarget bake transfers humanoid FK animation. It aligns held weapons and keeps hands out of the torso, but it does not solve foot contacts, a hand reaching for something other than its own weapon, cloth or facial animation; the control rig's IK limbs help with that cleanup by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
 
 Mapped target bones must have no active constraints, and target NLA tracks must be muted. The bake adds no live constraints or handlers; the control rig adds constraints and drivers to its armature, and **Remove control rig** takes them away again. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.
