@@ -244,6 +244,8 @@ class Layout:
     def __getattr__(self, name):
         if name in ('row', 'column', 'grid_flow'):
             return lambda *args, **kwargs: Layout(self.drawn)
+        if name == 'separator':
+            return lambda *args, **kwargs: None
         raise AttributeError(name)
 
     def label(self, text='', **kwargs):
@@ -418,7 +420,7 @@ def main():
 
     # Mirroring twice, through the operator and its panel row, gives the original back.
     drawn = []
-    sekiro_retarget.SKR_PT_control_rig.draw(SimpleNamespace(layout=Layout(drawn)), SimpleNamespace(object=rig, scene=scene))
+    sekiro_retarget.SKR_PT_control_rig.draw(SimpleNamespace(layout=Layout(drawn)), SimpleNamespace(object=rig, scene=scene, region=SimpleNamespace(width=300)))
     assert 'sekiro_retarget.mirror_animation' in drawn, drawn
     rig.select_set(True)
     bpy.context.view_layer.objects.active = rig
