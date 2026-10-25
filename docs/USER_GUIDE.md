@@ -65,6 +65,17 @@ Reading a character inventories its ANIBND members, identifies skeletons by char
 
 Binder member paths cannot write outside the cache, and a second scan reuses unchanged archive extractions. Scans run in a separate process and can be cancelled from the activity bar. A collected folder needs a new scan after its files change.
 
+### Import by weapon part
+
+For a Sekiro source, **Part animations** beside **Source library** starts from a weapon instead of a character. It lists the clips of an animated weapon part and the player animations that each clip plays in, so that you can import a weapon's clip with an animation that plays it. See [Animated weapon parts](#animated-weapon-parts) for what these clips are.
+
+1. On **Import animation**, choose **Part animations**. **Weapon parts** lists the source's weapon parts that have clips, with their names from the game and how many clips they have.
+2. Choose a part. **Part clips** lists its clips, such as `a076_412000_1` for the umbrella's model `WP_A_0760_1`, with the number of animations that play each one. A part with several animated models, such as Divine Abduction, lists the clips under each model's name. A clip that no player animation plays shows *not played*.
+3. Choose a clip. **Plays in** lists the player animations that play it, each with its archive and the reason: *same ID*, an ID that the part's own TAE gives the clip, or an ID that Wolf's TAE gives the same body clip, such as *TAE of C0000: a076_412000 plays a070_412000*. These are the pairings of [Part clips on import](#part-clips-on-import), read the other way round, so the import keys the clip that you chose.
+4. Choose an animation. It is selected for import together with the weapon part, and **Animate weapon parts** is turned on. The scene panel and the **Preview** block show the animation as in **Source library**. Check **Save scene as** and click **Create Blender scene**.
+
+A game folder reads Wolf's animation archives the first time that you choose a part. In a collected folder, a part pairs with Wolf's animations in the same folder, as the parts of an import from **Source library** do. The rest pose, `a999_000000`, plays in every animation without a clip of its own and is not listed. The arrow keys, Home and End move through each list, and `/` jumps to the part clip search. The view remembers the part and the clip for each source.
+
 ### Clip preview
 
 The **Preview** block at the top of the scene panel plays the chosen animation as a skeleton before you import it: bones as lines and joints as dots over a floor grid, upright as in Blender. It shows a clip from a source as soon as its files are matched, and individual files once the animation and the skeleton are chosen.
@@ -197,6 +208,8 @@ With **Animate weapon parts** on, the import keys each selected weapon with the 
 1. The part's clip with the same ID. The part's own TAE can give an ID another clip: the umbrella's `a076_405033` plays `a076_421020_1`.
 2. A clip whose ID plays the same body clip in the character's TAE. Wolf's TAE gives the prosthetic tools' `a07X_412000` the body clip `a070_412000`, so with `a070_412000` the umbrella plays `a076_412000_1` and the Loaded Axe `a073_412000_1`; a clip in the tool's own animation category comes first. A source finds the TAE in the character's `c0000.anibnd.dcx`. Individual files skip this step.
 3. Otherwise the part holds its rest pose, `a999_000000`, which every animation without a clip of its own shares. It is not keyed.
+
+To start from a part's clip instead and find the animations that play it, use [Import by weapon part](#import-by-weapon-part).
 
 The **Preview** block lists the clip that each selected weapon plays and why; the activity log names them too, and the import result counts them. A part clip is keyed on the weapon's own rig, the hidden `<MODEL> | Weapon rig` armature under its socket, in an action named `<MODEL> | <clip>`, such as `WP_A_0760_1 | a076_405010_1`. The rig gains every bone of the part's skeleton. A part clip keeps its own frame rate on the scene's timeline: a 30 fps part clip in a 60 fps scene is keyed on every second frame. Edit it like any action.
 

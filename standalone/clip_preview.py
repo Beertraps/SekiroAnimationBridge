@@ -1,5 +1,8 @@
 """Skeleton preview of a clip for the bridge UI, and the part clips that play with it.
 
+The part view asks the other way round: the clips of a Sekiro weapon part, each
+with the player clips that it plays with.
+
 The HKX decoder reads the clip; each bone's world position per frame is sent to
 the page in game space (Y up), rounded to 0.1 mm, with the root motion. Nothing is
 written beside the inputs: decoded files go to a temporary folder, and results are
@@ -162,3 +165,91 @@ def part_rows(catalog, clip_id, animation, models, oodle=''):
     rows = plan(models, Path(animation).name, tae, character)
     return dict(clip=Path(animation).name, character=character, tae=bool(tae),
                 parts=[{k: row[k] for k in ('name', 'binder', 'member', 'id', 'reason', 'rest')} for row in rows])
+
+
+def sekiro_parts(catalog):
+    """A source's weapon parts from Sekiro, the only game whose part clips the part view pairs.
+
+    A structured source with Auto detect learns its game when the player is read.
+    """
+    from part_animations import PLAYER, WEAPON
+    player = next((c for c in catalog.get('characters', []) if c.get('id') == PLAYER), {})
+    fallback = (player.get('game') or '') if catalog.get('layout') in ('game', 'custom') else ''
+    return [p for p in catalog.get('parts', []) if WEAPON.fullmatch(p['id']) and (p.get('game') or fallback) == 'sekiro']
+
+
+def animated_parts(catalog, oodle=''):
+    """The Sekiro weapon parts of a source that hold animated models, for the UI's part view."""
+    from part_animations import REST, WEAPON, part_binders
+    use_oodle(oodle)
+    parts, notices, read = [], [], 0
+    for part in sekiro_parts(catalog):
+        path = Path(part['path'])
+        if not path.is_file():
+            continue
+        read += 1
+        try:
+            binders = part_binders(path)
+        except Exception as exc:
+            notices.append(f'{path.name}: {exc}')
+            continue
+        models = [dict(model=model, name=model.upper(), clips=sum(ident != REST for ident in binder['clips']))
+                  for model, binder in sorted(binders.items()) if WEAPON.fullmatch(model)]
+        models = [m for m in models if m['clips']]
+        if models:
+            parts.append(dict(id=part['id'], name=part['name'], path=part['path'], role=part.get('role', ''),
+                              models=models, clips=sum(m['clips'] for m in models)))
+    return dict(parts=parts, notices=notices, read=read)
+
+
+def part_matches(catalog, path, oodle=''):
+    """Each clip of a Sekiro weapon part with the player clips it plays with, for the UI's part view.
+
+    The part is looked up by its path in the catalog, so a request cannot name
+    another file. A clip is listed under a player clip only when the import of
+    that player clip keys it: the pairing is the import's, asked for every
+    player clip. A collected folder pairs a part with the player clips beside it.
+    """
+    from part_animations import (PLAYER, REST, WEAPON, animation_id, character_binder, character_tae, clip_name,
+                                 pairings, part_binders, players_of)
+    part = next((p for p in sekiro_parts(catalog) if p['path'] == str(path)), None)
+    if part is None:
+        raise ValueError('Choose a Sekiro weapon part from the scanned source.')
+    use_oodle(oodle)
+    if catalog.get('layout') in ('game', 'custom'):
+        entry = next((c for c in catalog['characters'] if c.get('id') == PLAYER), None)
+        key, inventoried = (PLAYER, bool(entry.get('inventoried'))) if entry else ('', False)
+    else:
+        key, inventoried = '|'.join(('sekiro', part['scope'], PLAYER)), True
+    clips = [c for c in catalog['clips'] if key and c.get('characterKey') == key and c.get('game') == 'sekiro']
+    # The import reads the TAE that character_binder() finds for its clip; a source
+    # whose folders hold several base archives can give clips different ones.
+    found, groups = {}, {}
+    for clip in clips:
+        ident = animation_id(clip['name'])
+        if ident is None:
+            continue
+        place = (tuple(clip.get('inputArchives') or ()), str(Path(clip.get('archive') or clip.get('path') or '.').parent))
+        if place not in found:
+            found[place] = character_binder(catalog, clip)
+        groups.setdefault(found[place], {}).setdefault(ident, []).append(clip)
+    taes = {binder: character_tae(binder) for binder in groups}
+    players, models = {binder: players_of(tae) for binder, tae in taes.items()}, []
+    for model, part_binder in sorted(part_binders(part['path']).items()):
+        if not WEAPON.fullmatch(model):
+            continue
+        matches = {}
+        for binder, bodies in groups.items():
+            for ident, pairs in pairings(part_binder, bodies, taes[binder], PLAYER, players[binder]).items():
+                matches.setdefault(ident, []).extend(
+                    dict(clip=c['id'], name=c['name'], archive=Path(c.get('archive') or c.get('path') or '').name,
+                         reason=reason, ready=bool(c.get('ready'))) for body, reason in pairs for c in bodies[body])
+        rows = []
+        for ident in sorted(i for i in part_binder['clips'] if i != REST):
+            listed = sorted(matches.get(ident, ()), key=lambda m: (m['reason'] != 'same ID', m['name'].lower(), m['archive'].lower()))
+            rows.append(dict(id=clip_name(ident), member=part_binder['clips'][ident], matches=listed))
+        if rows:
+            models.append(dict(model=model, name=model.upper(), binder=part_binder['binder'],
+                               rest=part_binder['clips'].get(REST), clips=rows))
+    return dict(part=part['id'], name=part['name'], path=part['path'], characterKey=key, character=PLAYER,
+                inventoried=inventoried, playerClips=len(clips), tae=any(taes.values()), models=models)

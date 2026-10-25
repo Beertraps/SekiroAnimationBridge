@@ -10,6 +10,10 @@ part without a clip for the current ID holds a999_000000, its rest pose.
 No TAE event starts a part animation in Sekiro's TAE template; the pairing above
 follows the IDs and was checked on every animated prosthetic tool. Events that
 hide a weapon or move it to another dummy are not read.
+
+The UI's part view reads the same pairing backwards: pairings() runs
+choose_clip() over every clip of the player, so a clip it lists is the one the
+import keys.
 """
 from __future__ import annotations
 import re
@@ -22,6 +26,8 @@ REST = 999_000_000
 TAE_VERSIONS = (0x1000D,)
 CLIP = re.compile(r'a(\d{2,3})_(\d{6})(?:_\d+)?(?:\.hkx)?', re.I)
 WEAPON = re.compile(r'wp_[a-z]_\d{4,6}(?:_\d+)?', re.I)
+# Sekiro's part clips carry the player's TAE IDs.
+PLAYER = 'c0000'
 _CACHE = {}
 
 
@@ -72,6 +78,14 @@ def played_hkx(tae, ident):
             return source
         ident = source
     return ident
+
+
+def players_of(tae):
+    """The IDs of a character TAE by the HKX that each one plays."""
+    result = {}
+    for ident in tae:
+        result.setdefault(played_hkx(tae, ident), []).append(ident)
+    return result
 
 
 def binder_tae(binder):
@@ -158,12 +172,13 @@ def read_part(data, name):
     return part
 
 
-def choose_clip(body, part, tae, character=''):
+def choose_clip(body, part, tae, character='', players=None):
     """The ID of the part clip that plays with the character clip body, and why; None when there is none.
 
     The same ID comes first. Then a character TAE ID that plays the body clip's
     HKX, preferring the part's own animation category (Wolf's a076_412000 plays
     a070_412000, and the umbrella has a076_412000_1). Last, the rest pose.
+    players is players_of(tae), for a caller that pairs many clips with one TAE.
     """
     clips, own = part['clips'], part['tae']
 
@@ -176,7 +191,7 @@ def choose_clip(body, part, tae, character=''):
             return same, 'same ID' if same == body else f'its TAE plays {clip_name(same)} for {clip_name(body)}'
         categories = Counter(ident // 1_000_000 for ident in clips if ident != REST)
         category = categories.most_common(1)[0][0] if categories else None
-        players = sorted((ident for ident in tae if ident != body and played_hkx(tae, ident) == body),
+        players = sorted((ident for ident in (players_of(tae) if players is None else players).get(body, ()) if ident != body),
                          key=lambda ident: (ident // 1_000_000 != category, ident))
         label = f'TAE of {character.upper()}' if character else 'the character TAE'
         for ident in players:
@@ -188,13 +203,29 @@ def choose_clip(body, part, tae, character=''):
     return None
 
 
+def pairings(part, bodies, tae, character='', players=None):
+    """The character clips that each clip of a part plays with: {part clip ID: [(body ID, reason)]}.
+
+    choose_clip() asked for every body clip ID, so that importing a listed body
+    clip keys the part clip it is listed under. The rest pose is left out: it
+    plays with every body clip that the part has no clip for.
+    """
+    players = players_of(tae) if players is None else players
+    result = {}
+    for body in sorted(set(bodies)):
+        chosen = choose_clip(body, part, tae, character, players)
+        if chosen is not None and chosen[0] != REST:
+            result.setdefault(chosen[0], []).append((body, chosen[1]))
+    return result
+
+
 def plan(models, clip, tae, character=''):
     """Which clip each animated weapon model of the chosen part files plays with a character clip.
 
     models are part binder or FLVER paths; clip is the character clip's file name.
     Rows name the model, its animation binder, the chosen member and the reason.
     """
-    body, rows = animation_id(clip), []
+    body, rows, players = animation_id(clip), [], players_of(tae)
     for path in models:
         # Only weapon part binders hold animated models; outfit binders are not read for this.
         if not WEAPON.match(Path(path).name) or not Path(path).is_file():
@@ -202,7 +233,7 @@ def plan(models, clip, tae, character=''):
         for model, part in part_binders(path).items():
             if not WEAPON.fullmatch(model):
                 continue
-            chosen = choose_clip(body, part, tae, character)
+            chosen = choose_clip(body, part, tae, character, players)
             if chosen is None:
                 continue
             ident, reason = chosen

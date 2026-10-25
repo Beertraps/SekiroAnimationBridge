@@ -266,6 +266,15 @@ class Handler(BaseHTTPRequestHandler):
                     catalog=load_catalog(path,data['folder'])
                 return self.send_json(part_rows(catalog,data.get('clip',''),str(data.get('animation') or ''),
                                                 [str(p) for p in data.get('models') or []],CONFIG.get('oodle','')))
+            if self.path in ('/api/part-list','/api/part-matches'):
+                # The part view: Sekiro's animated weapon parts of a scanned source, and the player clips a part's clips play with.
+                from asset_discovery import load_catalog
+                from clip_preview import animated_parts, part_matches
+                path=Path(data['path']).resolve()
+                if path.parent != (HOME/'work/asset-cache/catalogs').resolve(): raise ValueError('Invalid folder catalog.')
+                catalog=load_catalog(path,data['folder'])
+                if self.path=='/api/part-list': return self.send_json(animated_parts(catalog,CONFIG.get('oodle','')))
+                return self.send_json(part_matches(catalog,str(data.get('part') or ''),CONFIG.get('oodle','')))
             if self.path=='/api/scan':
                 if data.get('files'):
                     parts=[dict(id=asset_id(p),name=asset_id(p).upper(),role=ROLES.get(asset_id(p).split('_')[0],'Extra model'),path=p,selected=True,container='Model file') for p in data['files']]
