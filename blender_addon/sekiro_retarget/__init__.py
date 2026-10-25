@@ -16,7 +16,7 @@ from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProp
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from mathutils import Matrix
-from . import control_rig, export, fixes, mapping, retarget
+from . import control_rig, export, fixes, mapping, mirror, retarget
 
 
 def armature_poll(self, obj):
@@ -559,6 +559,26 @@ class SKR_OT_remove_control_rig(Operator):
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 
+class SKR_OT_mirror_animation(Operator):
+    bl_idname='sekiro_retarget.mirror_animation'
+    bl_label='Mirror animation'
+    bl_description=('Add a left-right mirrored copy of the armature\'s action, with mirrored root motion, and play it, '
+                    'so a right-handed slash becomes left-handed. The original action is kept')
+    bl_options={'REGISTER','UNDO'}
+    @classmethod
+    def poll(cls,context):
+        if control_rig.present(control_rig.target(context)):
+            cls.poll_message_set('Remove the control rig first; you can add it again after mirroring.');return False
+        return control_rig.target(context) is not None
+    def execute(self,context):
+        try:
+            result=mirror.mirror(context,control_rig.target(context))
+            self.report({'WARNING'} if result['warnings'] else {'INFO'},mirror.summary(result))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
 class SKR_OT_control_rig_switch(Operator):
     bl_idname='sekiro_retarget.control_rig_switch'
     bl_label='Switch IK/FK'
@@ -880,6 +900,7 @@ class SKR_PT_control_rig(Panel):
         if not rig:
             text(layout,context,'Select the armature to pose, such as the target after a bake.',icon='INFO');return
         layout.label(text=rig.name,icon='ARMATURE_DATA')
+        layout.operator('sekiro_retarget.mirror_animation',icon='MOD_MIRROR')
         if not control_rig.present(rig):
             text(layout,context,'Adds controls to pose the arms and legs, in FK or with IK that keeps hands and feet in '
                                 'place. The game bones follow the controls, so export works as before.')
@@ -959,7 +980,7 @@ class SKR_PT_fixes(Panel):
 
 CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,
     SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_save_map,
-    SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
+    SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_mirror_animation,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
     SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
 # The steps of the retarget panel, after it and in the order they are shown.
 CLASSES+=(SKR_PT_rigs,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_arms,SKR_PT_bake_weapons,
