@@ -25,6 +25,9 @@ own body stays: only what goes deeper, at the target's size, is moved out.
 A source with a wider body holds its arms out to clear it: where its arm
 stands close to its body, the target's arm turns in at the shoulder until it
 stands as close to the target's torso, at the target's size.
+FromSoftware's foot target chains stand upright on the feet, as in the game's
+clips: each keeps its rest pose, moved as one so that its target sits on the
+foot, and the target turns with the foot.
 """
 import base64
 import contextlib
@@ -1058,7 +1061,9 @@ def bake(scene, settings):
                 if parent.name not in bone_map:
                     connectors.add(parent.name)
         connectors.update(parent.name for parent in bones[carrier].parent_recursive if parent.name not in bone_map)
-    computed = set(bone_map) | connectors | ({carrier} if carrier else set())
+    targets = matching.foot_targets(rig_bones(target))
+    columns = set(targets) | {link for foot, chain in targets.values() for link in chain}
+    computed = set(bone_map) | connectors | ({carrier} if carrier else set()) | columns
     for name in computed:
         if any(not c.mute and c.influence > 0 for c in target.pose.bones[name].constraints):
             raise ValueError('Disable existing constraints on target bone ' + name + ' before baking.')
@@ -1249,6 +1254,24 @@ def bake(scene, settings):
         allowed = source_clipping(source, source_body, source_geometry, source_frames, geometry, bone_map) \
             if clearing and source_geometry else None
         clearance = keep_clear(target, target_body, geometry, pose_frames, rate, allowed) if clearing else []
+        # Last, once the feet are final: FromSoftware's foot target chains stand on the feet, as on every frame of the
+        # game's clips, whatever the source's own targets do. Each chain keeps its rest pose and moves as one, without
+        # turning, so that its target sits on the foot, and the target turns with the foot.
+        offsets = {name: target_rest[foot].inverted_safe() @ target_rest[name] for name, (foot, chain) in targets.items()}
+
+        def at_rest(name, poses):
+            bone = bones[name]
+            keywords = dict(parent_matrix=poses[bone.parent.name], parent_matrix_local=target_rest[bone.parent.name]) if bone.parent else {}
+            return bone.convert_local_to_pose(still[name], target_rest[name], **keywords)
+        for poses in pose_frames:
+            for name, (foot, chain) in targets.items():
+                for link in chain:
+                    poses[link] = at_rest(link, poses)
+                goal = poses[foot] @ offsets[name]
+                shift = goal.translation - at_rest(name, poses).translation
+                for link in chain:
+                    poses[link].translation += shift
+                poses[name] = goal
 
         channels, previous, keyed = {}, {}, set()
         tracked = {b.name for b in target.pose.bones if 'hkx_track_index' in b}
@@ -1355,12 +1378,16 @@ def bake(scene, settings):
         if settings.arm_gap and geometry and not wanted:
             reason = 'the source has no body mesh' if not source_geometry else 'no arm has a mesh in both rigs'
             notes.append(f'Arm distances to the body were not compared: {reason}.')
+        if targets:
+            notes.append(f"{' and '.join(sorted(targets))} follow the feet, with the bones above them standing upright "
+                         "over the feet, as in the game's clips.")
         result = dict(source=source.name, target=target.name, mapped=len(bone_map), frames=count, scale=factor,
                       action=action.name, root_motion=mode, rest_mode=settings.rest_mode, carrier=carrier or '',
                       keyed=len(keyed), untracked=untracked, warnings=warnings, notes=notes, clearance=clearance,
                       source_clipping=bool(clearing and source_geometry), closeness=closeness, arm_gaps=bool(wanted),
                       weapons={name: round(math.degrees(turn.angle), 1) for name, turn in weapons.items()},
                       placed={name: holder for name, (holder, anchor) in holds.items()}, hidden=hiding,
+                      foot_targets={name: targets[name][0] for name in sorted(targets)},
                       method='World-space FK from the source rest pose' + (' with matched rest stances' if align else '') +
                              '; target proportions retained')
         scene['sekiro_retarget_report'] = json.dumps(result)

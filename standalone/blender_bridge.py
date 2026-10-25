@@ -612,6 +612,31 @@ def default_root_bone(bones):
     return bones[0]["name"]
 
 
+def foot_targets(bones):
+    """FromSoftware's foot targets as indices: {target: (foot, [the bones above the target, from the top])}.
+
+    Each side hangs a straight chain from Master: L_Foot_Target2 at hip height,
+    L_Foot_Target1 at knee height and L_Foot_Target at the ankle, where L_Foot
+    rests. In the game's clips the chain stands on the foot like a column: it
+    keeps its rest pose and its upright rest rotation, moved as one so that
+    L_Foot_Target sits on the foot, and L_Foot_Target turns with the foot. The
+    game reads these bones, so a clip whose targets leave the feet can make a
+    foot snap when it blends into another clip.
+    """
+    keys = [re.sub(r"[^a-z0-9]", "", bone["name"].lower()) for bone in bones]
+    targets = {}
+    for index, key in enumerate(keys):
+        match = re.fullmatch(r"([lr])foottarget", key)
+        if not match or match.group(1) + "foot" not in keys:
+            continue
+        chain, parent = [], int(bones[index]["parent"])
+        while parent >= 0 and re.fullmatch(match.group(1) + r"foottarget\d+", keys[parent]):
+            chain.insert(0, parent)
+            parent = int(bones[parent]["parent"])
+        targets[index] = (keys.index(match.group(1) + "foot"), chain)
+    return targets
+
+
 def sample_times(start, end, scene_rate, rate):
     """Scene frames for evenly spaced output samples covering start..end in seconds."""
     if end <= start:
@@ -676,7 +701,9 @@ def export_motion(output_json: Path, **overrides):
     The evaluated pose is sampled, so constraints, drivers and NLA tracks are
     baked. Each track is written relative to its parent as the game computes it:
     a bone without a track keeps its reference pose in game, and its children
-    absorb any motion it has in Blender.
+    absorb any motion it has in Blender. FromSoftware's foot target chains
+    stand upright on the exported feet, as in the game's clips, whatever
+    Blender shows for them.
     """
     options = {**EXPORT_OPTIONS, **{key: value for key, value in overrides.items() if value is not None}}
     scene = bpy.context.scene
@@ -801,6 +828,16 @@ def export_motion(output_json: Path, **overrides):
                 if parent >= 0 and pose_bone.parent is not None and pose_bone.parent.name == names[parent] else None
                 for pose_bone, parent in zip(pose_bones, parents)]
     exported = set(track_bones)
+    # Foot target chains stand on the feet as exported, after root motion left them: each keeps its rest pose and moves
+    # as one, without turning, so that its target sits on the foot, and the target turns with the foot. They and the
+    # bones below them are placed once every other bone is, since the feet come later in the skeleton.
+    targets = foot_targets(bones)
+    placed = {index for target, (foot, chain) in targets.items() for index in (*chain, target)} & exported
+    rest_world = []
+    for index, parent in enumerate(parents):
+        rest_world.append(rest_world[parent] @ rest_local[index] if parent >= 0 else rest_local[index])
+    offsets = {target: rest_world[foot].inverted_safe() @ rest_world[target] for target, (foot, chain) in targets.items()}
+    after = [index for index in range(len(names)) if placed & set(ancestry(bones, index))]
     frames, previous = [], {}
     for world, basis, own in zip(worlds, bases, rotations):
         game_world, local = [], {}
@@ -814,6 +851,25 @@ def export_motion(output_json: Path, **overrides):
             else:
                 matrix = rest_local[index]
             game_world.append(game_world[parent] @ matrix if parent >= 0 else matrix)
+        wanted = {}
+        for target, (foot, chain) in targets.items():
+            top = parents[(chain or [target])[0]]
+            matrix, hanging = game_world[top] if top >= 0 else Matrix.Identity(4), {}
+            for index in (*chain, target):
+                matrix = hanging[index] = matrix @ rest_local[index]
+            wanted[target] = game_world[foot] @ offsets[target]
+            shift = Matrix.Translation(wanted[target].translation - hanging[target].translation)
+            wanted.update({index: shift @ hanging[index] for index in chain})
+        for index in after:
+            parent = parents[index]
+            above = game_world[parent].inverted_safe() if parent >= 0 else Matrix.Identity(4)
+            if index in placed:
+                matrix = local[index] = above @ wanted[index]
+            elif index in exported:
+                matrix = local[index] = above @ world[index]
+            else:
+                matrix = rest_local[index]
+            game_world[index] = game_world[parent] @ matrix if parent >= 0 else matrix
         frame = []
         for index in track_bones:
             location, rotation, scale = local[index].decompose()
@@ -840,7 +896,9 @@ def export_motion(output_json: Path, **overrides):
     summary = dict(action=action.name, frameStart=start, frameEnd=end, sceneRate=scene_rate, frames=count,
                    frameRate=rate, tracks=len(track_bones), trackSet=options["tracks"],
                    addedTracks=[names[index] for index in added], rootMotion=root_mode,
-                   rootBone=names[root_index] if root_index is not None else "", warnings=warnings)
+                   rootBone=names[root_index] if root_index is not None else "",
+                   footTargets={names[target]: names[foot] for target, (foot, chain) in sorted(targets.items()) if target in exported},
+                   warnings=warnings)
     edited["export"] = dict(summary, blender=bpy.app.version_string)
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(edited, separators=(",", ":")), encoding="utf-8")
@@ -849,6 +907,8 @@ def export_motion(output_json: Path, **overrides):
         action.name, start, end, count, rate, len(track_bones),
         " ({} added)".format(len(added)) if added else "", root_mode,
         " from " + summary["rootBone"] if root_index is not None else ""), flush=True)
+    if summary["footTargets"]:
+        print("Foot targets follow the feet: " + ", ".join(summary["footTargets"]), flush=True)
     for warning in warnings:
         print("WARNING: " + warning, flush=True)
     return summary

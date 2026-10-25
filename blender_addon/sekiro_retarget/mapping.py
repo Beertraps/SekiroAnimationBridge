@@ -749,3 +749,30 @@ def limb_links(bones):
         if child:
             links.append((name, child))
     return links
+
+
+def foot_targets(bones):
+    """FromSoftware's foot targets: {target: (foot, [the bones above the target, from the top])}.
+
+    Each side of a FromSoftware rig hangs a straight chain from Master: L_Foot_Target2 at hip height,
+    L_Foot_Target1 at knee height and L_Foot_Target at the ankle, where L_Foot rests. In the game's
+    clips the chain stands on the foot like a column: it keeps its rest pose and its upright rest
+    rotation, moved as one so that L_Foot_Target sits on the foot, and L_Foot_Target turns with the
+    foot. The game reads these bones, so a clip whose targets leave the feet can make a foot snap
+    when the game blends into another clip.
+    """
+    bones = list(bones)
+    named = {identity(bone.name): bone.name for bone in bones}
+    parents = {bone.name: bone.parent for bone in bones}
+    targets = {}
+    for bone in bones:
+        side, stem = identity(bone.name)
+        foot = named.get((side, 'foot'))
+        if not side or stem != 'foottarget' or not foot:
+            continue
+        chain, parent = [], parents[bone.name]
+        while parent in parents and identity(parent)[0] == side and re.fullmatch(r'foottarget\d+', identity(parent)[1]):
+            chain.insert(0, parent)
+            parent = parents[parent]
+        targets[bone.name] = (foot, chain)
+    return targets

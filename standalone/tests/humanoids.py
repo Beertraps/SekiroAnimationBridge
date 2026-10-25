@@ -247,6 +247,19 @@ def fromsoftware(arm_angle=45.0, layout='elden'):
     return build(joints, names, parents, extra)
 
 
+def with_foot_targets(bones):
+    """A FromSoftware-style rig with its foot target chains, as every Sekiro and Dark Souls III rig has them: from
+    Master straight down, L_Foot_Target2 at hip height, L_Foot_Target1 at knee height and L_Foot_Target on the foot."""
+    heads = {name: head for name, parent, head, label in bones}
+    extra = []
+    for side in 'LR':
+        x, y, z = heads[f'{side}_Foot']
+        extra += [(f'{side}_Foot_Target2', 'Master', (x, y, heads[f'{side}_Thigh'][2]), None),
+                  (f'{side}_Foot_Target1', f'{side}_Foot_Target2', (x, y, heads[f'{side}_Calf'][2]), None),
+                  (f'{side}_Foot_Target', f'{side}_Foot_Target1', (x, y, z), None)]
+    return list(bones) + extra
+
+
 CONVENTIONS = dict(mixamo=mixamo, unreal=unreal, biped=biped, vroid=vroid, character_creator=character_creator,
                    rigify=rigify, daz=daz, elden=lambda: fromsoftware(45, 'elden'), souls=lambda: fromsoftware(0, 'souls'))
 

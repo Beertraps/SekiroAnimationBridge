@@ -169,6 +169,21 @@ class MatchConventions(unittest.TestCase):
         self.assertEqual(rigify[('', 'hips')], 'DEF-spine')
         self.assertEqual(rigify[('L', 'upperarm')], 'DEF-upper_arm.L')
 
+    def test_foot_targets_follow_their_feet_with_the_chains_above_them(self):
+        for layout in ('elden', 'souls'):
+            with self.subTest(layout=layout):
+                rig = humanoids.with_foot_targets(humanoids.fromsoftware(45, layout))
+                self.assertEqual(mapping.foot_targets(bones(rig)), {
+                    'L_Foot_Target': ('L_Foot', ['L_Foot_Target2', 'L_Foot_Target1']),
+                    'R_Foot_Target': ('R_Foot', ['R_Foot_Target2', 'R_Foot_Target1'])})
+                # The chains drop from Master like legs, but the body keeps its own legs and feet.
+                body = mapping.anatomy(bones(rig))
+                self.assertEqual((body[('', 'hips')], body[('L', 'foot')], body[('R', 'foot')]), ('Pelvis', 'L_Foot', 'R_Foot'))
+        self.assertEqual(mapping.foot_targets(bones(humanoids.mixamo())), {})
+        # A target without a foot on its side is left alone.
+        lone = [mapping.Bone('Master'), mapping.Bone('L_Foot_Target', 'Master', (.1, 0, .1)), mapping.Bone('R_Foot', 'Master', (-.1, 0, .1))]
+        self.assertEqual(mapping.foot_targets(lone), {})
+
 
 if __name__ == '__main__':
     unittest.main()

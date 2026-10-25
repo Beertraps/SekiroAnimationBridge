@@ -1,4 +1,4 @@
-# Unreleased — retarget weapon hands and arm distance, two characters from one import, weapon part animations and clip preview
+# Unreleased — retarget weapon hands, arm distance and foot targets, two characters from one import, weapon part animations and clip preview
 
 ## Retarget: weapons in the other hand, weapons that rest away from the hand, and hidden weapons
 
@@ -17,6 +17,13 @@
 - On a copy of the review scene with Owl's clip on Wolf, the plain bake left Wolf's arms up to 13.8 cm (left) and 10.6 cm (right) farther from his torso than Owl's, at Wolf's size. With the option, the arms turned in by up to 26° and 20°, and from frame 17 on, away from the frames where the hands meet, each arm stood within 1.5 cm of Owl's gap, 0.5 cm on average. No forearm, hand or finger went into the torso.
 - New Blender test `blender_arm_gap.py`; see VERIFICATION.md.
 
+## Foot targets follow the feet
+
+- Every FromSoftware rig checked, from Sekiro and Dark Souls III, hangs a second, straight chain from `Master` on each side: `L_Foot_Target2` at hip height, `L_Foot_Target1` at knee height and `L_Foot_Target` at the ankle. In every game clip checked, the chain stands on its foot like an upright column: the last bone copies the foot, within 9 mm and 0.34°, while `L_Foot_Target2` stays upright directly above the foot, within 7 mm and 1.8°, and `L_Foot_Target1` keeps its rest offset below it. Modders who retarget through 3ds Max and Rokoko noticed these vertical bones and report feet that flip for a frame when the game blends between clips. A target that no longer sits on its foot is the likely cause, since the game reads these bones; this is not yet checked in game.
+- **Retarget bake**: each chain now stands on its foot on every frame, as in the game's clips: it keeps its rest pose and moves as one, without turning, so that `*_Foot_Target` sits on the foot, which it also turns with. That holds whatever the source's own targets do and whether or not they are mapped. Before, a source without the chain left the targets with the target's old clip or its rest pose. A FromSoftware source turned them like its own targets but left them at their rest offset from `Master`: on Owl's clip on Wolf, up to 1.13 m from the foot. The status lists the targets.
+- **Export**: the bridge's export, which the add-on also uses, writes each chain standing on the exported foot in the same way, also after root motion is taken from a bone. An edit that moves the feet in Blender now moves the targets with them. The export summary and the log list the targets.
+- New Blender test `blender_foot_targets.py` and a new matcher unit test; see VERIFICATION.md.
+
 ## Two characters from one import
 
 - **Retarget donor**: one import can bring a second clip and its character into the scene for the retarget add-on, from any source or game, so a retarget no longer needs a second import and **Append source .blend**. On the import page, pin the donor's animation with **Use this animation as the donor** in the new **Retarget donor** block, then choose the target's animation. The suggested scene name becomes `<target>_<clip>_from_<donor>_<clip>.blend`. On the command line, `-DonorAssetClip`, `-DonorAnimation` and the other `-Donor` options do the same; without a folder of its own, the donor reads the target's source.
@@ -32,6 +39,10 @@
 - **Part clip export**: **Also export part animations** on the export page, or `-ExportParts`, writes each animated part's clip beside the character's HKX under its member name, such as `a076_405010_1.hkx`. It is sampled over the same frames at the part clip's frame rate, in the character HKX's format, and read back. Replace it in the part's animation binder with WitchyBND; part clips are not yet tested in game.
 - **Clip preview**: the scene panel of the import page plays the chosen animation as a skeleton before the import, with play and pause, a frame slider, orbiting by dragging or with the arrow keys, and optional root motion. Below it, the preview lists the part clip that each selected weapon plays and why. Decoded previews are kept in `work\asset-cache\previews`.
 - New unit tests in `test_part_animations.py` and a new Blender test `blender_part_animations.py`; see VERIFICATION.md.
+
+## Browse
+
+- **The bridge stays in front after Browse**: after a choice in a Browse window, Windows could activate another application's window and put it over the bridge. The picker now hands the foreground back to the bridge window before its own windows close.
 
 # 0.8.0 — retarget: weapons and body clearance
 

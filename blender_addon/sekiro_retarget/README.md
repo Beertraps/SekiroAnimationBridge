@@ -97,6 +97,10 @@ The opposite happens too: a source whose body is wide for its arms holds them ou
 
 The arm distance comes before **Keep hands out of the body**, which can still move a hand out afterwards. A source without a body mesh is not compared, nor is an arm without a mesh in both rigs, and the status says so. The status lists the frames each arm turned, by how many degrees and how far the hand moved, and the frames it was kept for a grip. The option only brings arms in: on a target with a wider body than the source, an arm can still pass into the torso, and **Keep hands out of the body** moves only the hands.
 
+### Foot targets
+
+Sekiro and Dark Souls III rigs hang a straight chain from `Master` on each side: `L_Foot_Target2` at hip height, `L_Foot_Target1` at knee height and `L_Foot_Target` at the ankle, where the foot rests. In the game's clips the chain stands on the foot like an upright column: the target copies its foot on every frame, and the two bones above it keep their reference pose, upright, and move with it; the game most likely reads the targets for foot IK. A retarget that leaves a target off its foot can make the foot snap when the game blends into another clip. So the bake stands each chain on its foot on every frame, after everything else has placed the feet: the chain keeps its rest pose and moves as one, without turning, so that the target sits on the foot, which it also turns with. That happens whatever the source's own targets do, and whether or not their rows are mapped. The status lists the targets. Export does the same for any action, including edits made after the bake.
+
 ## Export
 
 **Export HKX** follows the same path as the bridge's export page. Blender samples the evaluated pose with the bridge's own exporter, so constraints, drivers and NLA tracks are baked. The bridge's conversion Python then writes the HKX with its Havok compatibility fixes and, with **Read back and compare**, decodes it again and reports the largest difference.
