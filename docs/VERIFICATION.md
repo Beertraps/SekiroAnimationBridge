@@ -1,6 +1,7 @@
 # Version 0.10.0 — 2026-10-25
 
 - On the release tree, Blender 4.5.14 with `--factory-startup` passes all thirteen scripts: the eleven of 0.9.0, the new `blender_fixes.py` and the new `blender_weapon_grips.py`. The 96 unit tests pass, and `app.js` and `preview.js` pass `node --check`.
+- Tagged run 40213498235 (v0.10.0, commit c1da6e5, windows-2025 runner, image windows-2025-vs2026) built the decoder and the release ZIP (302 files, 65,951,903 bytes). On a fresh profile the first start downloaded Python 3.13.16 and installed the 15 pinned packages; the UI reported the conversion libraries, the decoder and DCX ready and selected the packaged decoder. With the Visual C++ 2010 runtime installed, the 96 unit tests passed from the unpacked ZIP. The run published the release: `SekiroAnimationBridge-0.10.0-win-x64.zip` (65,951,903 bytes, with its `.sha256`) and `SekiroRetargetAssistant-0.6.0.zip` (93,040 bytes).
 
 ## Retarget: weapon grips and the second hand
 
