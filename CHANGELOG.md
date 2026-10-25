@@ -1,3 +1,12 @@
+# Unreleased — weapons follow the animation's sockets
+
+Part clips played on the wrong socket: the bridge kept every weapon model on the one dummy of WepAbsorpPosParam, while the game moves models between dummies and hides them with Wolf's TAE event 715. The opening Loaded Umbrella (`WP_A_0760_1`) sat on the forearm next to the folded one instead of in the left hand.
+
+- With **Auto · game socket** and a source that holds `c0000.anibnd.dcx`, the import reads event 715 of the animation, or of the TAE ID that a weapon's part clip was paired through, for the sword, the Mortal Blade, the grappling hook and the prosthetic tools. A weapon that the event moves follows the other socket's bone while the event lasts, and a model that the event hides, or that has no socket of its own, is hidden on those frames. Changes are keyed constant at the scene's frame rate.
+- In the scene, the weapon's rig hangs from a hidden `<MODEL> | Mount` under its socket, which copies one hidden `<MODEL> | Anchor <dummy>` per other socket by keyed constraint influence. The rig stays below the character, so the part export finds it as before.
+- The activity log names each weapon that moves, such as *Weapon place: WP_A_0760_1 follows event 715 of a076_405010: dummy 21 (L_Weapon) from 0.00 s*, and the import result counts *N weapons placed by the TAE*. A dummy that the model's FLVER lacks gives a notice, and the weapon stays on its own dummy.
+- Not covered: weapons with a placement chosen by hand, individual files without Wolf's TAE, other games, and events 710, 711 and 713.
+
 # Unreleased — retarget add-on panel review
 
 The Retarget Assistant's panels were reviewed in each of their states and reworked for animators new to Blender: the steps come in order, each says what it needs, and nothing is cut at the sidebar's default width. What the operators do, their names in scripts and the saved settings stay as in add-on 0.6.0, so scenes from 0.6.0 open with the same settings and scripts that call the operators keep working.

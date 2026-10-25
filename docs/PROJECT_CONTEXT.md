@@ -1,3 +1,19 @@
+# Unreleased — weapons follow TAE event 715
+
+- State: on branch weapon-locations, from main at 5fe4857, not merged or released. VERSION stays 0.10.0 and the add-on 0.6.0.
+- The user asked: "In this project it is possible to load "part animations" with a normal animation. This definitely does not work correctly. I think the part itself is not positioned/oriented correctly relative to the player skeleton. But there might also be other issues."
+- Findings:
+  - The orientation was right. DSAnimStudio's weapon transform for SDT turns the weapon a half turn about Y in the dummy's frame, the same as the bridge's `diag(-1, 1, -1)`, and the part keys matched the clips.
+  - The position was wrong because the bridge ignored Wolf's TAE event 715, OverrideWeaponModelLocation: u8 WeaponModelType (0 sword, 1 prosthetic, 2 Mortal Blade, 3 grappling hook), three pad bytes, then the dummy of models 0 to 3 as s32; -1 hides a model. Outside the event, WepAbsorpPosParam applies: prosthetic rows 7000–7900 give model 0 dummy 112–124 and models 1 to 5 dummy -1, so a tool's animated model is hidden by default.
+  - Real cases: in `a076_405010` the umbrella's model 1 sits on dummy 21 (L_Weapon) for the whole clip and model 0 is hidden; in `a070_412000` model 1 shows only from 0.2 to 0.467 s; the axe of `a073_400000` changes at 0.233 and 3.833 s; in `a000_710200` the Mortal Blade goes from 149 to 20 and back to 149, and Kusabimaru stays at 147 until 5.6 s.
+- Design:
+  - `part_animations.read_locations` reads the type-715 events per TAE ID; `choose_entry` tells which TAE ID a weapon's part clip came from, and `locate` writes `locations` (entry, changes, sockets) into the weapon's attachment in the character manifest. The slot comes from the model name: `wp_a_0300` 0, `wp_a_0700`–`0799` 1, `wp_a_0310` 2, `wp_a_9500` 3.
+  - Only `dummy` attachments with placement `auto` follow; a placement chosen by hand stays where the user put it. A model's second and later prosthetic models default to hidden.
+  - In Blender, a hidden mount empty under the socket carries the weapon's rig; one constraint per other dummy copies a hidden anchor under a socket that follows that dummy's bone, and the influence keys pick the socket. Following bones instead of baking frames keeps the weapon in the hand when the arm's animation changes, and keeps the rig among the character's children for the part export.
+  - `weapon_places` runs in `prepare()` whether or not Part animations is on, since the umbrella's model 1 is misplaced even without its clip.
+- Tests: unit tests for reading event 715, the slots, held and overlapping changes, `choose_entry` and `locate`; new Blender script `blender_weapon_locations.py` on an owned rig whose hand turns.
+- Open: events 710 (hide weapon), 711 and 713 (model masks) are not read. Individual files have no character TAE, so they keep the static placement.
+
 # Merged on main after 0.10.0, not released
 
 - State: the panel review, Mirror animation and the Part animations view (the three sections below) are merged into main as 106a450, 1d9f8d5 and 70ecc7b, without a release: VERSION stays 0.10.0 and the add-on 0.6.0. The bone links idea stays unmerged on its own branch, `bone-connections` (f425a2f).

@@ -1,3 +1,14 @@
+# Unreleased — weapons follow TAE event 715 — 2026-10-25
+
+- The 116 unit tests pass, and `app.js` and `preview.js` pass `node --check`. Blender 4.5.14 with `--factory-startup` passes all sixteen scripts, the new `blender_weapon_locations.py` among them.
+- `blender_weapon_locations.py`: on an owned rig whose L_Weapon bone turns, two models switch between dummy 118 on L_Forearm, dummy 21 on L_Weapon and hidden at 0.05 and 0.15 s. On frames 1 to 13 at 60 fps, visibility matched every change and the rigs' world matrices were within 1.8e-7 of bone times dummy, before and after saving and opening the scene.
+- Imports from the game files with Wolf's TAE and part animations on, checked in the activity log, the manifest and renders:
+  - `a076_405010`: `WP_A_0760_1` on dummy 21 the whole clip, `WP_A_0760` hidden; the opening umbrella is in the left hand.
+  - `a070_412000`, paired through `a076_412000`: model 1 shown only from 0.2 to 0.467 s.
+  - `a073_400000`: the axe changes socket at 0.233 and 3.833 s.
+  - `a000_710200`: the Mortal Blade goes from dummy 149 to 20 and back to 149; Kusabimaru stays on 147 until 5.6 s.
+- The part export (`-ExportParts`) of the umbrella scene is unchanged: 136,740 bytes, read back within 0.0000°.
+
 # Merged on main after 0.10.0 — 2026-10-25
 
 - After merging the panel review, Mirror animation and the Part animations view, with the mirror test's stand-in layout fitted to the reworked panels: the 109 unit tests pass, `app.js` and `preview.js` pass `node --check`, and Blender 4.5.14 with `--factory-startup` passes all fifteen scripts, the new `blender_panels.py` and `blender_mirror.py` among them.

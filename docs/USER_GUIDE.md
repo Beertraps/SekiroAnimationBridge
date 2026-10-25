@@ -191,7 +191,17 @@ Wolf’s body parts share the character skeleton. Separate weapon models have th
 
 The socket profiles are based on vanilla equipment/attachment parameters and c0000’s FLVER dummy data. Unknown prop/cutscene weapon profiles require an explicit placement instead of being left floating at the origin. Modded attachment geometry can be supplied through **Rig attachment model**, and custom dummy IDs can override the vanilla slot choice.
 
-Placement is a preview choice. Equipment state, TAE-driven draw/sheath changes, deployment of prosthetic mechanisms and secondary model visibility are not simulated; the weapons’ own animation clips are covered in [Animated weapon parts](#animated-weapon-parts). Auxiliary meshes retain their authored local rest pose. Shader approximation limits also apply.
+Placement is a preview choice. Equipment state is not simulated, but with a source that holds Wolf's `c0000.anibnd.dcx` the import follows the draw, sheath and prosthetic moves of the chosen animation; see [Weapons that the animation moves](#weapons-that-the-animation-moves). The weapons’ own animation clips are covered in [Animated weapon parts](#animated-weapon-parts). Auxiliary meshes retain their authored local rest pose. Shader approximation limits also apply.
+
+### Weapons that the animation moves
+
+In the game, an animation can move a weapon to another socket or hide one of its models while it plays: Wolf's TAE event 715. When the Loaded Umbrella opens (`a076_405010`), the folded umbrella on the prosthetic forearm (`WP_A_0760`, dummy 118) is hidden and the opening umbrella (`WP_A_0760_1`) sits in the left hand (dummy 21). Kusabimaru goes into its sheath while a prosthetic tool is out, and the Mortal Blade moves from the back to the right hand when it is drawn. A prosthetic tool's second and third models have no socket of their own, so they are hidden until an animation shows them.
+
+With **Auto · game socket**, the import does the same. It reads the events of the animation's ID in Wolf's TAE, or of the TAE ID that the weapon's part clip was paired through, such as `a076_412000` for `a070_412000`. The activity log names each weapon that moves, such as *Weapon place: WP_A_0760_1 follows event 715 of a076_405010: dummy 21 (L_Weapon) from 0.00 s*, and the import result counts them.
+
+In the scene, such a weapon's rig hangs from a hidden `<MODEL> | Mount` under its socket. The mount copies the hidden `<MODEL> | Anchor <dummy>` of another socket while that socket's constraint influence is keyed to 1, so the weapon follows the hand even when you change the arm's animation. Hiding is keyed on the weapon mesh's *Disable in Viewports* and *Disable in Renders*. Both are keyed constant on the frames of the events, at the scene's frame rate.
+
+This covers the sword (`wp_a_0300`), the Mortal Blade (`wp_a_0310`), the grappling hook (`wp_a_9500`) and the prosthetic tools (`wp_a_0700` to `wp_a_0799`). Other weapons, any weapon with a placement chosen by hand, individual files and other games keep their one socket. Events that hide a weapon (710) or a model mask (711, 713) are not read.
 
 Existing `.blend` scenes keep their previous preview setup until re-imported or repaired; updating the scripts does not modify saved scenes.
 
@@ -213,7 +223,7 @@ To start from a part's clip instead and find the animations that play it, use [I
 
 The **Preview** block lists the clip that each selected weapon plays and why; the activity log names them too, and the import result counts them. A part clip is keyed on the weapon's own rig, the hidden `<MODEL> | Weapon rig` armature under its socket, in an action named `<MODEL> | <clip>`, such as `WP_A_0760_1 | a076_405010_1`. The rig gains every bone of the part's skeleton. A part clip keeps its own frame rate on the scene's timeline: a 30 fps part clip in a 60 fps scene is keyed on every second frame. Edit it like any action.
 
-A clip that moves bones the weapon's model lacks is not keyed, and the activity log says so. TAE events that hide a weapon, swap its model masks or move it to another dummy are not applied.
+A clip that moves bones the weapon's model lacks is not keyed, and the activity log says so. Which socket the animated model sits on, and when it shows, comes from the animation's TAE; see [Weapons that the animation moves](#weapons-that-the-animation-moves). Without it, the umbrella's opening model would sit on the forearm next to the folded one instead of in the hand. TAE events that hide a weapon or swap its model masks are not applied.
 
 ### Part clips on export
 
@@ -349,6 +359,6 @@ UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
-To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py` and `blender_mirror.py`. `blender_weapons.py` and `blender_part_animations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
+To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py` and `blender_mirror.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on each version. The release ZIP contains no game assets or local settings; besides the source, it includes the prebuilt decoder and uv, listed in [CREDITS.md](../CREDITS.md).

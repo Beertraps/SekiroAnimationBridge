@@ -147,6 +147,19 @@ def part_clips(models, manifest, animation, game, decoder, work, tae_binder=None
     return report, notices
 
 
+def weapon_places(models, manifest, animation, game, tae_binder=None, character=''):
+    """Record where the character's TAE moves or hides each weapon model during the animation (event 715)."""
+    from part_animations import plan, locate, character_tae, character_locations
+    events = character_locations(tae_binder)
+    if game != 'sekiro' or not events:
+        return [], []
+    report, notices = locate(manifest, plan(models, Path(animation).name, character_tae(tae_binder), character),
+                             Path(animation).name, events, game)
+    for notice in notices:
+        print('NOTICE: ' + notice, flush=True)
+    return report, notices
+
+
 def part_outputs(blender, blend, motion, output, force, temp):
     """Sample every animated weapon part over the character's exported frames.
 
@@ -346,6 +359,10 @@ def convert(request):
                 if request.get('partAnimations', True):
                     report['partClips'], report['partNotices'] = part_clips(sources, manifest, animation, source_game, decoder,
                                                                              temp / 'parts', tae_binder, tae_character, event)
+                places, notices = weapon_places(sources, manifest, animation, source_game, tae_binder, tae_character)
+                if places or notices:
+                    report['weaponPlaces'] = places
+                    report['partNotices'] = report.get('partNotices', []) + notices
                 character = json.loads(manifest.read_text(encoding='utf-8'))
                 report.update(parts=len(character['models']), textures=character['texture_count'], warnings=character['warnings'],
                               vertices=sum(m['stats']['vertices'] for m in character['models']),

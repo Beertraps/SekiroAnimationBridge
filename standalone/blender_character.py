@@ -225,9 +225,78 @@ def weapon_rig(rig, preview, used, collection, name, attachment):
     for i in sorted(used):add(i)
     bpy.ops.object.mode_set(mode='OBJECT')
     local_rig.hide_set(True);local_rig.hide_render=True;socket.hide_set(True)
+    if attachment.get('locations'): follow_locations(rig, socket, local_rig, collection, name, attachment)
     bpy.context.view_layer.objects.active=rig;rig.select_set(True)
     print(f'{name}: attached independent weapon rig to {bone_name or "character root"}, {attachment.get("kind","dummy")} anchor {anchor}',flush=True)
     return local_rig
+
+
+def location_frames(changes):
+    """Scene frames of event 715's changes: the clip's first frame is scene frame 1, at the scene's frame rate."""
+    scene = bpy.context.scene
+    rate = scene.render.fps / scene.render.fps_base
+    return [(1 + float(time) * rate, int(dummy)) for time, dummy in changes]
+
+
+def constant_keys(owner):
+    action = owner.animation_data.action
+    # Blender 4.4+ keeps the curves of a layered action in channel bags.
+    layered = getattr(action, 'layers', None)
+    curves = [curve for layer in layered for strip in layer.strips for bag in strip.channelbags for curve in bag.fcurves] \
+        if layered else action.fcurves
+    for curve in curves:
+        for point in curve.keyframe_points:
+            point.interpolation = 'CONSTANT'
+
+
+def follow_locations(rig, socket, local_rig, collection, name, attachment):
+    """Move a weapon rig between dummies as the character's TAE event 715 does (see part_animations.locate).
+
+    A mount between the socket and the rig copies, with keyed influence, an anchor
+    under another dummy's socket; the anchor carries that dummy's attachment
+    relative to the socket's own, so the rig keeps its offset under the mount.
+    """
+    own = Matrix(attachment['matrix'])
+    frames = location_frames(attachment['locations']['changes'])
+    mount = bpy.data.objects.new(name.upper() + ' | Mount', None)
+    collection.objects.link(mount); mount.parent = socket; mount.empty_display_size = .02
+    local_rig.parent = mount
+    for key, other in attachment['locations']['sockets'].items():
+        if other['bone'] and other['bone'] not in rig.pose.bones:
+            print(f'{name}: dummy {key} needs {other["bone"]}, which this rig lacks; the weapon stays off it', flush=True)
+            continue
+        holder = bpy.data.objects.new(f'{name.upper()} | Socket {key}', None)
+        collection.objects.link(holder); holder.parent = rig; holder.empty_display_size = .035
+        follow = holder.constraints.new('COPY_TRANSFORMS'); follow.target = rig
+        follow.subtarget = other['bone']; follow.target_space = 'WORLD'; follow.owner_space = 'WORLD'
+        holder['sekiro_weapon_socket'] = int(key); holder['sekiro_socket_bone'] = other['bone']
+        anchor = bpy.data.objects.new(f'{name.upper()} | Anchor {key}', None)
+        collection.objects.link(anchor); anchor.parent = holder
+        anchor.matrix_basis = Matrix(other['matrix']) @ own.inverted()
+        moved = mount.constraints.new('COPY_TRANSFORMS'); moved.name = 'Dummy ' + key; moved.target = anchor
+        moved.target_space = 'WORLD'; moved.owner_space = 'WORLD'
+        for frame, dummy in frames:
+            moved.influence = float(dummy == int(key))
+            moved.keyframe_insert('influence', frame=frame)
+        holder.hide_set(True); anchor.hide_set(True)
+    if mount.animation_data:
+        constant_keys(mount)
+    mount.hide_set(True)
+    print(f'{name}: follows event 715 of {attachment["locations"]["entry"]} over dummies '
+          f'{", ".join(str(dummy) for _, dummy in frames)}', flush=True)
+
+
+def key_visibility(obj, attachment):
+    """Hide a weapon mesh on the frames where event 715 gives its model no dummy (-1)."""
+    frames = location_frames(attachment['locations']['changes'])
+    if all(dummy >= 0 for _, dummy in frames):
+        return
+    for frame, dummy in frames:
+        obj.hide_viewport = obj.hide_render = dummy < 0
+        obj.keyframe_insert('hide_viewport', frame=frame)
+        obj.keyframe_insert('hide_render', frame=frame)
+    constant_keys(obj)
+    obj.hide_viewport = obj.hide_render = frames[0][1] < 0
 
 
 def import_character(manifest_path, rig):
@@ -283,6 +352,7 @@ def import_character(manifest_path, rig):
             obj['sekiro_model_id'] = model['name']; objects.append(obj)
             if model.get('attachment'):
                 obj['sekiro_weapon_preview']=True;obj['sekiro_weapon_attachment']=json.dumps(model['attachment'])
+                if model['attachment'].get('locations'): key_visibility(obj, model['attachment'])
             print(f"Attached {obj.name}: {len(pos):,} vertices / {len(faces):,} faces", flush=True)
     text = bpy.data.texts.new('Sekiro Character Report.json')
     # Keep diagnostics, not paths to temporary geometry and PNG files which will be removed.
@@ -305,7 +375,7 @@ def setup_view(rig):
     scene.world.node_tree.nodes['Background'].inputs[1].default_value = .6
     scene.frame_set(1); bpy.context.view_layer.update()
     deps = bpy.context.evaluated_depsgraph_get()
-    points = [obj.matrix_world @ Vector(corner) for obj in scene.objects if obj.get('sekiro_flver_preview')
+    points = [obj.matrix_world @ Vector(corner) for obj in scene.objects if obj.get('sekiro_flver_preview') and not obj.hide_viewport
               for corner in obj.evaluated_get(deps).bound_box]
     low = Vector(tuple(min(p[i] for p in points) for i in range(3))) if points else Vector((0, 0, 0))
     high = Vector(tuple(max(p[i] for p in points) for i in range(3))) if points else Vector((0, 0, 2))

@@ -645,8 +645,9 @@ function renderPartClips(){
 }
 function partSummary(mode,r){
  if(mode==='import'){
-  const n=(r.partClips||[]).filter(p=>!p.rest).length,notes=(r.partNotices||[]).length;
-  return (n?` · ${plural(n,'part clip')}`:'')+(notes?` · ${plural(notes,'part notice')} (see Activity)`:'');
+  const n=(r.partClips||[]).filter(p=>!p.rest).length,notes=(r.partNotices||[]).length,moved=(r.weaponPlaces||[]).length;
+  return (n?` · ${plural(n,'part clip')}`:'')+(moved?` · ${plural(moved,'weapon')} placed by the TAE`:'')
+   +(notes?` · ${plural(notes,'part notice')} (see Activity)`:'');
  }
  return r.parts?.length?' · '+r.parts.map(p=>p.clip).join(', '):'';
 }

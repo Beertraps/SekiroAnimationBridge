@@ -13,17 +13,30 @@ from clip_preview import detached, joint_positions, matrix
 
 
 def tae(entries, version=0x1000D):
-    """A minimal TAE: each animation gives (ID, 'own' | 'hkx' | 'other', source ID)."""
+    """A minimal TAE: each animation gives (ID, 'own' | 'hkx' | 'other', source ID[, events]).
+
+    An event is (type, start s, end s, slot, (dummy of model 0, ..., 3)), laid out as event 715.
+    """
     data = bytearray(0x60 + 16 * len(entries))
     data[:4] = b'TAE '
     struct.pack_into('<i', data, 8, version)
     struct.pack_into('<i', data, 0x54, len(entries))
     struct.pack_into('<q', data, 0x58, 0x60)
-    for index, (ident, kind, source) in enumerate(entries):
-        animation = len(data); data += bytearray(32)
+    for index, (ident, kind, source, *rest) in enumerate(entries):
+        events = rest[0] if rest else []
+        animation = len(data); data += bytearray(48)
         block = len(data); data += bytearray(16)
         payload = len(data); data += bytearray(16)
+        headers = len(data); data += bytearray(24 * len(events))
+        for number, (event, start, end, slot, dummies) in enumerate(events):
+            times = len(data); data += struct.pack('<ff', start, end)
+            body = len(data); data += bytearray(16)
+            parameters = len(data); data += struct.pack('<B3x4ii', slot, *dummies, 0)
+            struct.pack_into('<qqq', data, headers + 24 * number, times, times + 4, body)
+            struct.pack_into('<iiq', data, body, event, 0, parameters)
         struct.pack_into('<qq', data, 0x60 + 16 * index, ident, animation)
+        struct.pack_into('<q', data, animation, headers)
+        struct.pack_into('<i', data, animation + 0x20, len(events))
         struct.pack_into('<q', data, animation + 24, block)
         struct.pack_into('<qq', data, block, int(kind == 'other'), payload)
         if kind == 'other':
@@ -90,6 +103,48 @@ class ChooseTests(unittest.TestCase):
         self.assertIsNone(pa.choose_clip(100, dict(clips={76405010: 'a.hkx'}, tae={}), {}))
 
 
+class EntryTests(unittest.TestCase):
+    """The character TAE ID that a pairing plays, whose events place the weapons."""
+    part, wolf = ChooseTests.part, ChooseTests.wolf
+
+    def test_each_kind_of_pairing_names_its_tae_id(self):
+        self.assertEqual(pa.choose_entry(76405010, self.part, self.wolf), (76405010, 'same ID', 76405010))
+        self.assertEqual(pa.choose_entry(70412000, self.part, self.wolf, 'c0000')[::2], (76412000, 76412000))
+        # The part's own TAE redirects a clip of the body's ID, which stays the played ID.
+        self.assertEqual(pa.choose_entry(76405033, self.part, {})[::2], (76421020, 76405033))
+        self.assertEqual(pa.choose_entry(100, self.part, self.wolf)[::2], (pa.REST, None))
+
+
+class LocationTests(unittest.TestCase):
+    # Wolf's a076_405010: the sword sheathed for 0.867 s, the umbrella's model 1 in the left hand and model 0 hidden.
+    umbrella = [(715, 0.0, 0.867, 0, (147, 147, -1, -1)), (715, 0.0, 3.067, 1, (-1, 21, -1, -1))]
+
+    def test_reads_event_715_by_category(self):
+        data = tae([(405010, 'own', 0, self.umbrella + [(710, .1, .2, 1, (0, 0, 0, 0))]), (412000, 'hkx', 70412000)])
+        read = pa.read_locations(data, 76)
+        self.assertEqual(list(read), [76405010])
+        self.assertEqual([(round(start, 3), round(end, 3), slot, dummies) for start, end, slot, dummies in read[76405010]],
+                         [(0.0, 0.867, 0, (147, 147, -1, -1)), (0.0, 3.067, 1, (-1, 21, -1, -1))])
+        self.assertEqual(pa.read_tae(data, 76)[76412000], ('hkx', 70412000))
+        self.assertEqual(pa.read_locations(tae([(1, 'own', 0, self.umbrella)], version=0x1000C)), {})
+
+    def test_weapon_slots(self):
+        names = ('wp_a_0760_1', 'WP_A_0300', 'wp_a_0310_1', 'wp_a_9500', 'wp_a_0201', 'bd_m_9000')
+        self.assertEqual([pa.location_slot(name) for name in names], [1, 0, 2, 3, None, None])
+
+    def test_changes_hold_between_events(self):
+        axe = [(.233, 3.833, 1, (-1, 21, -1, -1))]
+        self.assertEqual(pa.location_changes(axe, 1, 1, -1), [[0.0, -1], [.233, 21], [3.833, -1]])
+        self.assertEqual(pa.location_changes(axe, 1, 0, 115), [[0.0, 115], [.233, -1], [3.833, 115]])
+        # Another slot's events and a model beyond the event's four keep the default.
+        self.assertEqual(pa.location_changes(axe, 0, 0, 20), [[0.0, 20]])
+        self.assertEqual(pa.location_changes(axe, 1, 5, -1), [[0.0, -1]])
+
+    def test_a_later_event_holds_where_events_overlap(self):
+        art = [(0.0, 6.667, 0, (77, 77, -1, -1)), (.233, 2.8, 0, (76, 76, -1, -1))]
+        self.assertEqual(pa.location_changes(art, 0, 0, 20), [[0.0, 77], [.233, 76], [2.8, 77], [6.667, 20]])
+
+
 class PairingTests(unittest.TestCase):
     """The part view reads the pairing backwards: which body clips key each part clip."""
     part, wolf = ChooseTests.part, ChooseTests.wolf
@@ -138,8 +193,45 @@ class PartFileTests(unittest.TestCase):
 
     def test_plan_reads_only_weapon_binders(self):
         rows = pa.plan([str(self.outfit), str(self.parts)], 'a076_405010.hkx', {}, 'c0000')
-        self.assertEqual([(r['name'], r['member'], r['rest']) for r in rows],
-                         [('WP_A_0760_1', 'a076_405010_1.hkx', False), ('WP_A_0760', 'a999_000000.hkx', True)])
+        self.assertEqual([(r['name'], r['member'], r['rest'], r['entry']) for r in rows],
+                         [('WP_A_0760_1', 'a076_405010_1.hkx', False, 76405010), ('WP_A_0760', 'a999_000000.hkx', True, None)])
+
+    def test_locate_records_where_event_715_puts_each_weapon(self):
+        from unittest import mock
+        own = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+
+        def weapon(name, dummy, index, placement='auto'):
+            return dict(name=name, source=str(self.parts), attachment=dict(kind='dummy', dummy=dummy, bone='L_Forearm', matrix=own,
+                                                                            placement=placement, modelIndex=index))
+        manifest = self.folder / 'character.json'
+        models = [weapon('wp_a_0760', 118, 0), weapon('wp_a_0760_1', 118, 1), weapon('wp_a_0300', 20, 0),
+                  weapon('wp_a_0310', 149, 0, 'right'), dict(name='bd_m_9000', source=str(self.outfit))]
+        manifest.write_text(json.dumps(dict(models=models, attachment_reference='c0000.flver')), encoding='utf-8')
+
+        def attachment(reference, dummy, source, game):
+            if dummy == 147:
+                raise ValueError('Attachment dummy 147 has 0 matches in the reference model; choose an unambiguous socket.')
+            return dict(bone='L_Weapon', matrix=[[dummy]])
+        rows = pa.plan([str(self.parts)], 'a076_405010.hkx', {}, 'c0000')
+        with mock.patch('weapon_assets.read_reference', return_value='reference') as read, \
+                mock.patch('weapon_assets.attachment', side_effect=attachment):
+            report, notices = pa.locate(manifest, rows, 'a076_405010.hkx', {76405010: [e[1:] for e in LocationTests.umbrella]})
+        read.assert_called_once_with('c0000.flver')
+        placed = {m['name']: m.get('attachment', {}).get('locations') for m in json.loads(manifest.read_text(encoding='utf-8'))['models']}
+        self.assertEqual(placed['wp_a_0760'], dict(entry='a076_405010', changes=[[0.0, -1], [3.067, 118]], sockets={}))
+        self.assertEqual(placed['wp_a_0760_1'], dict(entry='a076_405010', changes=[[0.0, 21], [3.067, -1]],
+                                                     sockets={'21': dict(dummy=21, bone='L_Weapon', matrix=[[21]])}))
+        # A dummy missing from the reference keeps the sword where it was; a placement chosen by hand is not moved.
+        self.assertIsNone(placed['wp_a_0300'])
+        self.assertIn('WP_A_0300', notices[0])
+        self.assertIsNone(placed['wp_a_0310'])
+        self.assertEqual([r['model'] for r in report], ['WP_A_0760', 'WP_A_0760_1'])
+
+    def test_locate_needs_events_of_sekiro(self):
+        manifest = self.folder / 'character.json'
+        manifest.write_text(json.dumps(dict(models=[])), encoding='utf-8')
+        self.assertEqual(pa.locate(manifest, [], 'a076_405010.hkx', {}), ([], []))
+        self.assertEqual(pa.locate(manifest, [], 'a076_405010.hkx', {76405010: LocationTests.umbrella}, 'ds3'), ([], []))
 
     def test_prepare_decodes_the_clip_into_the_manifest(self):
         manifest = self.folder / 'character.json'
@@ -185,6 +277,7 @@ class PartFileTests(unittest.TestCase):
         clip = dict(character='c0000', characterKey='c0000', archive=str(clips), inputArchives=[str(clips)])
         self.assertEqual(pa.character_binder(catalog, clip), base)
         self.assertEqual(pa.character_tae(base), {76412000: ('hkx', 70412000), 70412000: ('own', 70412000)})
+        self.assertEqual(pa.character_locations(base), {})
         self.assertIsNone(pa.character_binder(catalog, dict(clip, character='')))
 
 
