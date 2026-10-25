@@ -1,6 +1,17 @@
+# Merged on main after 0.10.0, not released
+
+- State: the panel review, Mirror animation and the Part animations view (the three sections below) are merged into main as 106a450, 1d9f8d5 and 70ecc7b, without a release: VERSION stays 0.10.0 and the add-on 0.6.0. The bone links idea stays unmerged on its own branch, `bone-connections` (f425a2f).
+- The user asked: "Leave the visual bone connection branch but merge the 3 other ones, then commit and push without a release."
+- Together the three needed one change: the mirror test draws the Control rig panel with a stand-in layout, which now needs a region width and a separator because the reworked panels measure their text. The panel review made the same change to the control rig test.
+- Merging `bone-connections` later needs three more changes, found in a trial merge of all four branches that then passed the whole suite:
+  - `mirror.py` must skip the bone links mesh (it carries `sekiro_bone_links`) where it looks for meshes that bend with a bone. Otherwise the weapon cases keep their side instead of swapping.
+  - The stand-in layout in `blender_bone_links.py` needs the same region width and separator.
+  - The Bone links and Mirror animation rows both go right under the rig name in the Control rig panel; keep both.
+- Open: with the control rig on, Mirror animation is greyed out and gives its reason only in its tooltip, while the panel review shows reasons under greyed-out buttons. A line under it would stay in the panel the whole time the control rig is on, so the reason stays in the tooltip for now.
+
 # Unreleased — panel review of the Retarget Assistant add-on
 
-- State: on branch addon-ui-review, from main at c1da6e5 (0.10.0, add-on 0.6.0): the review in its own commit, the changes in the next. Not merged, not released; VERSION and bl_info stay as they are.
+- State: on branch addon-ui-review, from main at c1da6e5 (0.10.0, add-on 0.6.0): the review in its own commit, the changes in the next. Merged into main as 106a450, not released; VERSION and bl_info stay as they are.
 - The user asked the coordinating session for four ideas, one session each. This one, verbatim: "Review the UI of the blender plug-in and improve it where possible." With: "I give you permission to work without my inputs. I will review the worktrees when they are finished." The user is a modder new to animating in Blender, so the panels should lead through the steps in order and explain themselves in plain words. Out of bounds: what operators do, their bl_idname, and saved property names and values, so that 0.6.0 scenes open with the same settings and scripts keep working.
 
 ## Review of add-on 0.6.0
@@ -63,9 +74,10 @@ Elsewhere:
 - The alerts show their icon with plain text: in Blender 4.5 the alert flag does not colour a label's text.
 - Scenes saved with 0.6.0 keep their settings and open with the new sub-panels as Blender lays them out first, the option groups closed.
 - Not released: the add-on stays 0.6.0 in bl_info and the README until a release bumps it.
+
 # Unreleased — mirror animation (retarget add-on)
 
-- State: built in its own worktree on branch `mirror-animation`, from main at c1da6e5. Not merged, pushed or released; no version change.
+- State: built in its own worktree on branch `mirror-animation`, from main at c1da6e5. Merged into main as 1d9f8d5, not released; no version change.
 - The user asked, as one of the ideas for parallel sessions after 0.10.0: "Add the ability to mirror an animation." The coordinating session's brief: an operator that makes a left-right mirrored copy of the active clip on a game rig, so a right-handed slash becomes left-handed, exportable to HKX; mirrored in armature space across the left-right plane, each bone taking its counterpart's reflected motion in its own rest frame, center bones reflecting in place, root motion mirrored; the new action "<clip> Mirrored" with mirrored root motion, the original untouched; a control rig refused with a clear message; both exporters working on the copy; the logic in its own module; the existing Mirror mappings operator unchanged; and weapons and side-specific bones, bones without a counterpart, and custom properties and tracks that name sides decided and written down.
 - blender_addon/sekiro_retarget/mirror.py (new):
   - The mirror is S = diag(−1, 1, 1) in armature space, the game's X axis. counterparts() pairs bones by the matcher's sides (mapping.Rig.counterpart, both ways) and, where names give no side, by mirrored rest head within 0.1% of the leg length (PLACE) when no other bone rests within 1% more and the parents pair. mirror() refuses a rig whose pairs' median rest head lies more than 5% of the leg length from the mirror image of its counterpart's.
@@ -100,9 +112,10 @@ Elsewhere:
   - A bone without a counterpart that rests far off the middle line outside any gear would reflect in place there; none was seen. A pair whose rests are not mirror images keeps its rest places, as Isshin's L_Yari_Storage and R_Yari_Storage.
   - Constraints are not mirrored; the status names them.
   - The row sits under the rig name in the control rig panel; the add-on UI review branch suggests where it goes when both are merged.
+
 # Unreleased: part animations view (branch part-animation-menu)
 
-- State: built on the branch `part-animation-menu`, cut from main at 0.10.0 (c1da6e5) in a worktree of its own; not merged or released. VERSION and the add-on's bl_info are unchanged. On the branch the 109 unit tests and all thirteen Blender scripts pass.
+- State: built on the branch `part-animation-menu`, cut from main at 0.10.0 (c1da6e5) in a worktree of its own; merged into main as 70ecc7b, not released. VERSION and the add-on's bl_info are unchanged. On the branch the 109 unit tests and all thirteen Blender scripts pass.
 - The user asked, relayed by the session that coordinates the ideas after 0.10.0: "An sub-menu (only Sekiro needs to be accounted for) where a part can be selected and its animations shown, then show compatible animations in which the parts animation plays to select and import this." And: "I give you permission to work without my inputs. I will review the worktrees when they are finished." The decisions below were taken without asking and are written down for that review.
 
 ## Part animations view

@@ -1,3 +1,8 @@
+# Merged on main after 0.10.0 — 2026-10-25
+
+- After merging the panel review, Mirror animation and the Part animations view, with the mirror test's stand-in layout fitted to the reworked panels: the 109 unit tests pass, `app.js` and `preview.js` pass `node --check`, and Blender 4.5.14 with `--factory-startup` passes all fifteen scripts, the new `blender_panels.py` and `blender_mirror.py` among them.
+- A trial merge of all four idea branches, bone links included, passed the 109 unit tests, `node --check` and all sixteen Blender scripts once the three changes named in PROJECT_CONTEXT were made. The trial was not kept.
+
 # Unreleased — retarget add-on panel review
 
 - On branch addon-ui-review, Blender 4.5.14 with `--factory-startup` passes all fourteen scripts: the thirteen of 0.10.0 and the new `blender_panels.py`. The 96 unit tests pass, and `app.js` and `preview.js` pass `node --check`.
@@ -155,6 +160,7 @@ This branch:
 - Measured between the gaps that separate the panels, in the control rig states the retarget panel with its status box is 1,246 px high on this branch against 1,541 px in 0.6.0, and the control rig panel 67 to 140 px higher: 896 against 829 with Hand on weapon, 881 against 741 with Plant foot. The IK slider line, the gaps between the limbs and the taller Apply fix add about 70 px; the FK alert, on three lines with Switch to IK under it instead of one cut line, about 70 more where it shows.
 - With the display's scaling, the window first opened at interface scale 1.25 (sidebar 350 px). There the FK alert's second line was cut to *switch it…*: an icon takes 28 px of the row, not the 20 px first assumed. At scale 1 the Hand on weapon hint was cut to *click Ap…*: the Fixes sub-panel gives a label less room than a top-level panel, a line of 228 px was cut where one of 223 px fit, so the margin went from 52 to 58 px. With these margins in the add-on and in the check, no label is cut in any state at scale 1 or 1.25, also with every sub-panel open at scale 1.
 - Blender marks the Output path red in the shots because the test scene is not saved, so `//` has no folder; that is Blender's own check of the path.
+
 # Unreleased — mirror animation
 
 - On branch `mirror-animation`, Blender 4.5.14 with `--factory-startup` passes all fourteen scripts: the thirteen of 0.10.0 and the new `blender_mirror.py`. The 96 unit tests pass, and `app.js` and `preview.js` pass `node --check`.
@@ -171,6 +177,7 @@ This branch:
   - c5100_a000_000000, 251 frames, 171 tracks, no root motion: 1.40 s. 85 pairs; 174 swap, 66 reflect, 2 follow (WeaponHead and WeaponBlade), 6 keep. In the held head, the eyes, the eyelids and two pairs of scratch bones swap, one of them by place across the game's own spelling `WaeponScratch1`; the jaw, two tongue bones and one tooth reflect on the head's plane; the cheek and five teeth without a bone at their mirrored places keep their motion; across the head's plane within 1.2e-5. 211 bones exact, the worst `R_Shoulder` at 2.9e-5; gear within 4.8e-6, kept bones within 9.2e-7. Mesh, 182,814 vertices: median 5.6 mm, 95% within 5.5 cm, largest 57 cm in the fur, which is not symmetric; the head within 28 cm, its mesh mapping onto itself within 2.6 cm on average. Warning: two teeth of the body's head, `OverTeeth1` and `OverTeeth3`, stay on their side and mirror their own motion. Before pairing by place took 0.1% of the leg length, the cheek paired with a tooth on both heads, and the cheek's vertices mirrored 0.47 m from the tooth's. Twice: 5.2e-6. **Export HKX**: 251 frames, 171 tracks, 2,078,164 bytes, read back within 0.000° and 0.00 mm; by name within 2.4e-6°.
   - The contact sheets (the original, the original flipped as an image, the mirrored clip) show the mirrored poses matching the flipped ones, the katana in Isshin's left hand and his scabbard on the right hip; the differences are the meshes that are not symmetric, such as Wolf's prosthetic arm, which stays on his left.
 - Not checked: game playback of a mirrored clip; clicks in a live Blender window, as the operator ran through `bpy.ops` and the panel through a stand-in layout.
+
 # Unreleased: part animations view — 2026-10-25
 
 - On the branch `part-animation-menu`, the 109 unit tests pass (the 96 of 0.10.0 and 13 new ones), Blender 4.5.14 with `--factory-startup` passes all thirteen scripts, and `app.js` and `preview.js` pass `node --check`.

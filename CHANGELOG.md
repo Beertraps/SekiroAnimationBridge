@@ -31,6 +31,7 @@ The Retarget Assistant's panels were reviewed in each of their states and rework
 ## Checks
 
 - New Blender test `blender_panels.py`; see VERIFICATION.md.
+
 # Unreleased — mirror animation
 
 ## Retarget add-on: Mirror animation
@@ -41,6 +42,7 @@ The Retarget Assistant's panels were reviewed in each of their states and rework
 - Other bones without a counterpart keep their own motion where a bone with a counterpart carries them, as sleeve cloth, and otherwise stay on their side and reflect their own motion; the status lists the ones that move. A keyed custom property moves to the counterpart. Constraints are not mirrored, and the status names the bones they act on. With a control rig on the armature the button is greyed out, and the mirror says to remove the control rig first.
 - **Mirror L → R** and **Mirror R → L** in the bone list are unchanged.
 - New Blender test `blender_mirror.py`; see VERIFICATION.md. The add-on package includes the new module `mirror.py`.
+
 # Unreleased — part animations view
 
 ## Import: start from a weapon part
