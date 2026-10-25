@@ -1,5 +1,6 @@
 # 0.11.0 — weapons lie as the source's — 2026-10-25
 
+- Tagged run 40232279805 from v0.11.0 (e25ac74) built the decoder, packaged, tested the release ZIP on a fresh profile and published the release with `SekiroAnimationBridge-0.11.0-win-x64.zip` (66,051,154 bytes), its `.sha256` and `SekiroRetargetAssistant-0.7.0.zip` (109,338 bytes).
 - The 116 unit tests pass. Blender 4.5.14 with `--factory-startup` passes all sixteen scripts. `blender_fixes.py`, flagged by the batch script for its expected refusal messages, passes on its own.
 - `blender_weapon_grips.py`, new case: a curved source katana and a target blade authored turned 130° about its axis, in a palm turned 15° from the source's, baked with the source's grip. In the palm the flat side lay as the source's within 0.0000°, the blade and the curve within 0.21° (the curves tilt the meshes' long axes slightly differently), and the place within 0.0004 mm; in the world the blade pointed 14.5° from the source's. The add-on of 0.10.0 failed the same case: blade 12.5°, flat side 47.2° and curve 46.0° off in the palm.
 - `blender_weapon_clearance.py`: the sword's turn is 120°, laying flat side on flat side, instead of 90°; blades parallel within 0.000°.
