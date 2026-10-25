@@ -1,6 +1,6 @@
 # Sekiro Retarget Assistant 0.6.0
 
-An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup. The bridge's own import and export need no add-on.
+An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, and can [mirror an animation](#mirror-animation) left to right. The bridge's own import and export need no add-on.
 
 ## Install
 
@@ -175,8 +175,27 @@ The **Fixes** box under the control rig panel does common cleanup that takes man
 
 Between posed frames a fix interpolates the relation or the change; before the first posed frame and after the last, it holds. The fixes key a limb's IK controls, so they need the limb in IK on the chosen frames. When it is in FK, the box shows **Switch to IK**, and Apply refuses where it is in FK on all the chosen frames: switching afterwards would match the IK controls to the FK pose again and undo the fix. On an owned test rig, the fixed hand kept its grip within 0.01 mm, the planted foot and the sheathed blade kept their paths within 0.05 mm, and the export after **Remove control rig** matched the export with the control rig.
 
+## Mirror animation
+
+**Mirror animation**, under the armature's name in the **Control rig** panel, makes a left-right mirrored copy of the armature's action, so that a right-handed slash becomes a left-handed one. Select the armature, or let the panel use the scene's bridge rig, and click it. The copy, "*clip* Mirrored", plays at once with its root motion, "*clip* Mirrored RootMotion"; the original action and root motion are kept. Export the copy like any other action: **Export HKX** writes the active action, and the bridge's export page and CLI can choose it by name and pair its root motion by that name. Mirroring the copy gives the original back.
+
+The mirror runs across the character's middle plane:
+
+- A bone with a counterpart on the other side takes its counterpart's motion, reflected: `L_Hand` does what `R_Hand` did. Bones pair by name, and bones whose names give no side, such as cloth on either hip, where one rests at the other's mirrored place, as in a rig that its maker mirrored. FromSoftware's left and right bones rest half a turn from mirror images of each other, which is why Blender's *Paste Flipped Pose* turns them wrong; the mirror reads each pair's rest frames instead.
+- A bone on the middle line, such as the spine, reflects its own motion, so the body leans and turns the other way. Root motion reflects too: sideways travel and turns change sign.
+- Gear changes sides with the motion. The katana that the right hand swings goes into the left hand with the swing, whether the game hangs it on `R_Weapon` or the character's mesh holds it, and a scabbard on the left hip goes to the right hip. Gear is a weapon, sheath or shield bone, together with the bones without a counterpart between it and the body, such as a cord around a hilt. It goes where the reflection puts it, and the bones below it mirror across the piece's own middle plane, so that a symmetric piece keeps its shape, and a pair on it, such as the eyes of a head held as a weapon, swaps.
+- Gear keeps its side where its mesh bends together with the body, as Wolf's scabbard is part of his clothes, and where it is stored on the body without a mesh of its own, as the hip and back cases where the game hangs sheathed weapons. The status lists such gear.
+- Another bone without a counterpart keeps its own motion and goes along where a bone with a counterpart carries it, as the cloth of a sleeve; elsewhere, as a sash on one hip, it stays on its side and reflects its own motion. The status lists the ones that move.
+- HKX tracks belong to bones, so the copy has the same tracks, each with its bone's new motion. A custom property that the clip keys on a bone moves to the bone's counterpart.
+
+With a control rig on the armature, the game bones follow the controls, so the button is greyed out: remove the control rig, keeping the edited motion, mirror, and add the control rig again. Mute the armature's NLA tracks first, if it has any. Constraints are not mirrored; the status names the bones they still act on.
+
+On an owned test rig whose left and right bones rest at random turns, the mirrored clip was the exact reflection of the original, mirroring twice gave the original back, and the export read back as the mirrored clip. On clips of Isshin, Wolf and c5100, the mirror took under 1.4 s and the export read back within 0.000°. The mirror swaps motion, not meshes: an uneven costume, such as Wolf's prosthetic arm, stays on its side, and a pair whose rests are not mirror images keeps its rest places.
+
 ## Current scope
 
 The retarget bake transfers humanoid FK animation. It aligns held weapons and holds them by a grip, puts the second hand on a two-handed weapon, keeps hands out of the torso and keeps arms as close to the body as the source's, but it does not solve foot contacts, a hand reaching for anything else, cloth or facial animation. The control rig's [fixes](#fixes) keep the second hand where you put it on the grip, a weapon in its sheath and the feet on the ground over the frames you choose, and its IK limbs and swivel rings help with the rest by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
 
 Mapped target bones must have no active constraints, and target NLA tracks must be muted. The bake adds no live constraints or handlers; the control rig adds constraints and drivers to its armature, and **Remove control rig** takes them away again. The fixes add keys only. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.
+
+**Mirror animation** mirrors the bones and the root motion only: TAE events, such as a hand an effect comes from, and weapon part clips stay as they are. In the game, a blend from a mirrored clip into an unmirrored one moves the weapons across the body. In-game playback of a mirrored clip has not been verified.

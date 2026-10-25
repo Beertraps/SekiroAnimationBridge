@@ -1,3 +1,14 @@
+# Unreleased — mirror animation
+
+## Retarget add-on: Mirror animation
+
+- **Mirror animation**, a new button under the armature's name in the **Control rig** panel, adds a left-right mirrored copy of the armature's action, "*clip* Mirrored", with mirrored root motion in "*clip* Mirrored RootMotion", and plays it, so that a right-handed slash becomes a left-handed one. The original action and root motion are kept. Both exporters write the copy: **Export HKX** as the active action, and the bridge's export page and CLI by name, pairing its root motion by name. Mirroring the copy gives the original back.
+- Each bone with a counterpart takes its counterpart's motion, reflected through both bones' rest frames, so FromSoftware's left and right bones, which rest half a turn from mirror images, mirror correctly where Blender's Paste Flipped Pose turns them wrong. Bones whose names give no side, such as cloth on either hip, pair where one rests at the other's mirrored place. Bones on the middle line reflect their own motion, and root motion's sideways travel and turns change sign.
+- Gear changes sides with the motion. Weapon, sheath and shield bones, with the bones without a counterpart between them and the body, go where the reflection puts them, so the katana that the right hand swings goes into the left hand and a scabbard on the left hip goes to the right hip. The bones below them mirror across the piece's own plane, so Isshin's cord around his hilt keeps its shape, and a pair on a piece, such as the eyes of a head held as a weapon, swaps. Gear whose mesh bends with the body, as Wolf's scabbard does, and cases without a mesh keep their side, and the status lists them.
+- Other bones without a counterpart keep their own motion where a bone with a counterpart carries them, as sleeve cloth, and otherwise stay on their side and reflect their own motion; the status lists the ones that move. A keyed custom property moves to the counterpart. Constraints are not mirrored, and the status names the bones they act on. With a control rig on the armature the button is greyed out, and the mirror says to remove the control rig first.
+- **Mirror L → R** and **Mirror R → L** in the bone list are unchanged.
+- New Blender test `blender_mirror.py`; see VERIFICATION.md. The add-on package includes the new module `mirror.py`.
+
 # 0.10.0 — retarget weapon grips and the second hand on the weapon, control rig swivel rings and fixes, app icon and desktop shortcut
 
 Install `SekiroRetargetAssistant-0.6.0.zip` over 0.5.0 for the retarget and control rig changes.
