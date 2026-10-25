@@ -170,6 +170,12 @@ namespace AnimationBridge {
                 } finally {
                     timer.Stop();
                     if (folderDialog != null) Marshal.ReleaseComObject(folderDialog);
+                    // Hand the foreground back to the bridge before the proxy goes. The proxy is
+                    // not a popup, so closing it while active can let Windows activate the next
+                    // window in the Z order rather than its owner, and put another application
+                    // over the bridge. Without the foreground, as after Cancel
+                    // Browse in the page, the call changes nothing.
+                    if (IsBridgeWindow(browser)) SetForegroundWindow(browser);
                     proxy.Close();
                 }
             }
