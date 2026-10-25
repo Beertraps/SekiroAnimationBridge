@@ -1,3 +1,161 @@
+# Unreleased — retarget add-on panel review
+
+- On branch addon-ui-review, Blender 4.5.14 with `--factory-startup` passes all fourteen scripts: the thirteen of 0.10.0 and the new `blender_panels.py`. The 96 unit tests pass, and `app.js` and `preview.js` pass `node --check`.
+- Trial three-way merges, in a scratch folder, of this branch's add-on files, the add-on README among them, with the current files of the two sessions that also change the add-on, bone connections (with its commit f425a2f) and mirror animation: no conflicts, and both merged `__init__.py` compile.
+
+## Panels in each state
+
+- New `blender_panels.py`, on owned synthetic rigs imported with the bridge's importer: a souls-style donor, *Donor*, with the clip a000_003008, and an Elden Ring-style target, *Hero*, at 1.1 times the size with a blade mesh on its `R_Weapon`. It brings an empty scene through twelve states: nothing chosen, a rig imported, source and target chosen, bones matched, after a bake, every conditional option shown, the control rig on, Hand on weapon with one posed frame, Plant foot with the leg in FK, Adjust over frames with auto keying on, after Apply fix, and the control rig in Object Mode.
+- Background Blender draws no interface, so each panel's draw() runs against a stand-in layout that checks every call against Blender's UILayout: the function and its arguments, icons, layout attributes, the data's properties and enum values, operators and the properties set on their buttons, and UI lists, whose filter and draw functions run for every row. The check fails on a draw error; on a label that its column or box gives too little room at the sidebar's default width of 280 px, measured in the interface font with margins taken from the screenshots (58 px, 16 more in a box, 28 more with an icon); and when a state lacks an expected row or shows one it should not: the greyed buttons with their reasons, the match count, the status box after step 4, the alerts of the fixes and the Pose Mode hint.
+- Bone list: the name filter THIGH showed 2 of 58 rows, L_Thigh and R_Thigh; the review filter showed the 3 rows to review; the A–Z sort ordered all 58 rows by target bone.
+- `blender_control_rig.py`: its stand-in layout draws separators and gives the panel a region width; the panel still shows two Elbow swivel and two Knee swivel rows. `blender_fixes.py` expects the new FK alert, *Left leg is not in IK on this frame.*, and *click Apply fix* in two refusals.
+
+## Before and after
+
+Rows of the stand-in outline at 280 px, for add-on 0.6.0 (from c1da6e5) and this branch, in the same states; `(…)` is a button, `[…]` a field, `|` a box, `!` an alert, `>` a closed sub-panel, whose rows are left out. `blender_panels.py` writes every state's outline to panels.txt in an output folder given after `--`.
+
+Bones matched, retarget panel, 0.6.0 (48 rows; at Blender's default size, *Rest sta…*, *Root m…*, *Unmap…*, *Clip timi…*, *Weapon…* and *Read back and…* show cut):
+
+```text
+v Sekiro Retarget Assistant
+    1. Source → receiving character
+    Source (animated)
+    [Donor]  (eyedropper)
+    Target (receiving)
+    [Hero]  (eyedropper)
+    (Append source .blend)
+    2. Match and review
+    [x] HKX animation bones only
+    (Match bones automatically)
+    55 / 58 target bones assigned
+    [ ] Show unmatched / uncertain only
+    {list: 58 of 58 rows, 5 at a time}
+    | Same normalized name
+    (Mirror L → R)  (Mirror R → L)
+    (Save map)  (Load map)
+    3. Bake a new action
+    Rest stance: [Match source stance v]
+    Root motion: [Automatic v]
+    [ ] Turn root with the body
+    Unmapped bones: [Keep target animation v]
+    Clip timing: [Use source length v]
+    [x] Move body with source hips
+    [x] Keep hands out of the body
+    [x] Keep arms close to the body
+    Weapon grip: [Target's own grip v]
+    Blade follows source: [100% slider]
+    [x] Second hand on the weapon
+    [x] Scale travel by leg length
+    (Bake motion onto target)
+    4. Export HKX
+    Output: []
+    Game: [Stored in scene v]
+    Format: [Interleaved v]
+    Tracks: [Original clip tracks v]
+    Frames: [Scene range v]
+    Root motion: [As baked v]
+    [x] Read back and compare  [ ] Replace existing
+    (Export HKX) (greyed out)
+    (Use target in the bridge UI)
+    | 55 / 58 target bones matched. Review the
+    | rest before baking.
+```
+
+This branch (37 rows; the six rows that the list draws are left out of both blocks):
+
+```text
+v Sekiro Retarget Assistant
+    v 1. Choose rigs
+        Target (receives the motion)
+        [Hero]  (restrict_select_off)
+        Source (gives the motion)
+        [Donor]  (restrict_select_off)
+        (Append source .blend)
+    v 2. Match bones
+        [x] Only bones the clip animates
+        (Match bones again)
+        55 of 58 bones matched, 3 to review.
+        [ ] Show unmatched / uncertain only
+        {list: 58 of 58 rows, 5 at a time}
+        | Master: Same normalized name
+        (Mirror L → R)  (Mirror R → L)
+        (Save map)  (Load map)
+    v 3. Bake motion
+        (Bake motion onto target)
+        > Pose and timing
+        > Body travel
+        > Arms and hands
+        > Weapons
+    v 4. Export HKX
+        Output: []
+        [ ] Replace existing
+        (Export HKX) (greyed out)
+        Choose the Output file first.
+        (Use target in the bridge UI)
+        > Export settings
+        | 55 / 58 target bones matched. Review
+        | the rest before baking.
+```
+
+Plant foot with the leg in FK, Fixes, 0.6.0 (the alert shows cut to *Left leg is not…*):
+
+```text
+    v Fixes
+        [Plant foot v]
+        Go to a frame where the foot stands
+        right, then Apply. On the chosen frames
+        it stays there.
+        Limb: [Left leg v]
+        ! Left leg is not in IK here.  (Switch to IK)
+        Whole clip | *Frames*
+        Start: [8]  (time)  End: [16]  (time)
+        Blend: [0.2 s]  6 frames
+        (Use this pose)
+        (Apply fix)
+```
+
+This branch:
+
+```text
+    v Fixes
+        [Plant foot v]
+        Go to a frame where the foot stands right,
+        then click Apply fix. On the chosen
+        frames it stays there.
+        Limb: [Left leg v]
+        ! Left leg is not in IK on this frame.
+        ! The fix moves its IK controls, so
+        ! switch it to IK first.
+        (Switch to IK)
+        Whole clip | *Frames*
+        Start: [8]  (time)  End: [16]  (time)
+        Blend: [0.2 s]  6 frames
+        (Use this pose)
+        (Apply fix)
+```
+
+## Screenshots
+
+- Each state drawn in a Blender 4.5.14 window at factory settings, 1300 × 1340 px, with event simulation, which ignores real input; the sidebar scrolled through and stitched into one image per state. The screenshots are kept outside the repository. At interface scale 1 the sidebar is 280 × 1,139 px. Heights of the whole sidebar, the retarget and control rig panels together:
+
+| State | 0.6.0 | This branch | All sub-panels open |
+|---|---|---|---|
+| Nothing chosen, rig imported, source and target chosen | one screen | one screen | 1,203–1,611 |
+| Bones matched | 1,409 | 1,236 | 1,941 |
+| Baked | 1,633 | 1,396 | 2,101 |
+| Every option shown | 1,683 | 1,371 | 2,171 |
+| Control rig on | 2,313 | 2,160 | 2,865 |
+| Hand on weapon, one frame posed | 2,376 | 2,155 | 2,860 |
+| Plant foot with the leg in FK | 2,288 | 2,140 | 2,845 |
+| Adjust over frames with auto keying on | 2,354 | 2,135 | 2,840 |
+| After Apply fix | 2,379 | 2,170 | 2,875 |
+| Control rig in Object Mode | not taken | 2,240 | 2,945 |
+
+- After a bake, the first screen of 0.6.0 ends at the export's Frames menu, above the Export button; on this branch it reaches past the Export button into the bake's result.
+- Measured between the gaps that separate the panels, in the control rig states the retarget panel with its status box is 1,246 px high on this branch against 1,541 px in 0.6.0, and the control rig panel 67 to 140 px higher: 896 against 829 with Hand on weapon, 881 against 741 with Plant foot. The IK slider line, the gaps between the limbs and the taller Apply fix add about 70 px; the FK alert, on three lines with Switch to IK under it instead of one cut line, about 70 more where it shows.
+- With the display's scaling, the window first opened at interface scale 1.25 (sidebar 350 px). There the FK alert's second line was cut to *switch it…*: an icon takes 28 px of the row, not the 20 px first assumed. At scale 1 the Hand on weapon hint was cut to *click Ap…*: the Fixes sub-panel gives a label less room than a top-level panel, a line of 228 px was cut where one of 223 px fit, so the margin went from 52 to 58 px. With these margins in the add-on and in the check, no label is cut in any state at scale 1 or 1.25, also with every sub-panel open at scale 1.
+- Blender marks the Output path red in the shots because the test scene is not saved, so `//` has no folder; that is Blender's own check of the path.
+
 # Version 0.10.0 — 2026-10-25
 
 - On the release tree, Blender 4.5.14 with `--factory-startup` passes all thirteen scripts: the eleven of 0.9.0, the new `blender_fixes.py` and the new `blender_weapon_grips.py`. The 96 unit tests pass, and `app.js` and `preview.js` pass `node --check`.

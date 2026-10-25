@@ -10,11 +10,15 @@ The add-on needs no external Python libraries, account or network connection. To
 
 ## Workflow
 
+The **Sekiro Retarget Assistant** panel leads through four steps, each a sub-panel that you can close once it is done. A greyed-out button says under it what it needs first. The box under step 4 shows the result of the last match, bake or export.
+
 1. Open the bridge `.blend` of the receiving character, the target.
-2. In section 1, set **Target (receiving)** to its armature; the eyedropper uses the active armature. Click **Append source .blend** and choose the donor animation scene. The add-on brings in its rig, meshes, action, root-motion object and embedded HKX metadata. Two rigs already in the scene can be chosen directly instead.
-3. In section 2, click **Match bones automatically** and review the list. **Show unmatched / uncertain only** hides confident rows. Assign a source bone through a row's search field, use a suggestion, or **Accept all suggestions**. **Mirror L → R** and **Mirror R → L** copy corrections to the other side. Disable rows you do not want. The eye on a weapon row hides that weapon in the bake; see [Weapons](#weapons). **Save map** and **Load map** reuse a reviewed list.
-4. In section 3, choose the bake options (see below) and click **Bake motion onto target**. The bake creates a new action and keeps the original one. Bake again at any time with other options or a corrected map: each bake starts from the original clip, not from the previous result.
-5. In section 4, choose an output `.hkx` and click **Export HKX**. Export runs in the background; the status box shows progress and the result, and Esc cancels. The bridge writes the HKX with a `.motion.json` sidecar beside it. Pack the HKX into the game's animation binder with a binder tool such as WitchyBND.
+2. In **1. Choose rigs**, set **Target (receives the motion)** to its armature: choose it in the field, or select it in the viewport or Outliner and click the arrow button beside the field. Click **Append source .blend** and choose the donor animation scene. The add-on brings in its rig, meshes, action, root-motion object and embedded HKX metadata, sets it as **Source (gives the motion)** and matches the bones. Two rigs already in the scene can be chosen directly instead.
+3. In **2. Match bones**, click **Match bones automatically** if no list shows yet, and review the list. The line above it counts the matched bones and the bones to review: rows without a source bone, switched off, or matched below 94%. Those rows have a question mark instead of a check mark, and **Show unmatched / uncertain only** lists just them. The small triangle under the list opens a filter that finds target and source bones by name, and an A–Z sort. Assign a source bone through a row's search field, use a suggestion, or **Accept all suggestions**. **Mirror L → R** and **Mirror R → L** copy corrections to the other side. Switch off rows you do not want. The eye on a weapon row hides that weapon in the bake; see [Weapons](#weapons). **Save map** and **Load map** reuse a reviewed list. Once a list exists, the button reads **Match bones again**: it makes a new list, which replaces your changes.
+4. In **3. Bake motion**, click **Bake motion onto target**. The closed groups under the button hold the bake options (see below); their defaults suit most clips. The bake creates a new action and keeps the original one. Bake again at any time with other options or a corrected map: each bake starts from the original clip, not from the previous result.
+5. In **4. Export HKX**, choose an **Output** `.hkx` and click **Export HKX**. **Export settings**, closed at first, hold the game, the format and the other options; see [Export](#export). Export runs in the background; the status box shows progress and the result, and Esc cancels. The bridge writes the HKX with a `.motion.json` sidecar beside it. Pack the HKX into the game's animation binder with a binder tool such as WitchyBND.
+
+**Only bones the clip animates**, in step 2 and on by default, matches only the bones that a bridge rig's HKX clip animates, its tracks; the model's other bones, such as cloth and helper bones, follow their parents. Switch it off to match every bone of the model. It takes effect at the next match.
 
 To export with the bridge UI or CLI instead, click **Use target in the bridge UI**, save the `.blend`, and export that scene as usual.
 
@@ -24,7 +28,7 @@ The bridge can import the donor beside the target in one step, so steps 1 and 2 
 
 The scene holds both rigs, each with its own action, root-motion object and embedded HKX metadata. Everything of the donor is named *Donor*: its rig is, for example, `Donor c5060`, its root-motion object `Donor HKX_RootMotion` and its metadata text `Sekiro Source - Donor - a000_003041.json`. Rigs of the same name, such as c0000 from two games, stay apart this way. The donor stands beside the target; only its delta location moves it, so its keys stay as imported and the bake gives the same result wherever it stands. The target keeps the scene's frame range, frame rate and export rig, as after a single import, so it exports the same way.
 
-When the file opens, the add-on fills in **Source** and **Target** from the import while both are empty, and the status says so. Continue with step 3, **Match bones automatically**.
+When the file opens, the add-on fills in **Source** and **Target** from the import while both are empty, and the status says so. Continue in **2. Match bones** with **Match bones automatically**.
 
 ## Matching
 
@@ -40,15 +44,30 @@ On synthetic test rigs of 15 conventions (Mixamo, Unreal, 3ds Max Biped, VRoid, 
 
 ## Bake options
 
+The options sit in four groups under **Bake motion onto target**, closed at first.
+
+**Pose and timing**
+
 - **Rest stance.** *Match source stance* first poses the target limbs to point like the source rest pose, so an A-pose target follows a T-pose source without lowered or raised arms. *Keep target stance* applies the rotations from the target's own rest pose.
-- **Root motion.** *Automatic* copies the source root motion when the source has a root-motion object. Without one, body travel becomes root motion when the body moves farther than 30% of its leg length (the status says so), and otherwise none is written. The other choices force one source: *From source root*, *From body travel* (optionally turning with the body), *Keep target root* (same clip length only), or *None*.
 - **Unmapped bones.** *Keep target animation* keeps the original clip's motion for cloth, face, weapon and other unmapped bones. *Rest pose* holds them at rest; for bridge rigs, rest is the HKX reference pose.
 - **Clip timing.** *Use source length* gives the clip the source's duration. *Fit target length* resamples the source over the target clip's length.
-- **Move body with source hips** and **Scale travel by leg length** control body travel; see below.
-- **Keep hands out of the body** (on by default). Where a hand, or what it holds, would go into the target's torso, the hand is moved out through its arm; see below. It needs the target's character mesh in the scene.
+
+**Body travel**
+
+- **Move body with source hips** and **Scale travel by leg length**, or a manual **Travel scale** while that is off, control body travel; see [How the bake works](#how-the-bake-works).
+- **Root motion.** *Automatic* copies the source root motion when the source has a root-motion object. Without one, body travel becomes root motion when the body moves farther than 30% of its leg length (the status says so), and otherwise none is written. The other choices force one source: *From source root*, *From body travel* (optionally turning with the body, **Turn root with the body**), *Keep target root* (same clip length only), or *None*.
+
+**Arms and hands**
+
+- **Keep hands out of the body** (on by default). Where a hand, or what it holds, would go into the target's torso, the hand is moved out through its arm; see [Body clearance](#body-clearance). It needs the target's character mesh in the scene.
 - **Keep arms close to the body** (on by default). Where the source holds an arm close to its own body, the target's arm turns in at the shoulder until it stands as close to the target's torso, at the target's size, so that a target with a slimmer body does not hold its arms out; see [Arm distance](#arm-distance). It needs the character meshes of both rigs in the scene.
+
+**Weapons**
+
 - **Weapon grip.** *Target's own grip*, the default, puts each weapon in the target's hand as the target's own clip holds it, with that clip's fingers, and turns the wrist so that the blade points as the source's does, as far as **Blade follows source** says (100% by default). *Source's grip* puts the weapon where the source's weapon sits in the source's hand, scaled to the hand, with the source's fingers, for a weapon made to fit the source's grip. See [Weapon grips](#weapon-grips).
 - **Second hand on the weapon** (on by default). Where the source holds its weapon with both hands, the target's other hand goes onto the target's weapon at the matching place; see [Second hand](#second-hand).
+
+With a control rig on the target, **Bake motion onto target** is greyed out and says so: remove the control rig first; you can add it again afterwards.
 
 ## How the bake works
 
@@ -70,7 +89,7 @@ A target weapon bone that rests at its own hand and takes a source weapon that r
 
 The weapon's line is the long axis of the source weapon's mesh; without a mesh, the bone's X axis, along which FromSoftware weapon meshes lie. The status names each placed bone and the hand it is placed in. Weapon bones that no row maps keep the target clip with *Keep target animation*: with the axe on Isshin's spear, his katana stays in his right hand and shows where his clip shows it. With **Second hand on the weapon**, the other hand of a two-handed grip goes onto the weapon; see [Second hand](#second-hand).
 
-To hide a weapon for the whole clip, click the eye (**Hide**) on its row in the bone list. Weapon, scabbard, storage and shield rows have it, mapped or not. On every frame the bake shrinks the bone to 0.1% where it would otherwise be, as FromSoftware clips hide weapons, and the bones below it shrink with it: with the axe on Isshin's spear, hiding `R_Katana` leaves only the spear. Bone maps save the toggles, and **Match bones automatically** clears them with the rest of the list. The bake hides at 0.1% rather than 0 because a bone scaled to 0 has no inverse, so the bones below it could not be placed against it.
+To hide a weapon for the whole clip, click the eye (**Hide**) on its row in the bone list. Weapon, scabbard, storage and shield rows have it, mapped or not. On every frame the bake shrinks the bone to 0.1% where it would otherwise be, as FromSoftware clips hide weapons, and the bones below it shrink with it: with the axe on Isshin's spear, hiding `R_Katana` leaves only the spear. Bone maps save the toggles, and **Match bones again** clears them with the rest of the list. The bake hides at 0.1% rather than 0 because a bone scaled to 0 has no inverse, so the bones below it could not be placed against it.
 
 Keying a weapon's scale by hand hides it too, but a new bake makes a new action without those keys. Export handles a key of 0: the bone keeps its keyed rotation, and tracked bones below it keep their own channels, so they are in place when the weapon shows again or the game blends into another clip.
 
@@ -126,7 +145,7 @@ Sekiro and Dark Souls III rigs hang a straight chain from `Master` on each side:
 
 ## Export
 
-**Export HKX** follows the same path as the bridge's export page. Blender samples the evaluated pose with the bridge's own exporter, so constraints, drivers and NLA tracks are baked. The bridge's conversion Python then writes the HKX with its Havok compatibility fixes and, with **Read back and compare**, decodes it again and reports the largest difference.
+**Export HKX** follows the same path as the bridge's export page. Blender samples the evaluated pose with the bridge's own exporter, so constraints, drivers and NLA tracks are baked. The bridge's conversion Python then writes the HKX with its Havok compatibility fixes and, with **Read back and compare**, decodes it again and reports the largest difference. **Output** and **Replace existing**, which writes over an existing `.hkx` and its sidecar, stay in step 4; the rest is under **Export settings**:
 
 - **Game.** *Stored in scene* uses the game recorded at import (bridge 0.5 and later). Older scenes need the game chosen here.
 - **Format.** *Interleaved* stores every frame exactly. *Spline* compresses like the game's own clips, within the position **Tolerance** and with the chosen rotation precision.
@@ -139,7 +158,8 @@ Sekiro and Dark Souls III rigs hang a straight chain from `Master` on each side:
 An imported rig has one short bone per game bone, each oriented however the game stores it, which is awkward to animate by hand. The **Control rig** panel, below the retarget panel, adds animator controls to it:
 
 1. Select the armature, or let the panel use the scene's bridge rig, and click **Add control rig**. Mute the armature's NLA tracks first if it has any.
-2. The armature switches to Pose Mode and its controls draw in front of the mesh:
+2. The armature switches to Pose Mode and its controls draw in front of the mesh. In a file opened again in Object Mode, the panel says that the controls are posed in Pose Mode, and its **Pose Mode** button switches.
+   The controls come in groups:
    - **Torso**: a root control whose arrow points forward, rings for the hips, spine, neck and head, and rings for the bones above them (such as Master and RootPos).
    - **FK limbs**: a ring on each arm and leg bone, pointing along the limb.
    - **IK limbs**: a box on each hand, a square under each foot, a diamond pole target behind each elbow and in front of each knee, and a [swivel ring](#elbow-and-knee-swivel) at each elbow and knee.
@@ -161,19 +181,19 @@ Each IK arm and leg has a swivel ring at its elbow or knee, around the line from
 
 ### Fixes
 
-The **Fixes** box under the control rig panel does common cleanup that takes many steps in Blender itself. A fix keys the controls on the frames you choose and eases in before them and out after them over **Blend** (0.2 s by default); the frames beyond keep their keys. It adds no constraints, so export and **Remove control rig** treat its keys like any others, and Ctrl+Z undoes it.
+The **Fixes** panel under the control rig panel does common cleanup that takes many steps in Blender itself. A fix keys the controls on the frames you choose and eases in before them and out after them over **Blend** (0.2 s by default); the frames beyond keep their keys. It adds no constraints, so export and **Remove control rig** treat its keys like any others, and Ctrl+Z undoes it.
 
 1. Choose the fix:
    - **Hand on weapon** keeps a hand where you pose it relative to a bone, such as the second hand of a two-handed grip on the hilt. It starts with the arm whose other hand holds a weapon with a mesh, following that weapon.
-   - **Weapon into sheath** moves the hand so that the weapon it holds keeps where you pose it on the sheath. Pose the blade at the mouth of the sheath and click **Use this pose**, then pose it fully in on a later frame and Apply: between the two frames the blade slides along the sheath, also where the clip hides the weapon by shrinking it.
+   - **Weapon into sheath** moves the hand so that the weapon it holds keeps where you pose it on the sheath. Pose the blade at the mouth of the sheath and click **Use this pose**, then pose it fully in on a later frame and click **Apply fix**: between the two frames the blade slides along the sheath, also where the clip hides the weapon by shrinking it.
    - **Plant foot** keeps a foot where it stands on the current frame, so it does not slide. With root motion it stays still in the game's world, where root motion carries the character; in Blender, where the character stays in place, the foot moves against the root motion.
    - **Adjust over frames** spreads a change that you pose over a range of frames, such as an arm that stands too wide. An IK control or pole changes relative to the bone above its limb, so the change turns with the body, and a [swivel ring](#elbow-and-knee-swivel) by its own angle. With **Selected controls**, each selected control, such as an FK ring, changes its own channels, as an additive layer would.
-2. Choose the limb and, for the hand fixes, the bone to follow and the weapon held. Empty fields use the defaults that the box names.
+2. Choose the limb and, for the hand fixes, the bone to follow and the weapon held. An empty field uses the default that the panel names under it.
 3. Choose **Whole clip**, or **Frames** with a start and an end; the clock buttons take the current frame.
-4. Pose the controls without keying them. Turn auto keying off for **Adjust over frames**, which compares your pose with the keys. To pose several frames, click **Use this pose** before you go to the next one, since Blender drops a pose that is not keyed when the frame changes; **Apply** takes the pose on the current frame too.
-5. Click **Apply**. The status lists how far the hand or foot moved, and the frames where the limb could not reach (IK has no stretch) or was not fully in IK.
+4. Pose the controls without keying them. Turn auto keying off for **Adjust over frames**, which compares your pose with the keys; the panel warns while it is on. To pose several frames, click **Use this pose** before you go to the next one, since Blender drops a pose that is not keyed when the frame changes; **Apply fix** takes the pose on the current frame too.
+5. Click **Apply fix**. The status lists how far the hand or foot moved, and the frames where the limb could not reach (IK has no stretch) or was not fully in IK.
 
-Between posed frames a fix interpolates the relation or the change; before the first posed frame and after the last, it holds. The fixes key a limb's IK controls, so they need the limb in IK on the chosen frames. When it is in FK, the box shows **Switch to IK**, and Apply refuses where it is in FK on all the chosen frames: switching afterwards would match the IK controls to the FK pose again and undo the fix. On an owned test rig, the fixed hand kept its grip within 0.01 mm, the planted foot and the sheathed blade kept their paths within 0.05 mm, and the export after **Remove control rig** matched the export with the control rig.
+Between posed frames a fix interpolates the relation or the change; before the first posed frame and after the last, it holds. The fixes key a limb's IK controls, so they need the limb in IK on the chosen frames. When the limb is not in IK on the current frame, the panel says so and shows **Switch to IK**, and **Apply fix** refuses where it is in FK on all the chosen frames: switching afterwards would match the IK controls to the FK pose again and undo the fix. On an owned test rig, the fixed hand kept its grip within 0.01 mm, the planted foot and the sheathed blade kept their paths within 0.05 mm, and the export after **Remove control rig** matched the export with the control rig.
 
 ## Current scope
 

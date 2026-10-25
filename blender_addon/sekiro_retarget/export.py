@@ -108,7 +108,8 @@ def start(context, settings, preferences=None):
     scene, target = context.scene, settings.target
     retarget.set_export_target(scene, target)
     if settings.export_game == 'auto' and not (retarget.read_motion(target) or {}).get('game'):
-        raise ValueError('This scene was imported before the bridge recorded the game. Choose the Game under Export HKX.')
+        raise ValueError('This scene was imported before the bridge recorded the game. Choose the Game under '
+                         '4. Export HKX > Export settings.')
     if not settings.export_path:
         raise ValueError('Choose an output .hkx file.')
     output = Path(bpy.path.abspath(settings.export_path)).resolve()

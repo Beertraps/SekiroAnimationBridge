@@ -445,7 +445,7 @@ def main():
     posed = nudge()
     refused(f'{weapon_name} has no location or rotation keys, so moving or turning it changes every frame at once. To change '
             f'only some frames, undo the change (Ctrl+Z), select {weapon_name} and press I in the viewport to key it, then pose it '
-            'again, set Limb to Selected controls and Apply.')
+            'again, set Limb to Selected controls and click Apply fix.')
     scene.frame_set(20)
     assert max(difference(shown(), posed)) < 1e-7, 'the pose of a control without keys should hold on every frame'
     scene.frame_set(1)
@@ -453,7 +453,7 @@ def main():
     weapon_control.keyframe_insert('location', frame=1)
     weapon_control.keyframe_insert('rotation_quaternion', frame=1)
     posed = nudge()
-    refused(f'{weapon_name} is posed, but the right arm reads only these controls: set Limb to Selected controls, select it and Apply.')
+    refused(f'{weapon_name} is posed, but the right arm reads only these controls: set Limb to Selected controls, select it and click Apply fix.')
     assert max(difference(shown(), posed)) < 1e-7, 'a refused Apply should keep the pose on the screen'
     report = fixes.run(bpy.context, rig, 'ADJUST', None, (1, COUNT), 0, selected=[weapon_name])
     assert report['controls'] == [weapon_name], report['controls']
@@ -514,7 +514,7 @@ def main():
         except ValueError as exc:
             assert words in str(exc), exc
     assert not [c for b in rig.pose.bones for c in b.constraints if c.type == 'CHILD_OF'], 'the fixes add no constraints'
-    assert 'Left leg is not in IK here.' in draw_fixes(rig)
+    assert 'Left leg is not in IK on this frame.' in draw_fixes(rig)
 
     # Export carries the fixes, and removing the control rig keeps them on the game bones.
     export_motion(work / 'fixed.motion.json')

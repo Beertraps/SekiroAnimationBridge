@@ -36,12 +36,12 @@ TASKS = [
     ('ADJUST', 'Adjust over frames', 'Spread the change you posed on one or more frames over a range of frames'),
 ]
 HINTS = dict(
-    HAND='Pose the hand on the grip, then Apply. On the chosen frames it follows the weapon.',
+    HAND='Pose the hand on the grip, then click Apply fix. On the chosen frames it follows the weapon.',
     SHEATH='Pose the blade at the mouth of the sheath and click Use this pose, then pose it fully in on a later '
-           'frame and Apply. The blade slides along the sheath between them.',
-    PLANT='Go to a frame where the foot stands right, then Apply. On the chosen frames it stays there.',
-    ADJUST='Pose the controls right on a frame, then Apply. To pose several frames, click Use this pose before you go '
-           'to the next.',
+           'frame and click Apply fix. The blade slides along the sheath between them.',
+    PLANT='Go to a frame where the foot stands right, then click Apply fix. On the chosen frames it stays there.',
+    ADJUST='Pose the controls right on a frame, then click Apply fix. To pose several frames, click Use this pose '
+           'before you go to the next.',
 )
 SELECTED = 'SELECTED'
 KINDS = dict(HAND=('arm',), SHEATH=('arm',), PLANT=('leg',), ADJUST=('arm', 'leg'))
@@ -357,7 +357,7 @@ def check_ik(rig, limb, frames):
     if all(value < .001 for value in _slider(rig, limb, range(start, end + 1)).values()):
         span = f'frame {start}' if start == end else f'frames {start}–{end}'
         raise ValueError(f"The {limb['label'].lower()} is in FK on {span}, so its IK controls do not move it. "
-                         'Click Switch to IK first, then pose it and Apply.')
+                         'Click Switch to IK first, then pose it and click Apply fix.')
 
 
 def _reach(context, rig, limb, frames):
@@ -542,19 +542,20 @@ def _unread(rig, limb, names, frame, selected):
     if others:
         posed, it = f"{_listed(others)} {'is' if len(others) == 1 else 'are'} posed", 'it' if len(others) == 1 else 'them'
         if limb is None:
-            return f'{posed} but not selected: select {it} too, then Apply.'
+            return f'{posed} but not selected: select {it} too, then click Apply fix.'
         return (f"{posed}, but the {limb['label'].lower()} reads only these controls: set Limb to Selected controls, "
-                f'select {it} and Apply.')
+                f'select {it} and click Apply fix.')
     active = rig.data.bones.active
     still = [name for name in dict.fromkeys([*selected, *([active.name] if active else [])]) if _still(rig, name)]
     if still:
         it = 'it' if len(still) == 1 else 'them'
-        then = ', set Limb to Selected controls and Apply' if limb is not None and set(still) - set(names) else ' and Apply'
+        then = (', set Limb to Selected controls and click Apply fix' if limb is not None and set(still) - set(names)
+                else ' and click Apply fix')
         return (f"{_listed(still)} {'has' if len(still) == 1 else 'have'} no location or rotation keys, so moving or "
                 f'turning {it} changes every frame at once. To change only some frames, undo the change (Ctrl+Z), select '
                 f'{_listed(still)} and press I in the viewport to key {it}, then pose {it} again{then}.')
     it = 'it' if len(names) == 1 else 'them'
-    return f'Pose {it} without keying {it} (turn auto keying off), then Apply.'
+    return f'Pose {it} without keying {it} (turn auto keying off), then click Apply fix.'
 
 
 def run(context, rig, task, limb, frames, blend, posed=None, target='', held='', selected=()):
