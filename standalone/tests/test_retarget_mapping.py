@@ -76,6 +76,17 @@ class MatchConventions(unittest.TestCase):
                         self.assertEqual(fingers[f'{side}.{finger}.1'], (number, 1))
                         self.assertEqual(fingers[f'{side}.{finger}.3'], (number, 3))
 
+    def test_finger_roots_give_the_first_bone_of_each_finger_thumb_first(self):
+        # Named and unnamed, with weapon, twist and helper bones beside the fingers in some conventions.
+        expected = [(number, finger) for number, finger in enumerate(humanoids.FINGERS)]
+        for name, rig in rigs().items():
+            with self.subTest(rig=name):
+                found, truth = mapping.Rig(bones(rig)), labels(rig)
+                for side in 'LR':
+                    roots = found.finger_roots(found.roles[(side, 'hand')])
+                    self.assertEqual([(number, truth[bone]) for number, bone in roots],
+                                     [(number, f'{side}.{finger}.1') for number, finger in expected])
+
     def test_tracked_subset_without_fingers_or_helpers_still_matches(self):
         full = humanoids.fromsoftware(45, 'elden')
         subset = [bone for bone in full if bone[3] and '.thumb' not in bone[3] and '.index' not in bone[3]

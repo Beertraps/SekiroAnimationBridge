@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="20" y1="8" x2="104" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34483e"/><stop offset="1" stop-color="#192620"/>
+    </linearGradient>
+    <linearGradient id="arch" x1="32" y1="80" x2="96" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f6dfbd"/><stop offset="1" stop-color="#e99b70"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#tile)"/>
+  <rect x="4.5" y="4.5" width="119" height="119" rx="29.5" stroke="#f6dfbd" stroke-opacity=".12"/>
+  <!-- One continuous arc joins the two sides; the diamond is an animation keyframe. -->
+  <path d="M32 85V73a32 32 0 0 1 64 0v12" stroke="url(#arch)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M44 85h40" stroke="#9cad91" stroke-width="5" stroke-linecap="round"/>
+  <rect x="54" y="31" width="20" height="20" rx="4" transform="rotate(45 64 41)" fill="#f8ead3" stroke="#24382d" stroke-width="4"/>
+  <circle cx="32" cy="85" r="6" fill="#f6dfbd"/>
+  <circle cx="96" cy="85" r="6" fill="#e99b70"/>
+</svg>

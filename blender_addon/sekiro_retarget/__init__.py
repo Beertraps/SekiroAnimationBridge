@@ -1,8 +1,8 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 5, 0), 'blender': (4, 5, 0),
+    'version': (0, 6, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget', 'category': 'Animation',
-    'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, add a control rig and export HKX',
+    'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, add a control rig with fixes and export HKX',
 }
 
 import json
@@ -10,10 +10,12 @@ import textwrap
 from collections import Counter
 from pathlib import Path
 import bpy
-from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty,
+                       PointerProperty, StringProperty)
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 from bpy_extras.io_utils import ImportHelper, ExportHelper
-from . import control_rig, export, mapping, retarget
+from mathutils import Matrix
+from . import control_rig, export, fixes, mapping, retarget
 
 
 def armature_poll(self, obj):
@@ -106,6 +108,18 @@ class SKR_Settings(PropertyGroup):
         description='Where the source holds an arm close to its own body, turn the target\'s arm in at the shoulder until '
                     'it stands as close to the target\'s torso, at the target\'s size, easing in and out; for a source '
                     'with a wider body than the target. Needs body meshes on both rigs')
+    weapon_grip: EnumProperty(name='Weapon grip', items=[
+        ('OWN','Target\'s own grip','The weapon sits in the hand as in the target\'s own clip, with the fingers closed '
+               'around it as there; the wrist turns so that the blade follows the source\'s'),
+        ('SOURCE','Source\'s grip','The weapon sits in the hand where the source\'s weapon sits in the source\'s hand, '
+                  'scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='OWN')
+    blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE',
+        description='How far the wrist turns so that the blade points as the source\'s does: 100% keeps the source\'s '
+                    'blade directions, 0% keeps the wrist as the source turns it. Where the two grips differ, turning '
+                    'bends the wrist sideways')
+    second_hand: BoolProperty(name='Second hand on the weapon', default=True,
+        description='Where the source holds its weapon with both hands, the target\'s other hand goes onto the target\'s '
+                    'weapon at the matching place, through the arm, easing on and off')
     timing: EnumProperty(name='Clip timing', items=[
         ('SOURCE','Use source length','Update target metadata to the source duration'),
         ('TARGET','Fit target length','Resample source motion across the target clip length')], default='SOURCE')
@@ -137,6 +151,99 @@ class SKR_Settings(PropertyGroup):
         description='Decode the written HKX again and report the largest difference')
     export_replace: BoolProperty(name='Replace existing', default=False)
     status: StringProperty(default='Open the receiving character first, then append a source.')
+
+
+FIX_LIMBS=[]  # Blender keeps only references to the strings of dynamic enum items.
+
+
+def fix_limb_items(self,context):
+    rig=control_rig.target(context) if context else None
+    items=[(str(index),limb['label'],'') for index,limb in fixes.limbs(rig,self.task)] if control_rig.present(rig) else []
+    if self.task=='ADJUST':items.append((fixes.SELECTED,'Selected controls','The controls selected in Pose Mode'))
+    FIX_LIMBS[:]=items or [('NONE','No limb','This rig has no limb with IK controls for this fix')]
+    return FIX_LIMBS
+
+
+def fix_task_changed(self,context):
+    self.poses.clear();self.status=''
+    rig=control_rig.target(context)
+    if not control_rig.present(rig):return
+    values=fixes.defaults(rig,self.task)
+    if values['limb']:self.limb=values['limb']
+    self.target,self.held=values['target'],values['held']
+    if self.task=='HAND':self.span='CLIP'
+    elif self.span=='CLIP':
+        self.span='RANGE';self.frame_start=self.frame_end=context.scene.frame_current
+
+
+def fix_limb_changed(self,context):
+    self.poses.clear()
+    rig=control_rig.target(context)
+    if control_rig.present(rig) and self.limb.isdigit():
+        values=fixes.defaults(rig,self.task,int(self.limb))
+        self.target,self.held=values['target'],values['held']
+
+
+def fix_held_changed(self,context):
+    self.poses.clear()
+
+
+class SKR_FixPose(PropertyGroup):
+    frame: IntProperty()
+    bone: StringProperty()
+    matrix: FloatVectorProperty(size=16)
+    basis: FloatVectorProperty(size=16)
+
+
+class SKR_Fix(PropertyGroup):
+    task: EnumProperty(name='Fix',items=fixes.TASKS,default='HAND',update=fix_task_changed)
+    limb: EnumProperty(name='Limb',items=fix_limb_items,update=fix_limb_changed,
+        description='The arm or leg whose IK controls the fix keys')
+    target: StringProperty(name='Follow',description='The bone to keep the hand or its weapon on; empty: the fix\'s default')
+    held: StringProperty(name='Weapon',update=fix_held_changed,
+        description='The weapon bone that the hand holds; empty: the weapon in that hand')
+    span: EnumProperty(name='Frames',items=[('CLIP','Whole clip','Every frame of the scene range'),
+        ('RANGE','Frames','From the start frame to the end frame')],default='CLIP')
+    frame_start: IntProperty(name='Start',default=1,description='First frame on which the fix holds fully')
+    frame_end: IntProperty(name='End',default=1,description='Last frame on which the fix holds fully')
+    blend: FloatProperty(name='Blend',default=.2,min=0,soft_max=1,step=5,precision=2,unit='TIME_ABSOLUTE',
+        description='How long the fix eases in before the start frame and out after the end frame')
+    poses: CollectionProperty(type=SKR_FixPose)
+    pose_rig: StringProperty()
+    status: StringProperty()
+
+
+def fix_limb(rig,fix):
+    """The Fixes panel's limb as an index into the control rig's limbs, or None for the selected controls."""
+    if fix.limb.isdigit() and any(index==int(fix.limb) for index,limb in fixes.limbs(rig,fix.task)):return int(fix.limb)
+    if fix.task=='ADJUST' and fix.limb==fixes.SELECTED:return None
+    value=fixes.defaults(rig,fix.task)['limb']
+    return int(value) if value.isdigit() else None
+
+
+def fix_frames(context,fix):
+    scene=context.scene
+    return (scene.frame_start,scene.frame_end) if fix.span=='CLIP' else (fix.frame_start,fix.frame_end)
+
+
+def fix_blend(context,fix):
+    scene=context.scene
+    return max(0,round(fix.blend*scene.render.fps/scene.render.fps_base))
+
+
+def fix_posed(rig,fix):
+    """{frame: {bone: (armature-space matrix, matrix_basis)}} of the frames posed with Use this pose."""
+    posed={}
+    if fix.pose_rig!=rig.name:return posed
+    for item in fix.poses:
+        matrix,basis=list(item.matrix),list(item.basis)
+        posed.setdefault(item.frame,{})[item.bone]=(Matrix([matrix[i:i+4] for i in range(0,16,4)]),
+                                                     Matrix([basis[i:i+4] for i in range(0,16,4)]))
+    return posed
+
+
+def selected_controls(context):
+    return [bone.name for bone in (getattr(context,'selected_pose_bones',None) or [])]
 
 
 def build_mapping(settings):
@@ -450,6 +557,78 @@ class SKR_OT_control_rig_switch(Operator):
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 
+class SKR_OT_fix_frame(Operator):
+    bl_idname='sekiro_retarget.fix_frame'
+    bl_label='Use current frame'
+    bl_description='Set this to the current frame'
+    bl_options={'REGISTER','UNDO'}
+    end: BoolProperty(options={'HIDDEN'})
+    def execute(self,context):
+        setattr(context.scene.sekiro_fix,'frame_end' if self.end else 'frame_start',context.scene.frame_current)
+        return {'FINISHED'}
+
+
+class SKR_OT_fix_pose(Operator):
+    bl_idname='sekiro_retarget.fix_pose'
+    bl_label='Use this pose'
+    bl_description='Remember the pose on this frame for the fix, so that you can pose other frames before you apply it'
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        fix=context.scene.sekiro_fix
+        try:
+            rig=control_rig.target(context)
+            if not control_rig.present(rig):raise ValueError('Add the control rig first.')
+            limb=fix_limb(rig,fix)
+            entry=control_rig.layout(rig)['limbs'][limb] if limb is not None else None
+            held=fix.held or (fixes.defaults(rig,fix.task,limb)['held'] if limb is not None else '')
+            names=fixes.movers(rig,fix.task,entry,held,selected_controls(context))
+            if not names:raise ValueError('Select the controls to adjust in Pose Mode, or choose a limb.')
+            frame=context.scene.frame_current
+            if entry is not None:fixes.check_ik(rig,entry,(frame,frame))
+            pose=fixes.capture(context,rig,names)
+            if fix.pose_rig!=rig.name:
+                fix.poses.clear();fix.pose_rig=rig.name
+            for index in reversed(range(len(fix.poses))):
+                if fix.poses[index].frame==frame:fix.poses.remove(index)
+            for name,(matrix,basis) in pose.items():
+                item=fix.poses.add();item.frame=frame;item.bone=name
+                item.matrix=[value for row in matrix for value in row];item.basis=[value for row in basis for value in row]
+            fix.status=f'Posed frame {retarget.spans(sorted({item.frame for item in fix.poses}))}. Pose another frame, or Apply.'
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_fix_clear(Operator):
+    bl_idname='sekiro_retarget.fix_clear'
+    bl_label='Clear posed frames'
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        fix=context.scene.sekiro_fix
+        fix.poses.clear();fix.status=''
+        return {'FINISHED'}
+
+
+class SKR_OT_fix_apply(Operator):
+    bl_idname='sekiro_retarget.fix_apply'
+    bl_label='Apply fix'
+    bl_description='Key the controls so that the fix holds on the chosen frames and eases in and out over the blend'
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        fix=context.scene.sekiro_fix
+        try:
+            rig=control_rig.target(context)
+            if not control_rig.present(rig):raise ValueError('Add the control rig first.')
+            report=fixes.run(context,rig,fix.task,fix_limb(rig,fix),fix_frames(context,fix),fix_blend(context,fix),
+                             fix_posed(rig,fix),fix.target,fix.held,selected_controls(context))
+            fix.poses.clear();fix.status=report['message']
+            self.report({'WARNING'} if report['warned'] else {'INFO'},fix.status)
+            return {'FINISHED'}
+        except Exception as exc:
+            fix.status=str(exc)
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
 class SKR_UL_bones(UIList):
     def filter_items(self,context,data,property):
         rows=getattr(data,property)
@@ -504,6 +683,9 @@ class SKR_PT_panel(Panel):
         if settings.root_motion in ('AUTO','EXTRACT'):layout.prop(settings,'root_yaw')
         layout.prop(settings,'unmapped');layout.prop(settings,'timing')
         layout.prop(settings,'body_translation');layout.prop(settings,'body_clearance');layout.prop(settings,'arm_gap')
+        layout.prop(settings,'weapon_grip')
+        if settings.weapon_grip=='OWN':layout.prop(settings,'blade_follow',slider=True)
+        layout.prop(settings,'second_hand')
         layout.prop(settings,'auto_scale')
         if not settings.auto_scale:layout.prop(settings,'travel_scale')
         row=layout.row();row.enabled=bool(settings.rows)
@@ -542,6 +724,10 @@ class SKR_PT_control_rig(Panel):
             if not bone:continue
             column=layout.column(align=True)
             column.prop(bone,f'["{control_rig.SWITCH}"]',text=limb['label']+' IK',slider=True)
+            swivel=rig.pose.bones.get(limb.get('swivel',''))
+            if swivel:
+                row=column.row(align=True);row.active=bone.get(control_rig.SWITCH,0.0)>0
+                row.prop(swivel,'rotation_euler',index=1,text=('Elbow' if limb['kind']=='arm' else 'Knee')+' swivel')
             row=column.row(align=True)
             for mode in ('IK','FK'):
                 operator=row.operator('sekiro_retarget.control_rig_switch',text='Switch to '+mode);operator.limb=index;operator.mode=mode
@@ -554,14 +740,64 @@ class SKR_PT_control_rig(Panel):
         layout.operator('sekiro_retarget.remove_control_rig',icon='X')
 
 
-CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,SKR_OT_suggestion,
-    SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_save_map,SKR_OT_load_map,
-    SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_control_rig_switch,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig)
+class SKR_PT_fixes(Panel):
+    bl_label='Fixes'
+    bl_idname='SKR_PT_control_rig_fixes'
+    bl_parent_id='SKR_PT_control_rig'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Retarget'
+    @classmethod
+    def poll(cls,context):
+        return control_rig.present(control_rig.target(context))
+    def draw(self,context):
+        layout=self.layout;scene=context.scene;fix=scene.sekiro_fix;rig=control_rig.target(context)
+        width=max(28,int(context.region.width/7))
+        layout.prop(fix,'task',text='')
+        column=layout.column(align=True)
+        for line in textwrap.wrap(fixes.HINTS[fix.task],width=width):column.label(text=line)
+        layout.prop(fix,'limb')
+        limb=fix_limb(rig,fix)
+        if limb is not None:
+            entry=control_rig.layout(rig)['limbs'][limb];bone=rig.pose.bones.get(entry['control'])
+            if bone and bone.get(control_rig.SWITCH,0.0)<.999:
+                row=layout.row();row.alert=True;row.label(text=entry['label']+' is not in IK here.',icon='ERROR')
+                operator=row.operator('sekiro_retarget.control_rig_switch',text='Switch to IK');operator.limb=limb;operator.mode='IK'
+            if fix.task in ('HAND','SHEATH'):
+                values=fixes.defaults(rig,fix.task,limb)
+                layout.prop_search(fix,'target',rig.data,'bones',text='Follow' if fix.task=='HAND' else 'Sheath')
+                if fix.task=='SHEATH':layout.prop_search(fix,'held',rig.data,'bones',text='Weapon')
+                for name in ('target','held') if fix.task=='SHEATH' else ('target',):
+                    if values[name] and not getattr(fix,name):layout.label(text='Uses '+values[name],icon='INFO')
+        layout.row().prop(fix,'span',expand=True)
+        if fix.span=='RANGE':
+            row=layout.row(align=True)
+            row.prop(fix,'frame_start');row.operator('sekiro_retarget.fix_frame',text='',icon='TIME').end=False
+            row.prop(fix,'frame_end');row.operator('sekiro_retarget.fix_frame',text='',icon='TIME').end=True
+        row=layout.row();row.prop(fix,'blend');row.label(text=f'{fix_blend(context,fix)} frames')
+        posed=sorted({item.frame for item in fix.poses}) if fix.pose_rig==rig.name else []
+        row=layout.row(align=True);row.operator('sekiro_retarget.fix_pose',icon='POSE_HLT')
+        if posed:
+            row.operator('sekiro_retarget.fix_clear',text='',icon='X')
+            layout.label(text='Posed frames: '+retarget.spans(posed))
+        if fix.task=='ADJUST' and scene.tool_settings.use_keyframe_insert_auto:
+            box=layout.box()
+            for line in textwrap.wrap('Auto keying is on. Turn it off before you pose: Adjust compares your pose with '
+                                      'the animation.',width=width):box.label(text=line)
+        layout.operator('sekiro_retarget.fix_apply',icon='CHECKMARK')
+        if fix.status:
+            box=layout.box()
+            for line in textwrap.wrap(fix.status,width=width):box.label(text=line)
+
+
+CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,
+    SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_save_map,
+    SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
+    SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
 
 
 def register():
     for cls in CLASSES:bpy.utils.register_class(cls)
     bpy.types.Scene.sekiro_retarget=PointerProperty(type=SKR_Settings)
+    bpy.types.Scene.sekiro_fix=PointerProperty(type=SKR_Fix)
     from . import imported_pair
     imported_pair.register()
 
@@ -569,5 +805,6 @@ def register():
 def unregister():
     from . import imported_pair
     imported_pair.unregister()
+    del bpy.types.Scene.sekiro_fix
     del bpy.types.Scene.sekiro_retarget
     for cls in reversed(CLASSES):bpy.utils.unregister_class(cls)

@@ -1,19 +1,27 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Animation Bridge</title><link rel="stylesheet" href="/style.css"><script src="/preview.js" defer></script><script src="/app.js" defer></script></head>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#24382d">
+<title>Animation Bridge</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css"><script src="/preview.js" defer></script><script src="/app.js" defer></script>
+</head>
 <body>
 <svg class="symbols" aria-hidden="true"><defs>
 <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
-<symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"/></symbol>
-<symbol id="i-export" viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5"/></symbol>
-<symbol id="i-library" viewBox="0 0 24 24"><path d="M12 3 3 7.5l9 4.5 9-4.5Zm-9 9 9 4.5 9-4.5m-18 4.5L12 21l9-4.5"/></symbol>
-<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5h7l2 2h9v13H3ZM3 10h18"/></symbol>
-<symbol id="i-settings" viewBox="0 0 24 24"><path d="m10 3-1 3-3 1-2 3 2 2v3l3 2 1 4h4l1-4 3-2v-3l2-2-2-3-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3.5v11m-4-4 4 4 4-4M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/></symbol>
+<symbol id="i-export" viewBox="0 0 24 24"><path d="M12 14.5v-11m-4 4 4-4 4 4M4 14.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3.5"/></symbol>
+<symbol id="i-library" viewBox="0 0 24 24"><rect x="3.5" y="4" width="6" height="16" rx="2"/><path d="m14 4 3-.5a1.5 1.5 0 0 1 1.7 1.2l2.6 12.8a1.5 1.5 0 0 1-1.2 1.8l-3 .6a1.5 1.5 0 0 1-1.7-1.2L12.8 5.8A1.5 1.5 0 0 1 14 4ZM6 8h1m9-.5 1-.2"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 9V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm0 1h18"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h3m6 0h7M4 17h7m6 0h3"/><circle cx="10" cy="7" r="3"/><circle cx="14" cy="17" r="3"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
-<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M8.5 4.8a1 1 0 0 0-1.5.9v12.6a1 1 0 0 0 1.5.9l10-6.3a1 1 0 0 0 0-1.8Z"/></symbol>
 <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5v14m7-14v14"/></symbol>
 <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 10 5v10l-10 5-10-5V7Zm0 10 10-5M12 12 2 7m10 5v10"/></symbol>
-<symbol id="i-log" viewBox="0 0 24 24"><path d="m4 6 5 5-5 5m8 1h8"/></symbol>
+<symbol id="i-log" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
 <symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6m-5-4 2-2a5 5 0 0 1 7 7l-3 3M8 11l-3 3a5 5 0 0 0 7 7l2-2"/></symbol>
 <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
@@ -21,16 +29,17 @@
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></symbol>
 <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16Zm9-13 4 4"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 1.5-1.5a2.8 2.8 0 0 1 4 4L8 19l-5 1 1-5Zm-1 1 4 4"/></symbol>
 <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.5 2.5 20h19ZM12 10v4.5m0 2.5v.5"/></symbol>
 <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="3.5"/><path d="M5 21v-1.5a7 7 0 0 1 14 0V21"/></symbol>
-<symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7.5 4v16m9-16v16M3 9h4.5M3 15h4.5m9-6H21m-4.5 6H21"/></symbol>
-<symbol id="i-layers" viewBox="0 0 24 24"><path d="M4 4h7v7H4Zm9 9h7v7h-7ZM7.5 11v5.5H13"/></symbol>
+<symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 8h18M8 4v4m8-4v4m-4 3-3 3 3 3 3-3Z"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="8" height="8" rx="2"/><rect x="12.5" y="12.5" width="8" height="8" rx="2"/><path d="M7.5 15v1.5a3 3 0 0 0 3 3M16.5 9V7.5a3 3 0 0 0-3-3"/></symbol>
+<symbol id="i-retarget" viewBox="0 0 24 24"><circle cx="5.5" cy="6" r="2.5"/><circle cx="18.5" cy="18" r="2.5"/><path d="M3 17v-2a3 3 0 0 1 3-3h12m-3-3 3 3-3 3M21 7V5a2 2 0 0 0-2-2h-5"/></symbol>
 <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-9.5v.5"/></symbol>
 </defs></svg>
 <div class="app">
 <nav class="rail" aria-label="Workspace">
-  <a class="rail-brand" href="#" aria-label="Animation Bridge"><span class="mark">隻</span></a>
+  <a class="rail-brand" href="#" aria-label="Animation Bridge" title="Animation Bridge"><img class="mark" src="/icons/bridge.svg" width="48" height="48" alt=""></a>
   <button class="rail-item active" data-page="import" aria-label="Import animation"><svg><use href="#i-import"/></svg><span>Import</span></button>
   <button class="rail-item" data-page="export" aria-label="Export animation"><svg><use href="#i-export"/></svg><span>Export</span></button>
   <button class="rail-item" data-page="sources" aria-label="Sources"><svg><use href="#i-library"/></svg><span>Sources</span></button>
@@ -129,7 +138,7 @@
               <button class="help" data-help="donor" aria-label="About the retarget donor">?</button>
             </header>
             <div id="donor-card" class="donor-card" hidden><span><strong id="donor-name"></strong><small id="donor-meta"></small></span><button id="donor-remove" class="text-button">Remove</button></div>
-            <button id="donor-pin" class="secondary donor-pin"><svg><use href="#i-person"/></svg><span id="donor-pin-label">Use this animation as the donor</span></button>
+            <button id="donor-pin" class="secondary donor-pin"><svg aria-hidden="true"><use href="#i-retarget"/></svg><span id="donor-pin-label">Use this animation as the donor</span></button>
           </section>
           <details class="block disclosure" id="materials-block">
             <summary><span class="block-title"><h3>Textures &amp; materials</h3><span id="materials-summary">Found automatically</span></span></summary>

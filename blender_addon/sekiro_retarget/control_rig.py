@@ -3,12 +3,17 @@
 An imported rig holds one short bone per game bone, oriented however the game
 stores it. The control rig adds bones to the same armature: a root control, an
 FK control per game bone that points along the limb, and for each arm and leg
-an IK target, a pole target and a two-bone IK chain. Every game bone copies the
-world transform of a socket bone that hangs from its FK control with the game
-bone's own rest matrix; an IK limb blends in a second socket on its IK chain by
-the limb's IK/FK switch. The game bones keep their rest pose, so character
-meshes and weapon sockets stay bound, and the exporter, which samples the
-evaluated pose, writes whatever the controls do.
+an IK target, a pole target, a swivel ring and a two-bone IK chain. Every game
+bone copies the world transform of a socket bone that hangs from its FK control
+with the game bone's own rest matrix; an IK limb blends in a second socket on
+its IK chain by the limb's IK/FK switch. The game bones keep their rest pose, so
+character meshes and weapon sockets stay bound, and the exporter, which samples
+the evaluated pose, writes whatever the controls do.
+
+The swivel ring sits at the elbow or knee, around the line from the shoulder or
+hip to the IK target. Turning it swings the joint around that line, on top of
+where the pole puts it, while the hand or foot stays put, as when an arm clips
+the body after a grip is adjusted.
 
 Adding the rig bakes the active action onto the controls, FK and IK alike, so
 the pose stays the same in either mode. The original action is kept; removing
@@ -23,6 +28,8 @@ from . import mapping, retarget
 ROOT = 'CTRL-Root'
 FK_CONSTRAINT, IK_CONSTRAINT, ROOT_CONSTRAINT, AIM_CONSTRAINT, HAND_CONSTRAINT = (
     'Control rig FK', 'Control rig IK', 'Control rig shoulder', 'Control rig IK solver', 'Control rig IK end')
+# The swivel ring's frame: at the limb's root, aimed at the IK target, facing the pole, then moved to the joint.
+SWIVEL_CONSTRAINTS = ('Control rig swivel root', 'Control rig swivel aim', 'Control rig swivel pole', 'Control rig swivel joint')
 SWITCH = 'ik_fk'
 # Bone collections and whether they start visible.
 COLLECTIONS = (('Torso', True), ('FK limbs', True), ('IK limbs', True), ('Fingers & toes', True),
@@ -51,6 +58,8 @@ SHAPES = {
     'diamond': ([(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)],
                 [(a, b) for a in range(6) for b in range(a + 1, 6) if a // 2 != b // 2]),
     'root': (_ring() + [(-.12, 0, 1.0), (0, 0, 1.3), (.12, 0, 1.0)], _loop(32) + [(32, 33), (33, 34)]),
+    # A ring with an arrow on its -Z side, which points the way the elbow or knee bends.
+    'swivel': (_ring() + [(-.15, 0, -1.0), (0, 0, -1.35), (.15, 0, -1.0)], _loop(32) + [(32, 33), (33, 34)]),
 }
 
 
@@ -363,12 +372,22 @@ def plan(rig, samples):
             shape = ('square', (.45 * length, .825 * length, 1), (0, .475 * length, -limb['ankle']))
         elbow = limb['elbow']
         pole_z = _flat(up, elbow)
+        line = _unit(head[end] - head[upper], limb['upper']['y'])
+        bend_side = _flat(elbow, line)
+        bend_side = bend_side.normalized() if bend_side.length > 1e-6 else _across(line)
+        ring = (.07 if limb['kind'] == 'arm' else .09) * size
         specs += [
             dict(name='IK-' + end, kind='ik', parent=ROOT, group='IK limbs', color=tint, drives=list(limb['bones']),
                  shape=shape, **hand),
             dict(name='Pole-' + lower, kind='pole', parent=ROOT, head=head[lower] + elbow * limb['distance'], y=elbow,
                  z=pole_z.normalized() if pole_z.length > .3 else _across(elbow), length=.05 * size, group='IK limbs',
                  color=tint, drives=[upper, lower], shape=('diamond', (.035 * size,) * 3, (0, 0, 0))),
+            # Constraints keep the frame on the line from the shoulder or hip to the IK target; the ring turns in it.
+            dict(name='MCH-Swivel-' + lower, kind='swivel_frame', parent=ROOT, head=head[lower], y=line, z=-bend_side,
+                 length=.05 * size, group='MCH'),
+            dict(name='Swivel-' + lower, kind='swivel', parent='MCH-Swivel-' + lower, head=head[lower], y=line,
+                 z=-bend_side, length=.05 * size, group='IK limbs', color=tint, drives=[upper, lower],
+                 shape=('swivel', (ring,) * 3, (0, 0, 0))),
             dict(name='MCH-IK-' + upper, kind='chain', parent='FK-' + parent.name if parent else ROOT, group='MCH',
                  **limb['upper']),
             dict(name='MCH-IK-' + lower, kind='chain', parent='MCH-IK-' + upper, connect=True, group='MCH', **limb['lower']),
@@ -435,6 +454,23 @@ def _driver(rig, constraint, control):
     variable.targets[0].id_type = 'OBJECT'
     variable.targets[0].id = rig
     variable.targets[0].data_path = 'pose.bones["{}"]["{}"]'.format(bpy.utils.escape_identifier(control), SWITCH)
+
+
+def _swivel_driver(rig, constraint, ring):
+    """Drive an IK constraint's pole angle by the swivel ring's turn about its Y axis.
+
+    The driver reads the ring's rotation property, not its evaluated transform,
+    which follows the IK chain, so the dependency has no cycle. Its expression
+    is a simple one, which Blender evaluates without running Python.
+    """
+    driver = constraint.driver_add('pole_angle').driver
+    driver.type = 'SCRIPTED'
+    variable = driver.variables.new()
+    variable.name, variable.type = 'swivel', 'SINGLE_PROP'
+    variable.targets[0].id_type = 'OBJECT'
+    variable.targets[0].id = rig
+    variable.targets[0].data_path = 'pose.bones["{}"].rotation_euler[1]'.format(bpy.utils.escape_identifier(ring))
+    driver.expression = '-pi / 2 + swivel'  # A positive turn swings the joint the way the ring's arrow turns.
 
 
 def _rest_on(socket, game):
@@ -506,15 +542,29 @@ def _setup(rig, specs, limbs, names):
         solver.rotation_mode = 'QUATERNION'
         solver.rotation_quaternion = Matrix.Rotation(max(0.0, START_BEND - limb['bend']), 4, 'X').to_quaternion()
         # With pole_angle -90 degrees the chain's -Z axis, the elbow side, turns toward the pole.
-        _constraint(solver, 'IK', AIM_CONSTRAINT, rig, control, pole_target=rig, pole_subtarget=pole,
-                    pole_angle=-math.pi / 2, chain_count=2, use_tail=True, use_stretch=False)
+        ik = _constraint(solver, 'IK', AIM_CONSTRAINT, rig, control, pole_target=rig, pole_subtarget=pole,
+                         pole_angle=-math.pi / 2, chain_count=2, use_tail=True, use_stretch=False)
         _constraint(pose[chain[2]], 'COPY_ROTATION', HAND_CONSTRAINT, rig, control)
         for name, socket in zip(limb['bones'], sockets):
             _rest_on(pose[socket], bones[name])
             _driver(rig, _constraint(pose[name], 'COPY_TRANSFORMS', IK_CONSTRAINT, rig, socket), control)
+        # The ring's frame runs along the line from the chain's root to the IK target, its -Z axis toward the pole
+        # (and so toward the joint, at a zero swivel), and sits at the joint. A turn about that line, which the
+        # ring keys as its Y rotation, adds to the pole angle.
+        frame, swivel = names['MCH-Swivel-' + lower], names['Swivel-' + lower]
+        root, aim, facing, joint = SWIVEL_CONSTRAINTS
+        _constraint(pose[frame], 'COPY_LOCATION', root, rig, chain[0])
+        _constraint(pose[frame], 'DAMPED_TRACK', aim, rig, control, track_axis='TRACK_Y')
+        _constraint(pose[frame], 'LOCKED_TRACK', facing, rig, pole, lock_axis='LOCK_Y', track_axis='TRACK_NEGATIVE_Z')
+        _constraint(pose[frame], 'COPY_LOCATION', joint, rig, chain[1])
+        ring = pose[swivel]
+        ring.rotation_mode = 'XYZ'
+        ring.lock_location = ring.lock_scale = (True, True, True)
+        ring.lock_rotation = (True, False, True)
+        _swivel_driver(rig, ik, swivel)
         recorded.append(dict(label=limb['label'], kind=limb['kind'], side=limb['side'], bones=limb['bones'],
-                             chain=chain, sockets=sockets, control=control, pole=pole,
-                             elbow=list(limb['elbow']), distance=limb['distance']))
+                             chain=chain, sockets=sockets, control=control, pole=pole, swivel=swivel,
+                             swivel_frame=frame, elbow=list(limb['elbow']), distance=limb['distance']))
     return dict(version=1, root=names[ROOT], order=game, fk={name: names['FK-' + name] for name in game},
                 sockets={name: names['MCH-FK-' + name] for name in game}, limbs=recorded,
                 bones=sorted(names.values()), collections=[c.name for c in collections.values()],
@@ -568,12 +618,16 @@ def _local(rig, name, worlds, known):
 
 
 def _poses(rig, data, samples, games=(), limbs=()):
-    """matrix_basis per frame of the controls that reproduce sampled poses (see _worlds)."""
+    """matrix_basis per frame of the controls that reproduce sampled poses (see _worlds). The limbs' swivel rings
+    turn back to zero, since the poles alone place the elbows and knees."""
     poses = {}
     for known in samples:
         worlds = _worlds(rig, data, known, games, limbs)
         for name in worlds:
             poses.setdefault(name, []).append(_local(rig, name, worlds, known))
+        for limb in limbs:
+            if limb.get('swivel'):  # Control rigs added before swivel rings existed have none.
+                poses.setdefault(limb['swivel'], []).append(Matrix())
     return poses
 
 
@@ -609,8 +663,9 @@ def _write(bag, path, group, frames, samples):
             curve = bag.fcurves.new(path, index=axis)
             curve.group = group
         if len(curve.keyframe_points):
+            # Without options, insert replaces a key on the frame or adds one; 'REPLACE' would only replace.
             for frame, sample in zip(frames, samples):
-                curve.keyframe_points.insert(frame, sample[axis], options={'REPLACE', 'FAST'}).interpolation = 'LINEAR'
+                curve.keyframe_points.insert(frame, sample[axis], options={'FAST'}).interpolation = 'LINEAR'
         else:
             curve.keyframe_points.add(len(frames))
             curve.keyframe_points.foreach_set('co', [v for f, s in zip(frames, samples) for v in (float(f), float(s[axis]))])
@@ -619,12 +674,14 @@ def _write(bag, path, group, frames, samples):
         curve.update()
 
 
-def _apply(rig, poses, frames, base=None):
+def _apply(rig, poses, frames, base=None, keyed=()):
     """Key the channels of each bone that change over the frames; set the others once.
 
     poses maps a bone to its matrix_basis per frame. A channel that is already
-    animated is keyed even when it holds still. A rig without an action gets one
-    when anything moves.
+    animated is keyed even when it holds still, and so is the rotation of a bone
+    in keyed, such as a swivel ring, so that turning it on one frame changes that
+    frame only and Adjust over frames can spread it. A rig without an action gets
+    one when anything moves.
     """
     data = rig.animation_data
     action = data.action if data else None
@@ -654,7 +711,7 @@ def _apply(rig, poses, frames, base=None):
             if moves and bag is None:
                 action = _new_action(rig, rig.name + ' Controls', base)
                 bag = _curves(rig, action)
-            if bag is not None and (moves or path in animated):
+            if bag is not None and (moves or path in animated or (index == 1 and name in keyed)):
                 group = bag.groups.get(name) or bag.groups.new(name)
                 _write(bag, path, group, frames, samples)
             else:
@@ -686,13 +743,14 @@ def add(context, rig):
     root = rig.data.bones[record['root']]
     for known in samples:
         known[root.name] = root.matrix_local
-    _apply(rig, _poses(rig, record, samples, record['order'], record['limbs']), frames, action)
+    _apply(rig, _poses(rig, record, samples, record['order'], record['limbs']), frames, action,
+           {limb['swivel'] for limb in record['limbs']})
     record['in_front'] = rig.show_in_front
     rig.show_in_front = True  # Most controls lie inside the character's mesh.
     rig['sekiro_control_rig'] = json.dumps(record)
     context.scene.frame_set(context.scene.frame_current)
     bpy.ops.object.mode_set(mode='POSE')
-    return dict(controls=len(record['order']) + 1 + 2 * len(record['limbs']), limbs=[limb['label'] for limb in record['limbs']],
+    return dict(controls=len(record['order']) + 1 + 3 * len(record['limbs']), limbs=[limb['label'] for limb in record['limbs']],
                 frames=len(frames) if action is not None else 0)
 
 
@@ -701,7 +759,8 @@ def switch(context, rig, index, mode, every_frame=True):
 
     With every_frame, the controls are matched at every frame of the scene
     range, so the whole animation looks the same after the switch; otherwise at
-    the current frame only.
+    the current frame only. Matching the IK controls turns the swivel ring back
+    to zero, as the pole then places the elbow or knee where it is.
     """
     data = layout(rig)
     limb = data['limbs'][index]
@@ -715,7 +774,8 @@ def switch(context, rig, index, mode, every_frame=True):
     parents = {rig.data.bones[name].parent.name for name in targets if rig.data.bones[name].parent} - set(targets)
     context.view_layer.update()
     samples = _sample(context, rig, list(limb['bones']) + sorted(parents), frames)
-    _apply(rig, _poses(rig, data, samples, games, limbs), frames, rig.get('sekiro_control_rig_action'))
+    _apply(rig, _poses(rig, data, samples, games, limbs), frames, rig.get('sekiro_control_rig_action'),
+           {limb['swivel']} if limb.get('swivel') else ())
     control = rig.pose.bones[limb['control']]
     control[SWITCH] = 1.0 if mode == 'IK' else 0.0
     rig.update_tag()  # Setting a custom property alone does not re-evaluate the drivers that read it.
@@ -748,6 +808,11 @@ def remove(context, rig, keep_edits=True):
             if constraint.name in (FK_CONSTRAINT, IK_CONSTRAINT):
                 constraint.driver_remove('influence')
                 bone.constraints.remove(constraint)
+    for limb in data['limbs']:
+        solver = rig.pose.bones.get(limb['chain'][1])
+        constraint = solver.constraints.get(AIM_CONSTRAINT) if solver else None
+        if constraint:
+            constraint.driver_remove('pole_angle')  # A driver stays behind when the bone it drives is deleted.
     _make_active(context, rig)
     bpy.ops.object.mode_set(mode='EDIT')
     try:

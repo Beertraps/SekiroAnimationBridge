@@ -1,10 +1,10 @@
-# Sekiro Retarget Assistant 0.5.0
+# Sekiro Retarget Assistant 0.6.0
 
-An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand. The bridge's own import and export need no add-on.
+An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup. The bridge's own import and export need no add-on.
 
 ## Install
 
-In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.5.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
+In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.6.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
 
 The add-on needs no external Python libraries, account or network connection. To export HKX from Blender it uses the Animation Bridge on this computer and finds it by itself: the bridge records its folder each time its UI or CLI runs, and the conversion Python comes from the bridge's settings. The add-on preferences show what was found and can override both paths. This version was exercised in Blender 4.5.14; other Blender versions have not been run.
 
@@ -47,6 +47,8 @@ On synthetic test rigs of 15 conventions (Mixamo, Unreal, 3ds Max Biped, VRoid, 
 - **Move body with source hips** and **Scale travel by leg length** control body travel; see below.
 - **Keep hands out of the body** (on by default). Where a hand, or what it holds, would go into the target's torso, the hand is moved out through its arm; see below. It needs the target's character mesh in the scene.
 - **Keep arms close to the body** (on by default). Where the source holds an arm close to its own body, the target's arm turns in at the shoulder until it stands as close to the target's torso, at the target's size, so that a target with a slimmer body does not hold its arms out; see [Arm distance](#arm-distance). It needs the character meshes of both rigs in the scene.
+- **Weapon grip.** *Target's own grip*, the default, puts each weapon in the target's hand as the target's own clip holds it, with that clip's fingers, and turns the wrist so that the blade points as the source's does, as far as **Blade follows source** says (100% by default). *Source's grip* puts the weapon where the source's weapon sits in the source's hand, scaled to the hand, with the source's fingers, for a weapon made to fit the source's grip. See [Weapon grips](#weapon-grips).
+- **Second hand on the weapon** (on by default). Where the source holds its weapon with both hands, the target's other hand goes onto the target's weapon at the matching place; see [Second hand](#second-hand).
 
 ## How the bake works
 
@@ -66,11 +68,32 @@ A target weapon bone that rests at its own hand and takes a source weapon that r
 - turns like the source weapon, together with the blade turn above, and shows or hides with it: where the source clip shrinks its weapon to nothing, the placed bone shrinks to 0.1% and keeps its last rotation, and where the target's own clip hides the bone, as Isshin's clips hide his spear, it shows wherever the source weapon shows.
 - carries the bones below it, such as a scabbard on the katana.
 
-The weapon's line is the long axis of the source weapon's mesh; without a mesh, the bone's X axis, along which FromSoftware weapon meshes lie. The status names each placed bone and the hand it is placed in. Weapon bones that no row maps keep the target clip with *Keep target animation*: with the axe on Isshin's spear, his katana stays in his right hand and shows where his clip shows it. The other hand of a two-handed grip follows its own source arm and is not pulled onto the weapon, so with different proportions it can end some way off the haft.
+The weapon's line is the long axis of the source weapon's mesh; without a mesh, the bone's X axis, along which FromSoftware weapon meshes lie. The status names each placed bone and the hand it is placed in. Weapon bones that no row maps keep the target clip with *Keep target animation*: with the axe on Isshin's spear, his katana stays in his right hand and shows where his clip shows it. With **Second hand on the weapon**, the other hand of a two-handed grip goes onto the weapon; see [Second hand](#second-hand).
 
 To hide a weapon for the whole clip, click the eye (**Hide**) on its row in the bone list. Weapon, scabbard, storage and shield rows have it, mapped or not. On every frame the bake shrinks the bone to 0.1% where it would otherwise be, as FromSoftware clips hide weapons, and the bones below it shrink with it: with the axe on Isshin's spear, hiding `R_Katana` leaves only the spear. Bone maps save the toggles, and **Match bones automatically** clears them with the rest of the list. The bake hides at 0.1% rather than 0 because a bone scaled to 0 has no inverse, so the bones below it could not be placed against it.
 
 Keying a weapon's scale by hand hides it too, but a new bake makes a new action without those keys. Export handles a key of 0: the bone keeps its keyed rotation, and tracked bones below it keep their own channels, so they are in place when the weapon shows again or the game blends into another clip.
+
+### Weapon grips
+
+Two characters rarely hold even similar weapons the same way: the weapon bone sits at another place in the fist, turned another way, and the fingers close at other angles. Copying the source's rotations alone left Wolf's hilt beside his fingers with Isshin's clip, although both hold a katana. **Weapon grip** chooses whose grip each weapon in a hand keeps:
+
+- *Target's own grip*, the default, reads how the target's own clip, the action it had before the bake, holds the weapon: the weapon bone's place and turn in the hand and the pose of that hand's fingers, on the first frame that shows the weapon. On every frame the weapon sits there and the fingers take that pose, easing over 0.1 s around frames that hide the weapon. The wrist then turns, without twisting about the blade, so that the blade points as the source's does. **Blade follows source** sets how far: at 100% the blade keeps the source's directions, at 0% the wrist turns as the source's does and the blade points where the own grip puts it. Where the two grips differ, the turn bends the wrist sideways: Isshin's clip turns Wolf's wrist by up to 44°, Owl's clip by up to 23°.
+- *Source's grip* puts the weapon where the source's weapon sits in the source's palm, in a frame from the wrist toward the knuckles, scaled by the hands' sizes, pointing as the source's, and the fingers keep the source's pose. Use it for a weapon whose grip belongs to the animation, such as an unusual weapon held in an unusual way, and give the target a weapon that fits that grip. It needs two or more fingers on both hands; otherwise the weapon keeps its place in the hand from the rest pose.
+
+The wrist turn also moves what the hand holds, so a hilt can come closer to the body: in Isshin's clip on Wolf it goes up to 9.6 cm into Wolf's torso at 100%, against 6.4 cm at 0%, and **Keep hands out of the body** moves the hand out by up to 12.3 cm instead of 7.6 cm. A lower **Blade follows source** trades blade direction for less of that push.
+
+Where the target's own clip does not animate the weapon bone, the weapon takes the source's grip, and the status says so. FromSoftware clips hide unused weapons by shrinking them but still key their place in the hand. Where the own clip hides the weapon on every frame, its grip comes from a hidden frame, which can be off, by 85 mm in one of Owl's clips, and the status warns. A weapon that the bake places in a hand (see above) takes the own grip when it hangs below that hand, as Owl's katana does, which rests a metre from his hand until his clips bring it in; where the own clip hides it on every frame, it stays where the source holds its weapon, and the status says that a target clip that shows it gives its own grip. A placed weapon taken from the other hand keeps its place with either grip.
+
+### Second hand
+
+Where the source holds its weapon with both hands, **Second hand on the weapon** puts the target's other hand on the target's weapon at the same place. It comes after the hands are kept out of the body, so the weapon has its last place:
+
+- The source's other hand holds on where the middle of its knuckles comes within half a hand's length of the weapon's axis, from a third of a hand behind the pommel to as far beyond the tip. Up to a whole hand's length it holds on less and less, and the weight is smoothed over 0.05 s, so the hand eases on and off.
+- The target's hand takes the same side of the axis, scaled by the hands' sizes, and the same distance from the main hand along it, scaled by the length of the grip behind the main hand (or of the weapon ahead of it), so both hands stay on a hilt of another length.
+- The hand keeps its turn relative to the weapon from the bake, which is the source's, and the arm reaches the place through a two-bone solve that keeps the elbow in its plane.
+
+Elsewhere the arm keeps the bake. The status lists the frames each hand holds on and warns where the arm does not reach. Owl's clip on Wolf puts the left hand on the hilt within 1.2 mm, Isshin's clip on Owl within 4.7 mm. The control rig's **Hand on weapon** fix can still move the hand along the hilt.
 
 ### Body clearance
 
@@ -119,7 +142,7 @@ An imported rig has one short bone per game bone, each oriented however the game
 2. The armature switches to Pose Mode and its controls draw in front of the mesh:
    - **Torso**: a root control whose arrow points forward, rings for the hips, spine, neck and head, and rings for the bones above them (such as Master and RootPos).
    - **FK limbs**: a ring on each arm and leg bone, pointing along the limb.
-   - **IK limbs**: a box on each hand, a square under each foot, and a diamond pole target behind each elbow and in front of each knee.
+   - **IK limbs**: a box on each hand, a square under each foot, a diamond pole target behind each elbow and in front of each knee, and a [swivel ring](#elbow-and-knee-swivel) at each elbow and knee.
    - **Fingers & toes**: small rings.
    - **Extras** (twist, weapon, cloth, face and other helper bones) and **Game bones** start hidden. The toggles under **Show** show or hide each group.
 3. The active action is baked onto the controls as a new action, "*clip* Controls", in FK and IK alike, so the pose does not change. The original action is kept.
@@ -132,8 +155,28 @@ The bridge's export page, its CLI and **Export HKX** sample the game bones, so t
 
 Arms and legs get IK where the matcher finds them; other skeletons get FK controls only. IK bends each elbow and knee around one hinge, so a twist that the clip puts into a forearm itself does not show while that arm is in IK; FK keeps it. Bones that the clip scales unevenly, such as muscle helpers, get controls along their own axes so the scale carries over; on arm and leg bones, that scale holds in FK only. This version has no foot roll, finger IK, face controls or IK stretch.
 
+### Elbow and knee swivel
+
+Each IK arm and leg has a swivel ring at its elbow or knee, around the line from the shoulder or hip to the hand or foot control, with an arrow on the side the joint bends to. Turning the ring swings the elbow or knee around that line, on top of where the pole puts it, while the hand or foot stays where it is: for an arm that goes into the body after a grip is adjusted, without moving the pole frame by frame. The ring turns about that one axis only, and the panel shows it as **Elbow swivel** or **Knee swivel** under the limb's IK slider. It is keyed at 0 on every frame, like the other controls, so a turn on one frame changes that frame only. **Switch to IK** sets it back to 0, since the pole then puts the joint where it is. **Adjust over frames** spreads a swivel turn over a range of frames like any other change. On the test rig, a 30° turn swung each elbow and knee by 30° within 0.22° and moved the hand or foot by 0.002 mm.
+
+### Fixes
+
+The **Fixes** box under the control rig panel does common cleanup that takes many steps in Blender itself. A fix keys the controls on the frames you choose and eases in before them and out after them over **Blend** (0.2 s by default); the frames beyond keep their keys. It adds no constraints, so export and **Remove control rig** treat its keys like any others, and Ctrl+Z undoes it.
+
+1. Choose the fix:
+   - **Hand on weapon** keeps a hand where you pose it relative to a bone, such as the second hand of a two-handed grip on the hilt. It starts with the arm whose other hand holds a weapon with a mesh, following that weapon.
+   - **Weapon into sheath** moves the hand so that the weapon it holds keeps where you pose it on the sheath. Pose the blade at the mouth of the sheath and click **Use this pose**, then pose it fully in on a later frame and Apply: between the two frames the blade slides along the sheath, also where the clip hides the weapon by shrinking it.
+   - **Plant foot** keeps a foot where it stands on the current frame, so it does not slide. With root motion it stays still in the game's world, where root motion carries the character; in Blender, where the character stays in place, the foot moves against the root motion.
+   - **Adjust over frames** spreads a change that you pose over a range of frames, such as an arm that stands too wide. An IK control or pole changes relative to the bone above its limb, so the change turns with the body, and a [swivel ring](#elbow-and-knee-swivel) by its own angle. With **Selected controls**, each selected control, such as an FK ring, changes its own channels, as an additive layer would.
+2. Choose the limb and, for the hand fixes, the bone to follow and the weapon held. Empty fields use the defaults that the box names.
+3. Choose **Whole clip**, or **Frames** with a start and an end; the clock buttons take the current frame.
+4. Pose the controls without keying them. Turn auto keying off for **Adjust over frames**, which compares your pose with the keys. To pose several frames, click **Use this pose** before you go to the next one, since Blender drops a pose that is not keyed when the frame changes; **Apply** takes the pose on the current frame too.
+5. Click **Apply**. The status lists how far the hand or foot moved, and the frames where the limb could not reach (IK has no stretch) or was not fully in IK.
+
+Between posed frames a fix interpolates the relation or the change; before the first posed frame and after the last, it holds. The fixes key a limb's IK controls, so they need the limb in IK on the chosen frames. When it is in FK, the box shows **Switch to IK**, and Apply refuses where it is in FK on all the chosen frames: switching afterwards would match the IK controls to the FK pose again and undo the fix. On an owned test rig, the fixed hand kept its grip within 0.01 mm, the planted foot and the sheathed blade kept their paths within 0.05 mm, and the export after **Remove control rig** matched the export with the control rig.
+
 ## Current scope
 
-The retarget bake transfers humanoid FK animation. It aligns and places held weapons, keeps hands out of the torso and keeps arms as close to the body as the source's, but it does not solve foot contacts, the second hand on a two-handed weapon, a hand reaching for anything else, cloth or facial animation; the control rig's IK limbs help with that cleanup by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
+The retarget bake transfers humanoid FK animation. It aligns held weapons and holds them by a grip, puts the second hand on a two-handed weapon, keeps hands out of the torso and keeps arms as close to the body as the source's, but it does not solve foot contacts, a hand reaching for anything else, cloth or facial animation. The control rig's [fixes](#fixes) keep the second hand where you put it on the grip, a weapon in its sheath and the feet on the ground over the frames you choose, and its IK limbs and swivel rings help with the rest by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
 
-Mapped target bones must have no active constraints, and target NLA tracks must be muted. The bake adds no live constraints or handlers; the control rig adds constraints and drivers to its armature, and **Remove control rig** takes them away again. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.
+Mapped target bones must have no active constraints, and target NLA tracks must be muted. The bake adds no live constraints or handlers; the control rig adds constraints and drivers to its armature, and **Remove control rig** takes them away again. The fixes add keys only. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.

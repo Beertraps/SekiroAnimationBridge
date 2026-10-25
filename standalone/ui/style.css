@@ -68,7 +68,9 @@ code{font:12px var(--mono);background:var(--surface-3);padding:2px 6px;border-ra
 .app{display:grid;grid-template-columns:78px minmax(0,1fr);height:100vh}
 .rail{display:flex;flex-direction:column;gap:4px;padding:14px 9px 12px;background:var(--rail);color:var(--rail-ink)}
 .rail-brand{display:grid;place-items:center;height:52px;margin-bottom:14px;text-decoration:none}
-.rail-brand .mark{font:30px/1 serif;color:var(--rail-accent);padding-bottom:4px;border-bottom:2px solid #9c5739}
+.rail-brand .mark{display:block;width:48px;height:48px;transition:transform .18s ease}
+.rail-brand:hover .mark{transform:translateY(-1px)}
+@media (prefers-reduced-motion:reduce){.rail-brand .mark{transition:none}.rail-brand:hover .mark{transform:none}}
 .rail-item{position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 2px 9px;border-radius:11px;color:var(--rail-ink-2);font-size:10.5px;font-weight:500;letter-spacing:.2px;transition:background .15s,color .15s}
 .rail-item svg{width:20px;height:20px}
 .rail-item:hover{background:#ffffff0d;color:var(--rail-ink)}

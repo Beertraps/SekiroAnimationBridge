@@ -203,10 +203,17 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/environment': return self.send_json(environment())
             return self.send_json({'error':'Unknown route'},404)
         routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/app.js':('ui/app.js','text/javascript'),
-                '/preview.js':('ui/preview.js','text/javascript')}
+                '/preview.js':('ui/preview.js','text/javascript'),
+                '/favicon.ico':('ui/icons/bridge.ico','image/vnd.microsoft.icon')}
+        # Keep assets explicitly allowlisted, just like the other UI files.
+        for name,mime in [('bridge.svg','image/svg+xml'),('favicon.svg','image/svg+xml'),
+                          ('favicon-32.png','image/png'),('apple-touch-icon.png','image/png'),
+                          ('bridge-192.png','image/png'),('bridge-512.png','image/png'),
+                          ('bridge.ico','image/vnd.microsoft.icon')]:
+            routes['/icons/'+name]=('ui/icons/'+name,mime)
         if self.path not in routes: return self.send_error(404)
         file,mime=routes[self.path]; data=(HERE/file).read_bytes()
-        self.send_response(200); self.send_header('Content-Type',mime+'; charset=utf-8')
+        self.send_response(200); self.send_header('Content-Type',mime+('; charset=utf-8' if mime.startswith('text/') else ''))
         self.send_header('Cache-Control','no-store'); self.send_header('X-Content-Type-Options','nosniff')
         self.send_header('Content-Security-Policy',"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'")
         self.end_headers(); self.wfile.write(data)

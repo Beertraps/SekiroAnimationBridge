@@ -482,6 +482,22 @@ class Rig:
     def finger(self, name):
         return self.fingers.get(name)
 
+    def finger_roots(self, hand):
+        """(finger, bone) for the first bone of each finger below a hand: thumb 0, index 1, middle 2, ring 3, little
+        finger 4, in that order.
+
+        A finger's first bone is its shallowest, so a metacarpal counts; bones between the hand and its fingers,
+        such as a palm bone, are passed through."""
+        roots, stack = {}, list(self.children.get(hand, ()))
+        while stack:
+            name = stack.pop()
+            finger = self.finger(name)
+            if not finger:
+                stack.extend(self.children.get(name, ()))
+            elif finger[0] not in roots or self.bones[name].depth < self.bones[roots[finger[0]]].depth:
+                roots[finger[0]] = name
+        return [(number, roots[number]) for number in sorted(roots)]
+
     def held(self, hand):
         """Weapon bones below a hand, outside its fingers."""
         found, stack = [], list(self.children.get(hand, ()))

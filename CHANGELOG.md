@@ -1,3 +1,43 @@
+# 0.10.0 — retarget weapon grips and the second hand on the weapon, control rig swivel rings and fixes, app icon and desktop shortcut
+
+Install `SekiroRetargetAssistant-0.6.0.zip` over 0.5.0 for the retarget and control rig changes.
+
+## Retarget: weapon grips
+
+- **Weapon grip**, a new bake option. Before, a weapon in the hand kept the target's rest place in the hand and turned like the source's, so even similar weapons sat badly: with Isshin's clip, Wolf's hilt ended beside his fingers. *Target's own grip*, the default, puts the weapon in the hand as the target's own clip holds it, read from the first frame that shows it, and gives that hand the clip's finger pose, easing over 0.1 s around frames that hide the weapon. The wrist turns, without a twist about the blade, so that the blade points as the source's does. *Source's grip* puts the weapon where the source's weapon sits in the source's palm, scaled to the hand, with the source's blade direction and fingers, for a weapon made to fit the source's grip.
+- **Blade follows source** (100% by default) sets how far the wrist turns for the own grip; at 0% it turns as the source's does. Isshin's clip turns Wolf's wrist by up to 44°, Owl's clip by up to 23°. The turn also moves what the hand holds: with Isshin's clip, Wolf's hilt goes up to 9.6 cm into his torso at 100% and 6.4 cm at 0%, so **Keep hands out of the body** moves the hand out by up to 12.3 cm instead of 7.6 cm.
+- A target clip that does not animate the weapon takes the source's grip, and one that hides the weapon on every frame gives the grip from a hidden frame, with a warning. A weapon that the bake places in its own hand because it rests away from it, as Owl's katana rests a metre from his hand, takes the own grip too; where the own clip hides it on every frame, it stays where the source holds its weapon, and the status says so. A weapon placed from the other hand keeps its place.
+
+## Retarget: second hand on the weapon
+
+- **Second hand on the weapon**, a new bake option that is on by default: where the source holds its weapon with both hands, the target's other hand goes onto the target's weapon at the same place, on the same side of the axis and at the same distance from the main hand, scaled to the hands and to the length of the hilt, keeping its turn relative to the weapon from the source. The arm reaches the place through a two-bone solve once the hands are kept out of the body, and the hand eases on and off over 0.05 s. The status lists the frames and warns where an arm does not reach. Before, the other hand followed its own source arm and could end some way off the hilt; now Owl's clip on Wolf holds the hilt within 1.2 mm, Isshin's clip on Owl within 4.7 mm.
+
+## Control rig: elbow and knee swivel
+
+- Each IK arm and leg has a swivel ring at its elbow or knee. Turning it swings the joint around the line from the shoulder or hip to the hand or foot, on top of where the pole puts it, while the hand or foot stays: for an elbow that goes into the body after a grip is adjusted. The panel shows **Elbow swivel** and **Knee swivel** under each limb's IK slider. The rings are keyed at 0 on every frame, so a turn on one frame changes that frame only. **Switch to IK** sets the ring back to 0, and **Adjust over frames** spreads its turns. Control rigs added with earlier versions have no rings; remove and add the control rig again to get them.
+- **Switch to IK** and **Switch to FK** key a control also on frames where its channel has no key, such as after keys were deleted. Before, they stopped with an error there.
+
+## Control rig: fixes for common cleanup
+
+- **Fixes**, a new box under the control rig panel, does cleanup that takes many steps in Blender itself, for animators new to it. Each fix keys the controls on the chosen frames, the whole clip or a start and end, and eases in and out over **Blend** (0.2 s by default), so the frames around them change smoothly and the frames beyond keep their keys. It adds no constraints, so export and **Remove control rig** treat its keys like any others, and Ctrl+Z undoes it.
+- **Hand on weapon** keeps a hand where you pose it relative to a bone, such as the second hand of a two-handed grip on the hilt. It starts with the arm whose other hand holds a weapon with a mesh, following that weapon. Before, this took a Child Of constraint, a bake and an F-curve blend by hand.
+- **Weapon into sheath** moves the hand so that the weapon it holds keeps where you pose it on the sheath: posed at the mouth on one frame and fully in on a later one, the blade slides along the sheath between them, also where the clip hides the weapon by shrinking it. It starts with the hand that holds a weapon and the first sheath bone, such as Wolf's `Sheath`.
+- **Plant foot** keeps a foot where it stands on the current frame, so it does not slide. With root motion it stays still in the game's world, where export places the character by the root-motion object.
+- **Adjust over frames** spreads a change that you pose on one or more frames over a range of frames: an IK control or pole changes relative to the bone above its limb, so the change turns with the body, a swivel ring by its own angle, and selected controls, such as FK rings, change their own channels, as an additive layer would. Between posed frames the change is interpolated.
+- **Use this pose** keeps the pose of a frame for the fix, since Blender drops a pose that is not keyed when the frame changes; **Apply** also takes the pose on the current frame. The status lists how far the hand or foot moved, and the frames where the limb could not reach, as IK has no stretch, or was not fully in IK. A limb in FK on all the chosen frames is refused with **Switch to IK**, since switching after the fix would undo it.
+- When **Adjust over frames** finds no change, it names the controls it compared and says what to do: to key a posed control that has no keys, which changes every frame at once, or to choose **Selected controls** for a posed control that the limb does not read. The pose stays on the screen.
+- New Blender test `blender_fixes.py`; see VERIFICATION.md. The add-on package includes the new module `fixes.py`.
+
+## App icon and desktop shortcut
+
+- The app has its own icon, a bridge arc with a keyframe at its crown, shown in the navigation rail and as the browser tab's icon. Most interface symbols were redrawn in the same style, with rounded corners, and the donor button has a retarget symbol.
+- **Create Desktop Shortcut.cmd** in the tool folder puts a *Sekiro Animation Bridge* shortcut with the icon on the desktop. It starts the app as **Start Animation Bridge.cmd** does, without a console window. Run it again after moving the folder.
+- The release ZIP includes the icons. `tools/build_icons.js` regenerates the PNG and ICO files from the SVG artwork; it is optional and needs Node.
+
+## Tests
+
+- New Blender test `blender_weapon_grips.py` for the weapon grips and the second hand; `blender_control_rig.py` checks the swivel rings, and a new unit test the finger roots that the grips read. See VERIFICATION.md.
+
 # 0.9.0 — retarget weapon hands, arm distance and foot targets, two characters from one import, weapon part animations and clip preview
 
 Install `SekiroRetargetAssistant-0.5.0.zip` over 0.4.0 for the retarget changes.

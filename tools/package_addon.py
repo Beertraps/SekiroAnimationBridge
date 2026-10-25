@@ -6,7 +6,7 @@ SOURCE=ROOT/'blender_addon/sekiro_retarget'
 VERSION='.'.join(str(part) for part in ast.literal_eval(
     re.search(r"'version': (\([^)]*\))",(SOURCE/'__init__.py').read_text(encoding='utf-8')).group(1)))
 OUTPUT=ROOT/f'SekiroRetargetAssistant-{VERSION}.zip'
-FILES=['__init__.py','mapping.py','retarget.py','export.py','control_rig.py','imported_pair.py','README.md']
+FILES=['__init__.py','mapping.py','retarget.py','export.py','control_rig.py','fixes.py','imported_pair.py','README.md']
 
 
 def package():

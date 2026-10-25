@@ -45,6 +45,8 @@ Import and export work for all five games. Every release writes and reads back s
 2. Double-click **`Start Animation Bridge.cmd`**. The first start prepares the conversion Python in `%LOCALAPPDATA%\SekiroAnimationBridge`, which needs an internet connection and takes a few minutes. Later starts open the UI right away.
 3. Install [Blender 4.5](https://www.blender.org/download/lts/4-5/) if you do not have it. The bridge finds standard installations; otherwise choose `blender.exe` under **Settings & setup**.
 
+For a desktop shortcut with the app's icon, double-click **`Create Desktop Shortcut.cmd`**. Run it again after moving the extracted folder to update the shortcut.
+
 That is all: the release includes the HKX decoder and [uv](https://github.com/astral-sh/uv), so no Python, .NET or Git installation is needed. Only the optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported), which many games have already installed; **Settings & setup** shows whether it is present. To update, extract the new version and start it; your settings carry over.
 
 For retargeting and the control rig, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.

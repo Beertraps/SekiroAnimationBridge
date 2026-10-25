@@ -6,8 +6,8 @@ import argparse,hashlib,zipfile
 from package_addon import OUTPUT as ADDON
 
 ROOT=Path(__file__).resolve().parents[1]
-TOP_FILES=['README.md','CHANGELOG.md','CREDITS.md','LICENSE','VERSION','requirements-writer.txt','Start Animation Bridge.cmd',ADDON.name]
-SUFFIXES={'.py','.ps1','.cmd','.cs','.csproj','.html','.css','.js','.md','.txt','.png'}
+TOP_FILES=['README.md','CHANGELOG.md','CREDITS.md','LICENSE','VERSION','requirements-writer.txt','Start Animation Bridge.cmd','Create Desktop Shortcut.cmd',ADDON.name]
+SUFFIXES={'.py','.ps1','.cmd','.cs','.csproj','.html','.css','.js','.md','.txt','.png','.svg','.ico'}
 GAME_FILES={'.hkx','.flver','.tpf','.dcx','.blend','.anibnd','.chrbnd','.partsbnd','.texbnd','.mtdbnd','.matbinbnd'}
 # Native binaries may only come from the decoder build and uv, never from the source tree.
 BINARIES={'.dll','.exe'}
