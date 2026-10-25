@@ -253,6 +253,19 @@ select:focus,.text-input:focus{outline:none;border-color:var(--accent);box-shado
 .manual-model:not([hidden])+.model-tools{margin-top:0}
 #scan-notice{margin-top:12px}
 .files-pane .pane-body{max-width:780px}
+/* Part view: a weapon part's clips and the player animations each one plays in */
+.weapons-pane{grid-area:chars}.part-clips-pane{grid-area:clips}
+.weapons-pane>.notice{margin:0 12px 12px;max-height:120px;overflow:auto}
+.part-clip-row{width:100%;text-align:left}
+.list-group{padding:10px 10px 4px;font:600 10.5px/1.4 var(--mono);letter-spacing:.6px;color:var(--ink-3)}
+[role=group]:first-child>.list-group{padding-top:4px}
+.plays-in{flex:none;max-height:45%;overflow:auto;padding:10px 12px 12px;border-top:1px solid var(--line);background:var(--surface-2);border-radius:0 0 var(--radius) var(--radius)}
+.plays-in h3{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--ink-2);word-break:break-all}
+.match-list{display:grid;gap:2px;margin-bottom:6px}
+.match-row .char-flags svg{width:14px;height:14px;color:var(--warn)}
+.plays-in .note{margin:0}
+.plays-in .note .text-button{padding:0 2px}
+.plays-in .note .text-button svg{width:13px;height:13px}
 
 .scene-pane{overflow:hidden}
 .scene-scroll{flex:1;min-height:0;overflow:auto}
@@ -516,6 +529,7 @@ dialog::backdrop{background:rgb(8 12 10/.48);backdrop-filter:blur(2px)}
   .import-grid,.import-grid.files{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-template-areas:"chars" "clips" "scene"}
   .import-grid.files{grid-template-areas:"files" "scene"}
   .characters-pane{height:260px}.clips-pane{height:440px}
+  .weapons-pane{height:260px}.part-clips-pane{height:520px}
   .scene-scroll{overflow:visible}
   .format-options{grid-template-columns:1fr}
   .settings-grid{grid-template-columns:1fr}

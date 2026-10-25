@@ -1,3 +1,16 @@
+# Unreleased — part animations view
+
+## Import: start from a weapon part
+
+- **Part animations**, a new view on the import page beside **Source library** and **Individual files**, for Sekiro sources. It works the other way round from **Animate weapon parts**: choose an animated weapon part, such as the Loaded Umbrella `WP_A_0760`, to list its clips, then a clip, such as `a076_412000_1`, to list the player animations that it plays in, each with its archive and the reason. The reason is the same ID, an ID that the part's own TAE gives the clip, or an ID that Wolf's TAE gives the same body clip: *TAE of C0000: a076_412000 plays a070_412000*. Choosing an animation selects it and the part for import and turns on **Animate weapon parts**, so **Create Blender scene** keys the weapon with that clip.
+- The view asks the import's own pairing about every player animation, so an animation that it lists is one whose import keys the clip. In the game folder, 23 of the 36 weapon parts animate, and 381 of their 389 clips play in one player animation each. The spears' `a078_425010_1` and `a078_426010_1` and the Finger Whistle's `a079_423000_1` play in none and are marked *not played*.
+- Weapon parts show their names from the game, such as *Loaded Umbrella* for `WP_A_0760`, in the new view and in the import's model list for Sekiro. Before, only the Kusabimaru and the Mortal Blade had names.
+- The view remembers the chosen part and clip for each source and scrolls them into view. The arrow keys, Home and End move through its lists, and `/` jumps to the part clip search.
+
+## Tests
+
+- New unit tests `test_part_view.py` for the listing, the pairing and the two new routes, and new pairing tests in `test_part_animations.py`. See VERIFICATION.md.
+
 # 0.10.0 — retarget weapon grips and the second hand on the weapon, control rig swivel rings and fixes, app icon and desktop shortcut
 
 Install `SekiroRetargetAssistant-0.6.0.zip` over 0.5.0 for the retarget and control rig changes.

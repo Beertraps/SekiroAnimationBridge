@@ -52,6 +52,7 @@ const help={
  tolerance:['Spline tolerance','The largest difference the spline compressor accepts while fitting curves, from 0.000001 to 0.1. Smaller values keep more detail and make larger files. The default is 0.001. With Read the HKX back enabled, the export reports the actual difference.'],
  outputHKX:['HKX output','Export writes a raw HKX and an adjacent .motion.json sidecar. Use WitchyBND to replace the animation member in a copy of your binder. Model geometry, TAE events and unrelated HKX metadata are not exported.\n\nRead the HKX back decodes the written file again and reports the largest rotation and translation differences from the sampled pose.'],
  partAnimations:['Animate weapon parts','Some weapons animate their own bones: the Loaded Umbrella opens, the Loaded Axe and Loaded Spear move, the Mortal Blade’s sheath turns. Their part binder holds an animation binder for the model, such as WP_A_0760_1.anibnd, with clips named after the character’s animation IDs.\n\nThe import keys each chosen weapon with the clip of the same ID. Where the character’s TAE gives several IDs one body clip, such as a076_412000 playing a070_412000, the part plays the clip of the ID in its own category. A part without a clip for the animation keeps its rest pose. The preview lists which clip each part plays.\n\nTAE events that hide a weapon or move it to another dummy are not applied.'],
+ partView:['Part animations','Starts from a Sekiro weapon part: choose one on the left to list its clips, then one of its clips to list the player animations it plays in, each with the reason. The reason is the same animation ID, an ID that the part’s own TAE gives that clip, or an ID that the player’s TAE gives the same body clip, such as a076_412000 playing a070_412000. This is the import’s own pairing, read the other way round.\n\nChoosing an animation selects it and the weapon part for import, and turns on Animate weapon parts, so the scene keys the part with that clip. A part holds its rest pose, a999_000000, in every animation without a clip of its own; the rest pose is not listed.\n\nA game folder reads the player’s archives the first time. This view is shown for Sekiro sources only.'],
  exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. Each file keeps the part clip’s member name, such as a076_405010_1.hkx, and its own frame rate; the format and settings follow the character’s HKX.\n\nReplace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. The bridge does not repack archives. Part clips are not yet tested in game.'],
  blender:['Blender executable','Choose blender.exe from your Blender installation. Version 4.5.14 is checked locally. The scripts use Blender’s built-in Python APIs and require no add-on. Compatibility with 5.2 still needs a run on that version.'],
  writer:['Conversion Python','Choose python.exe from the writer environment, normally %LOCALAPPDATA%\\SekiroAnimationBridge\\writer-env\\Scripts\\python.exe. The bridge creates it on the first start with Soulstruct, Soulstruct Havok and NumPy; tools/setup_writer.cmd repeats that setup. Blender’s bundled Python stays separate.'],
@@ -196,6 +197,7 @@ async function activateSource(id,restore=false){
  if(!restore)rememberState();
  activeId=id;const source=activeSource(),state=source?.state||{};
  resolveSequence++;resolving=false;catalog=null;catalogPath='';selection=null;parts=[];archiveFor='';scanProblem=null;inventoryProblem=null;
+ weapons=null;weaponsFor=null;weaponData=null;weaponDataFor=null;weaponPath=state.part?.path||'';weaponClip=state.part?.clip||'';pendingWeapon='';
  // Settings saved before sources existed carry the selection globally.
  characterId=state.character??(restore?config.assetCharacter||'':'');clipId=state.clip??(restore?config.assetClip||'':'');
  lastSuggestedBlend=state.suggested||'';if(state.outputBlend)$('outputBlend').value=state.outputBlend;
@@ -236,7 +238,7 @@ const characterClips=()=>catalog&&characterId?catalog.clips.filter(c=>c.characte
 const isScanning=s=>job?.status==='running'&&job.mode==='discover'&&jobSources.get(job.id)===s?.id;
 const isInventorying=id=>job?.status==='running'&&job.mode==='inventory'&&jobCharacters.get(job.id)===id&&jobSources.get(job.id)===activeId;
 const skeletonRows='<div class="skeleton-rows"><span></span><span></span><span></span><span></span><span></span><span></span></div>';
-function renderLibrary(){renderCharacters();renderClips();}
+function renderLibrary(){renderCharacters();renderClips();renderPartView();}
 function renderCharacters(){
  const list=$('character-list'),empty=$('library-empty'),source=activeSource();
  let message='';
@@ -272,8 +274,8 @@ function restoreClip(){
  const found=all.find(c=>c.id===clipId)||(saved&&(all.find(c=>c.id===saved.id)||all.find(c=>c.name===saved.name&&basename(c.archive)===basename(saved.archive))))||all.find(c=>c.ready)||all[0];
  clipId=found.id;
 }
-async function ensureInventory(){
- const source=activeSource(),character=currentCharacter();
+async function ensureInventory(character=currentCharacter()){
+ const source=activeSource();
  if(!source||inputMethod!=='folder'||!character||character.inventoried!==false||job?.status==='running'||jobStarting)return;
  if(inventoryProblem?.key===source.id+'|'+character.id)return;
  try{await startJob({mode:'inventory',assetCharacter:character.id},{source:source.id,character:character.id});}
@@ -343,7 +345,7 @@ function selectClip(id,delay=0){
  clearTimeout(resolveTimer);resolveTimer=setTimeout(()=>resolveClip(false),delay);
 }
 async function resolveClip(restore=false){
- const clip=inputMethod==='folder'?currentClip():null,seq=++resolveSequence;
+ const clip=inputMethod==='folder'?currentClip():null,seq=++resolveSequence,weapon=pendingWeapon;pendingWeapon='';
  if(!clip||!clip.ready){
   selection=null;resolving=false;
   if(clip)for(const key of ['animation','skeleton','compendium','skeletonCompendium'])$(key).value='';
@@ -362,7 +364,7 @@ async function resolveClip(restore=false){
   for(const key of ['materialBinder','textureDirectory','referenceModel'])$(key).value=state.overrides?.[key]||resolved[key]||'';
   const models=new Set(restore?state.models||config.models||[]:[]);
   parts=resolved.parts;if(models.size&&parts.some(p=>models.has(p.path)))parts.forEach(p=>p.selected=models.has(p.path));
-  extrasOpen=null;renderParts();
+  extrasOpen=null;renderParts();applyWeapon(weapon);
   const structured=resolved.layout!=='folder',notes=[];
   if(!parts.length)notes.push(clip.character==='c0000'?'No player outfit found. c0000.chrbnd is a skeleton reference with no visible body. Add outfit PARTSBND files from this game, or switch to Rig only.':structured?`This source has no ${clip.character}.chrbnd or FLVER. Choose model files, or switch to Rig only.`:'No matching model found. Add this character’s CHRBND, or switch to Rig only.');
   if(resolved.missing.length)notes.push('Missing outfit parts: '+resolved.missing.join(', ')+'. Available parts stay selectable.');
@@ -379,6 +381,156 @@ function suggestBlend(clip,restore){
  if(!lastSuggestedBlend||!current||current===lastSuggestedBlend){$('outputBlend').value=suggested;lastSuggestedBlend=suggested;}
 }
 function setNotice(lines,kind='warn'){$('scan-notice').textContent=lines.join('\n');$('scan-notice').className='notice '+kind;$('scan-notice').hidden=!lines.length;}
+
+/* Part view: Sekiro's animated weapon parts, the clips of one, and the player animations each clip plays in */
+let partView=false,weapons=null,weaponsFor=null,weaponSequence=0,weaponPath='',weaponData=null,weaponDataFor=null,weaponDataSequence=0,weaponClip='',pendingWeapon='';
+try{partView=localStorage.getItem('bridge-part-view')==='1';}catch(e){}
+const sekiroSource=()=>{const source=activeSource();return !!source&&(catalog?catalog.game==='sekiro'||(catalog.games||[]).includes('sekiro'):sourceGame(source)==='sekiro');};
+const showsParts=()=>partView&&inputMethod==='folder'&&sekiroSource();
+const partPlayer=()=>catalog?.characters.find(c=>c.id===weaponData?.characterKey);
+const partClipRows=()=>weaponData?.models?weaponData.models.flatMap(m=>m.clips.map(c=>({...c,model:m.model,modelName:m.name,key:m.model+'|'+c.id}))):[];
+const currentPartClip=()=>partClipRows().find(r=>r.key===weaponClip);
+// Replaces a list's rows and keeps the keyboard focus on the same row.
+function fill(list,html,attribute){
+ const focused=list.contains(document.activeElement)?document.activeElement.getAttribute(attribute):null;
+ list.innerHTML=html;
+ if(focused!==null)[...list.querySelectorAll(`[${attribute}]`)].find(el=>el.getAttribute(attribute)===focused)?.focus({preventScroll:true});
+}
+// Scrolls a list, not the page, so that its selected row shows, as scrollToClip does for the clip list.
+function scrollToSelected(list){
+ const row=list.querySelector('[aria-selected="true"]');if(!row||list.hidden)return;
+ const box=list.getBoundingClientRect(),at=row.getBoundingClientRect();
+ if(at.top<box.top)list.scrollTop+=at.top-box.top;else if(at.bottom>box.bottom)list.scrollTop+=at.bottom-box.bottom;
+}
+function applyView(){
+ const folder=inputMethod==='folder',sekiro=sekiroSource(),shown=folder&&partView&&sekiro,view=shown?'parts':inputMethod;
+ $('parts-tab').hidden=!sekiro;
+ document.querySelectorAll('[data-input]').forEach(b=>{const on=b.dataset.input===view;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on));});
+ $('characters-pane').hidden=!folder||shown;$('clips-pane').hidden=!folder||shown;$('weapons-pane').hidden=!shown;$('part-clips-pane').hidden=!shown;$('files-pane').hidden=folder;
+ document.querySelector('.import-grid').classList.toggle('files',!folder);
+ $('import-note').textContent=shown?'Pick a weapon part and one of its clips, then an animation that it plays in. Both are imported together.'
+  :folder?'Pick a character and an animation. The scene settings follow your choice.':'Choose extracted HKX files. The animation, skeleton and compendium must come from the same character.';
+}
+function renderPartView(){
+ applyView();if(!showsParts())return;
+ if(catalog&&weaponsFor!==catalog)loadWeapons();
+ else if(catalog&&weapons&&weaponPath&&weaponDataFor!==catalog)loadWeaponClips();
+ // A game folder lists the player's archives by name until they are read.
+ if(weaponData?.inventoried===false)ensureInventory(partPlayer());
+ renderWeapons();renderWeaponClips();renderMatches();
+}
+async function loadWeapons(){
+ const current=catalog,seq=++weaponSequence;weaponsFor=current;weapons=null;renderWeapons();
+ let found;
+ try{found=await api('part-list',{path:catalogPath,folder:current.folder});}
+ catch(e){found={error:e.message,parts:[],notices:[],read:0};}
+ if(seq!==weaponSequence||current!==catalog)return;
+ weapons=found;
+ if(weaponPath&&!found.parts.some(p=>p.path===weaponPath)){weaponPath='';weaponClip='';}
+ weaponDataFor=null;renderWeapons();scrollToSelected($('weapon-list'));loadWeaponClips();
+}
+async function loadWeaponClips(){
+ const current=catalog,part=weaponPath,seq=++weaponDataSequence;
+ if(!current||!part){weaponData=null;weaponDataFor=null;renderWeaponClips();renderMatches();return;}
+ weaponData={loading:true,path:part};weaponDataFor=current;renderWeaponClips();renderMatches();
+ let found;
+ try{found=await api('part-matches',{path:catalogPath,folder:current.folder,part});}
+ catch(e){found={error:e.message,path:part};}
+ if(seq!==weaponDataSequence||current!==catalog||part!==weaponPath)return;
+ weaponData=found;
+ // Without a saved clip, the view opens on the part clip that plays with the animation chosen for import.
+ const rows=partClipRows();
+ if(!rows.some(r=>r.key===weaponClip))weaponClip=rows.find(r=>r.matches.some(m=>m.clip===clipId))?.key||'';
+ renderPartView();scrollToSelected($('part-clip-list'));
+}
+function rememberPart(){const source=activeSource();if(source){source.state={...source.state,part:{path:weaponPath,clip:weaponClip}};saveSoon();}}
+function selectWeapon(path){
+ if(path!==weaponPath){weaponPath=path;weaponClip='';weaponData=null;weaponDataFor=null;$('part-clip-filter').value='';rememberPart();loadWeaponClips();}
+ renderWeapons();
+}
+function selectPartClip(key){
+ weaponClip=key;rememberPart();
+ const row=currentPartClip(),match=row&&(row.matches.find(m=>m.clip===clipId)||row.matches.find(m=>m.ready)||row.matches[0]);
+ if(match)useMatch(match.clip);else{renderWeaponClips();renderMatches();}
+}
+function useMatch(id){
+ const data=weaponData,match=currentPartClip()?.matches.find(m=>m.clip===id);if(!data?.characterKey||!match)return;
+ // The view exists to import the part's clip with the animation, so it keys weapon parts.
+ if(!$('partAnimations').checked){$('partAnimations').checked=true;$('partAnimations').dispatchEvent(new Event('change'));}
+ if(characterId!==data.characterKey){characterId=data.characterKey;$('clip-filter').value='';$('clip-list').scrollTop=0;}
+ if(id===clipId&&selection&&!resolving)applyWeapon(data.path);else{pendingWeapon=data.path;selectClip(id);}
+ renderWeaponClips();renderMatches();saveSoon();
+}
+function applyWeapon(path){
+ const part=path&&parts.find(p=>samePath(p.path,path));
+ if(part&&!part.selected){part.selected=true;extrasOpen=true;renderParts();saveSoon();}
+}
+function renderWeapons(){
+ const list=$('weapon-list'),empty=$('weapon-empty'),notice=$('weapon-notice');
+ let message='';
+ if(!catalog)message=catalogLoading||isScanning(activeSource())?skeletonRows:'<b>Not scanned yet</b>Scan the source in Source library to list its weapon parts.';
+ else if(!weapons)message=skeletonRows;
+ else if(weapons.error)message=`<b>The weapon parts could not be read</b>${escape(weapons.error)}`;
+ else if(!weapons.parts.length)message=`<b>No animated weapon parts</b>${escape(plural(weapons.read,'Sekiro weapon part'))} read; none holds an animation binder.`;
+ const needle=$('weapon-filter').value.toLowerCase().trim();
+ const shown=message?[]:weapons.parts.filter(p=>!needle||[p.id,...weaponNames(p.id,'sekiro')].join(' ').toLowerCase().includes(needle));
+ if(!message&&!shown.length)message=`<b>No weapon part matches “${escape(needle)}”</b>`;
+ $('weapon-count').textContent=weapons?.parts?.length?(needle?`${shown.length} of ${weapons.parts.length}`:String(weapons.parts.length)):'';
+ notice.textContent=(weapons?.notices||[]).join('\n');notice.hidden=!weapons?.notices?.length;
+ list.hidden=!!message;empty.hidden=!message;
+ if(message){empty.innerHTML=message;return;}
+ fill(list,shown.map(p=>{
+  const names=weaponNames(p.id,'sekiro'),selected=p.path===weaponPath;
+  const meta=[plural(p.clips,'clip'),p.models.length>1?plural(p.models.length,'model'):'',names.length>1?'also '+names.slice(1).join(', '):''].filter(Boolean).join(' · ');
+  return `<button type="button" class="char-row${selected?' selected':''}" role="option" aria-selected="${selected}" data-weapon-part="${escape(p.path)}" title="${escape([...names,p.path].join('\n'))}"><span class="char-id">${escape(p.name)}${names[0]?`<small>${escape(names[0])}</small>`:''}</span><span class="char-meta">${escape(meta)}</span></button>`;
+ }).join(''),'data-weapon-part');
+}
+function renderWeaponClips(){
+ const list=$('part-clip-list'),empty=$('part-clip-empty'),part=weapons?.parts?.find(p=>p.path===weaponPath),data=weaponData;
+ $('part-clips-title').textContent=part?'Part clips · '+part.name:'Part clips';
+ let message='';
+ if(!part)message='<b>Choose a weapon part</b>Its clips are listed here, each with the animations it plays in.';
+ else if(!data||data.loading)message=skeletonRows;
+ else if(data.error)message=`<b>${escape(part.name)}’s clips could not be read</b>${escape(data.error)}`;
+ const rows=message?[]:partClipRows(),needle=$('part-clip-filter').value.toLowerCase().trim();
+ const shown=rows.filter(r=>!needle||[r.id,r.member,...r.matches.map(m=>m.name)].join(' ').toLowerCase().includes(needle));
+ if(!message&&!rows.length)message=`<b>No clips</b>${escape(part.name)} holds only its rest pose.`;
+ else if(!message&&!shown.length)message=`<b>No clip matches “${escape(needle)}”</b>`;
+ $('part-clip-count').textContent=rows.length?(shown.length<rows.length?`${shown.length} of ${rows.length}`:String(rows.length)):'';
+ list.hidden=!!message;empty.hidden=!message;
+ if(message){empty.innerHTML=message;return;}
+ const row=r=>{
+  const selected=r.key===weaponClip,stem=r.member.replace(/\.hkx$/i,''),n=r.matches.length;
+  return `<button type="button" class="clip-row part-clip-row${selected?' selected':''}${n?'':' blocked'}" role="option" aria-selected="${selected}" data-part-clip="${escape(r.key)}" title="${escape(r.member)}"><span class="clip-state"></span><span class="clip-name">${escape(r.id)}<i>${escape(stem.slice(r.id.length))}</i></span><span class="clip-archive">${n?plural(n,'animation'):'not played'}</span></button>`;
+ };
+ // A part with several animated models lists each model's clips under its name.
+ const grouped=data.models.length>1;
+ fill(list,grouped?data.models.map(m=>{const own=shown.filter(r=>r.model===m.model);return own.length?`<div role="group" aria-label="${escape(m.name)}"><div class="list-group" aria-hidden="true">${escape(m.name)}</div>${own.map(row).join('')}</div>`:'';}).join(''):shown.map(row).join(''),'data-part-clip');
+}
+function renderMatches(){
+ const box=$('plays-in'),data=weaponData,ready=!!(showsParts()&&data?.models);
+ box.hidden=!ready;if(!ready)return;
+ const row=currentPartClip(),model=data.models.find(m=>m.model===row?.model)||(data.models.length===1?data.models[0]:null),player=(data.character||'c0000').toUpperCase(),notes=[];
+ let retry=false;
+ $('plays-in-title').textContent=row?`${row.member.replace(/\.hkx$/i,'')} plays in`:'Plays in';
+ if(!data.characterKey)notes.push(`This source has no animation archives of ${player}, so no animation pairs with the part.`);
+ else if(!data.inventoried){
+  retry=inventoryProblem?.key===activeId+'|'+data.characterKey;
+  notes.push(retry?`${player}’s archives were not read: ${inventoryProblem.message}`:isInventorying(data.characterKey)||!job||job.status!=='running'?`Reading ${player}’s archives…`:`${player}’s archives are read when the current operation ends.`);
+ }
+ else if(!data.playerClips)notes.push(`No ${player} animation is in the part’s folder.`);
+ else if(!row)notes.push('Choose one of the part’s clips to see the animations it plays in.');
+ else if(!row.matches.length)notes.push(`No ${player} animation in this source plays ${row.member}.`);
+ if(data.inventoried&&data.playerClips&&!data.tae)notes.push(`Without ${player}’s TAE, only animations of the same ID are listed.`);
+ if(model?.rest)notes.push(`${model.name} holds its rest pose, ${model.rest.replace(/\.hkx$/i,'')}, in every other animation.`);
+ const matches=row?.matches||[];
+ $('match-list').hidden=!matches.length;
+ fill($('match-list'),matches.map(m=>{
+  const selected=m.clip===clipId&&characterId===data.characterKey;
+  return `<button type="button" class="char-row match-row${selected?' selected':''}" role="option" aria-selected="${selected}" data-match="${escape(m.clip)}" title="${escape(m.ready?m.reason:'This clip is missing inputs. Choose it to see which.')}"><span class="char-id">${escape(m.name.replace(/\.hkx$/i,''))}<small>${escape(m.archive)}</small></span><span class="char-flags">${m.ready?'':icon('warn')}</span><span class="char-meta">${escape(m.reason)}</span></button>`;
+ }).join(''),'data-match');
+ $('plays-in-note').innerHTML=escape(notes.join(' '))+(retry?` <button type="button" class="text-button" data-retry-inventory>${icon('refresh')}Try again</button>`:'');
+}
 
 /* Scene panel */
 function sceneChecks(){
@@ -519,7 +671,21 @@ function regionRow([role,label,sub]){
  return `<div class="part-row"><span>${escape(label)}${sub?`<small>${escape(sub)}</small>`:''}</span>${control}</div>`;
 }
 const modelRow=p=>`<label class="model-row" title="${escape(p.path)}"><input type="checkbox" data-model="${escape(p.path)}" ${p.selected?'checked':''}><span><strong>${escape(p.name)}</strong><small>${escape(p.role)} · ${escape(p.container)} · ${escape(basename(p.path))}</small></span>${icon('cube')}</label>`;
-const extraName=p=>p.id==='wp_a_0300'?'<small>Katana / Kusabimaru</small>':p.id==='wp_a_0310'?'<small>Mortal Blade</small>':'';
+// Sekiro's names for its weapon models, from EquipParamWeapon and the weapon name text. Tools that share a model follow the first.
+const sekiroWeapons={wp_a_0300:['Katana / Kusabimaru'],wp_a_0310:['Mortal Blade'],
+ wp_a_0700:['Loaded Shuriken','Spinning Shuriken','Gouging Top','Lazulite Shuriken'],wp_a_0701:['Phantom Kunai'],wp_a_0702:['Sen Throw'],
+ wp_a_0710:['Shinobi Firecracker','Spring-load Firecracker','Long Spark'],wp_a_0711:['Purple Fume Spark'],
+ wp_a_0720:['Flame Vent','Spring-load Flame Vent',"Okinaga's Flame Vent",'Lazulite Sacred Flame'],
+ wp_a_0730:['Loaded Axe','Spring-load Axe'],wp_a_0731:['Sparking Axe'],wp_a_0732:['Lazulite Axe'],
+ wp_a_0740:['Mist Raven'],wp_a_0741:['Aged Feather Mist Raven'],wp_a_0742:['Great Feather Mist Raven'],
+ wp_a_0750:['Sabimaru','Improved Sabimaru','Piercing Sabimaru'],wp_a_0751:['Lazulite Sabimaru'],
+ wp_a_0760:['Loaded Umbrella'],wp_a_0761:["Suzaku's Lotus Umbrella"],wp_a_0762:["Phoenix's Lilac Umbrella"],wp_a_0763:['Loaded Umbrella - Magnet'],
+ wp_a_0770:['Divine Abduction'],wp_a_0771:['Double Divine Abduction'],wp_a_0772:['Golden Vortex'],
+ wp_a_0780:['Loaded Spear','Loaded Spear Thrust type'],wp_a_0781:['Loaded Spear Cleave type','Leaping Flame'],wp_a_0782:['Spiral Spear'],
+ wp_a_0790:['Finger Whistle','Mountain Echo','Malcontent']};
+// The katana and Mortal Blade were named for every game before the other names came.
+const weaponNames=(id,game=currentGame())=>game==='sekiro'||id==='wp_a_0300'||id==='wp_a_0310'?sekiroWeapons[id]||[]:[];
+const extraName=p=>{const name=weaponNames(p.id)[0];return name?`<small>${escape(name)}</small>`:'';};
 function weaponNote(){
  return (currentGame()==='sekiro'?'Auto places the katana in the right hand, the Mortal Blade on the back and prosthetics on their authored sockets.':'Auto puts any weapon in the right hand and its scabbard or extra model on the left hip, like the game’s default WepAbsorpPosParam row. Two-handed keeps a scabbard on the hip. Sheathed hangs the whole weapon on the hip opposite its hand.')
   +' Custom dummy IDs take one ID for every model, or a list such as 20, 30 for model 0, model 1. Sockets come from this game’s c0000.chrbnd; this is a fixed preview placement, and HKX alone does not specify draw or sheath events.';
@@ -588,13 +754,13 @@ async function findModels(preserve=false){
  finally{$('scan').disabled=false;$('scan').innerHTML=icon('cube')+'Find models';}
 }
 function setInputMethod(method,apply=true){
+ const previous=inputMethod;
  inputMethod=method==='manual'?'manual':'folder';const folder=inputMethod==='folder';
- document.querySelectorAll('[data-input]').forEach(b=>{const on=b.dataset.input===inputMethod;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on));});
- $('characters-pane').hidden=!folder;$('clips-pane').hidden=!folder;$('files-pane').hidden=folder;
- document.querySelector('.import-grid').classList.toggle('files',!folder);
- $('import-note').textContent=folder?'Pick a character and an animation. The scene settings follow your choice.':'Choose extracted HKX files. The animation, skeleton and compendium must come from the same character.';
- updateTopbar();
+ // The part view is the source library seen from a weapon part: the import is the same.
+ if(apply){partView=method==='parts';try{localStorage.setItem('bridge-part-view',partView?'1':'0');}catch(e){}}
+ applyView();updateTopbar();
  if(!apply)return;
+ if(folder&&previous==='folder')return renderLibrary();
  if(folder){const source=activeSource();if(source&&!catalog)activateSource(source.id,true);else if(catalog){renderLibrary();resolveClip(true);}}
  else setNotice([]);
  renderParts();renderSceneHead();saveSoon();
@@ -859,13 +1025,16 @@ document.addEventListener('click',event=>{
  if((el=hit('[data-scan]')))return scanSource(sources.find(s=>s.id===el.dataset.scan));
  if((el=hit('[data-edit]')))return openSourceDialog(sources.find(s=>s.id===el.dataset.edit));
  if(hit('[data-scan-active]'))return scanSource();
- if(hit('[data-retry-inventory]')){inventoryProblem=null;renderClips();return ensureInventory();}
+ if(hit('[data-retry-inventory]')){inventoryProblem=null;renderClips();renderMatches();return ensureInventory(showsParts()?partPlayer():currentCharacter());}
+ if((el=hit('[data-weapon-part]')))return selectWeapon(el.dataset.weaponPart);
+ if((el=hit('[data-part-clip]')))return selectPartClip(el.dataset.partClip);
+ if((el=hit('[data-match]')))return useMatch(el.dataset.match);
  if((el=hit('[data-character]')))return selectCharacter(el.dataset.character);
  if((el=hit('.clip-row'))){$('clip-list').focus({preventScroll:true});return selectClip(clipView[+el.dataset.index].id);}
  if((el=hit('[data-action]'))){$('exportAction').value=el.dataset.action;renderActions();updateExportOptions();return saveSoon();}
  if((el=hit('[data-range]'))){$('frameRange').value=el.dataset.range;updateExportOptions();return saveSoon();}
  if((el=hit('[data-theme-choice]'))){config.theme=el.dataset.themeChoice;applyTheme(config.theme);return saveSoon();}
- if((el=hit('[data-input]')))return el.dataset.input!==inputMethod&&setInputMethod(el.dataset.input);
+ if((el=hit('[data-input]')))return el.dataset.input!==(partView&&inputMethod==='folder'?'parts':inputMethod)&&setInputMethod(el.dataset.input);
  if((el=hit('[data-layout]'))){setDialogLayout(el.dataset.layout);return checkFolders();}
  if((el=hit('[data-nested]'))){$('src-path').value=el.dataset.nested;nameTouched=false;return detectPath();}
  if((el=hit('[data-remove-folder]'))){const [kind,i]=el.dataset.removeFolder.split('|');dialogFolders[kind].splice(+i,1);renderFolders();return checkFolders();}
@@ -876,7 +1045,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('keydown',event=>{
  const tag=document.activeElement?.tagName;
- if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!/^(INPUT|SELECT|TEXTAREA)$/.test(tag)&&!document.querySelector('dialog[open]')&&currentPage()==='import'&&inputMethod==='folder'){event.preventDefault();$('clip-filter').focus();$('clip-filter').select();}
+ if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!/^(INPUT|SELECT|TEXTAREA)$/.test(tag)&&!document.querySelector('dialog[open]')&&currentPage()==='import'&&inputMethod==='folder'){event.preventDefault();const filter=$(showsParts()?'part-clip-filter':'clip-filter');filter.focus();filter.select();}
  if(event.key==='Enter'&&event.target.matches?.('[data-add-input]')){event.preventDefault();addFolder(event.target.dataset.addInput,event.target.value);}
  if(event.key==='Enter'&&event.target.id==='extra-input'){event.preventDefault();addExtra();}
 });
@@ -896,6 +1065,15 @@ $('character-list').addEventListener('keydown',event=>{
  if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;event.preventDefault();
  const rows=[...$('character-list').querySelectorAll('.char-row')],index=rows.indexOf(document.activeElement);
  rows[Math.max(0,Math.min(rows.length-1,index+(event.key==='ArrowDown'?1:-1)))]?.focus();
+});
+$('weapon-filter').addEventListener('input',renderWeapons);
+$('part-clip-filter').addEventListener('input',renderWeaponClips);
+// Arrow keys, Home and End move between the rows of the part view's lists.
+for(const [id,selector] of [['weapon-list','.char-row'],['part-clip-list','.part-clip-row'],['match-list','.match-row']])$(id).addEventListener('keydown',event=>{
+ const rows=[...$(id).querySelectorAll(selector)],index=rows.indexOf(document.activeElement);
+ const target={ArrowDown:index+1,ArrowUp:index-1,Home:0,End:rows.length-1}[event.key];
+ if(target===undefined||!rows.length)return;event.preventDefault();
+ rows[Math.max(0,Math.min(rows.length-1,index<0?0:target))].focus();
 });
 $('clip-filter').addEventListener('input',()=>{$('clip-list').scrollTop=0;renderClips();scrollToClip();});
 $('archive-filter').addEventListener('change',()=>{$('clip-list').scrollTop=0;renderClips();scrollToClip();});

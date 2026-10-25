@@ -90,6 +90,30 @@ class ChooseTests(unittest.TestCase):
         self.assertIsNone(pa.choose_clip(100, dict(clips={76405010: 'a.hkx'}, tae={}), {}))
 
 
+class PairingTests(unittest.TestCase):
+    """The part view reads the pairing backwards: which body clips key each part clip."""
+    part, wolf = ChooseTests.part, ChooseTests.wolf
+
+    def test_players_of_groups_the_ids_by_the_hkx_they_play(self):
+        self.assertEqual(pa.players_of(self.wolf), {70412000: [70412000, 73412000, 76412000], 76405010: [76405010]})
+
+    def test_each_body_clip_is_listed_under_the_part_clip_it_keys(self):
+        pairs = pa.pairings(self.part, [76405010, 70412000, 76405033, 100, 76405010], self.wolf, 'c0000')
+        # The rest pose plays with a000_000100 and is not listed; a073_412000 loses a070_412000 to the part's own category.
+        self.assertEqual(pairs, {76405010: [(76405010, 'same ID')],
+                                 76412000: [(70412000, 'TAE of C0000: a076_412000 plays a070_412000')],
+                                 76421020: [(76405033, 'its TAE plays a076_421020 for a076_405033')]})
+
+    def test_the_reverse_agrees_with_the_forward_pairing(self):
+        bodies = [70412000, 73412000, 76412000, 76405010, 76405033, 76421020, 100, pa.REST]
+        players = pa.players_of(self.wolf)
+        listed = {body: ident for ident, pairs in pa.pairings(self.part, bodies, self.wolf, 'c0000').items() for body, _ in pairs}
+        for body in bodies:
+            chosen = pa.choose_clip(body, self.part, self.wolf, 'c0000')
+            self.assertEqual(pa.choose_clip(body, self.part, self.wolf, 'c0000', players), chosen)
+            self.assertEqual(listed.get(body), chosen[0] if chosen[0] != pa.REST else None, body)
+
+
 class PartFileTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()

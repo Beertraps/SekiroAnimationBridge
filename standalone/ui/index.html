@@ -67,6 +67,7 @@
       <div class="segmented" role="tablist" aria-label="Input">
         <button class="seg active" role="tab" data-input="folder" aria-selected="true"><svg><use href="#i-library"/></svg>Source library</button>
         <button class="seg" role="tab" data-input="manual" aria-selected="false"><svg><use href="#i-folder"/></svg>Individual files</button>
+        <button class="seg" role="tab" data-input="parts" aria-selected="false" id="parts-tab" hidden><svg><use href="#i-layers"/></svg>Part animations</button>
       </div>
       <p class="bar-note" id="import-note">Pick a character and an animation. The scene settings follow your choice.</p>
     </div>
@@ -83,6 +84,24 @@
         <div id="clip-list" class="list virtual" role="listbox" tabindex="0" aria-label="Animations"><div class="virtual-spacer"></div><div class="virtual-rows"></div></div>
         <div id="clip-empty" class="empty" hidden></div>
         <div id="folder-notice" class="notice warn" hidden></div>
+      </section>
+      <section class="pane weapons-pane" id="weapons-pane" aria-label="Weapon parts" hidden>
+        <header class="pane-head"><h2><svg><use href="#i-cube"/></svg>Weapon parts</h2><span class="count" id="weapon-count"></span></header>
+        <div class="pane-tools"><label class="search"><svg><use href="#i-search"/></svg><input id="weapon-filter" type="search" placeholder="Filter weapons" spellcheck="false" aria-label="Filter weapon parts"></label></div>
+        <div id="weapon-list" class="list" role="listbox" aria-label="Weapon parts"></div>
+        <div id="weapon-empty" class="empty" hidden></div>
+        <div id="weapon-notice" class="notice warn" hidden></div>
+      </section>
+      <section class="pane part-clips-pane" id="part-clips-pane" aria-label="Part animations" hidden>
+        <header class="pane-head"><h2><svg><use href="#i-film"/></svg><span id="part-clips-title">Part clips</span></h2><span class="count" id="part-clip-count"></span><button class="help" data-help="partView" aria-label="About part animations">?</button></header>
+        <div class="pane-tools"><label class="search grow"><svg><use href="#i-search"/></svg><input id="part-clip-filter" type="search" placeholder="Search the part’s clips" spellcheck="false" aria-label="Search the part’s clips"></label></div>
+        <div id="part-clip-list" class="list" role="listbox" aria-label="Part clips"></div>
+        <div id="part-clip-empty" class="empty" hidden></div>
+        <section class="plays-in" id="plays-in" aria-labelledby="plays-in-title" hidden>
+          <h3 id="plays-in-title">Plays in</h3>
+          <div id="match-list" class="match-list" role="listbox" aria-labelledby="plays-in-title"></div>
+          <p id="plays-in-note" class="note"></p>
+        </section>
       </section>
       <section class="pane files-pane" id="files-pane" aria-label="Individual files" hidden>
         <header class="pane-head"><h2><svg><use href="#i-folder"/></svg>Animation files</h2><span class="count">EXTRACTED HKX</span></header>

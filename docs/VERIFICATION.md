@@ -1,3 +1,24 @@
+# Unreleased: part animations view — 2026-10-25
+
+- On the branch `part-animation-menu`, the 109 unit tests pass (the 96 of 0.10.0 and 13 new ones), Blender 4.5.14 with `--factory-startup` passes all thirteen scripts, and `app.js` and `preview.js` pass `node --check`.
+
+## Part animations view
+
+- New `test_part_view.py`, on owned synthetic data: an umbrella part `wp_a_0760` with an animated model, whose own TAE gives a076_405033 the clip a076_421020_1, and a model with only its rest pose; a katana part with only its rest pose; an outfit binder that is not a binder; and Wolf's `c0000.anibnd`, whose TAE has a076_412000 play a070_412000.
+  - Listing: only the umbrella is listed, with its animated model and 3 clips. A weapon part whose binder cannot be read gives one notice, 3 parts count as read, and the outfit is not opened.
+  - Pairs: a076_405010_1 plays in a076_405010 (*same ID*), a076_412000_1 in a070_412000 (*TAE of C0000: a076_412000 plays a070_412000*) and a076_421020_1 in a076_405033 (*its TAE plays a076_421020 for a076_405033*), which is marked not ready; the rest pose a999_000000_1 is named and not listed. For each of the 3 pairs, plan() of that player clip keys the listed part clip with the same reason.
+  - Refused: an outfit part, a path with `..` in it, an empty path, and every part of a Dark Souls III catalog, which lists no parts. A game folder whose player is not read yet reports it, with no player clips and no pairs. In a collected folder, a player clip of another scope is not paired.
+  - Routes, on a real ThreadingHTTPServer with the home folder and the settings patched: both routes answer on owned data, and no file in the source or home folder changes. Without the token, with a wrong token, a wrong Host or a foreign Origin, both routes give 403 *Unauthorized workspace session*; an unknown route gives 404; a catalog outside the cache gives 400 *Invalid folder catalog.*, the character binder as the part gives 400 *Choose a Sekiro weapon part from the scanned source.*, and a wrong folder gives 400.
+- `test_part_animations.py`: players_of() groups the IDs by the HKX that they play; pairings() gives the three kinds of pair; for every player clip, it agrees with choose_clip(), with and without the players index.
+- On the user's game folder, read only, in a fresh process: 36 Sekiro weapon parts read, 23 listed, no notices. The first listing took 0.52 s, then 6.4 ms; each part's matches took 15–28 ms. 27 models with 389 clips: 381 play in one player clip each, 309 by the same ID and 72 through Wolf's TAE; 8 play in none: a078_425010_1 and a078_426010_1 of wp_a_0780 to wp_a_0782, and a079_423000_1 of wp_a_0790 and wp_a_0791.
+- Trial of the UI, through a copy of the app with its own state file and app data folder on port 8791, on the user's game folder read only, in the built-in browser at 1400×860:
+  - The tab shows for the Sekiro game folder, and the first /api/part-list took 576 ms. The parts show with their names. Choosing WP_A_0760 started reading Wolf's archives: 1,434 animations.
+  - a076_412000_1 lists a070_412000 from `c0000_a07x.anibnd.dcx` with *TAE of C0000: a076_412000 plays a070_412000*, chosen at once. The scene panel showed a070_412000 with am_m_9000, bd_m_9000, fc_m_0200, lg_m_9000 and wp_a_0760 selected and Animate weapon parts on, and the Preview block listed WP_A_0760_1 playing a076_412000_1 for the same reason.
+  - **Create Blender scene**, saved to a scratch folder, took 6 s: 41 frames, 6 model parts, 47 material images and 1 part clip. Its report keys WP_A_0760_1 with a076_412000_1.hkx, 41 frames at 30 fps, and holds WP_A_0760 at its rest pose.
+  - The Dark Souls III source, not scanned, hides the tab and shows Source library; back on Sekiro, the part, the clip and the animation came back. Down and Enter in the part clips chose a076_412003_1 and its animation a070_412003, with the focus kept on the row. `/` focuses the part clip search; this was sent as a key event from the page, since the browser tool's key presses did not produce `/`.
+  - At 760 px the panes stack at full width without horizontal scrolling. After a reload, the remembered part and clip scroll into view inside their lists while the page stays at the top.
+  - The user's settings files and Animation Bridge folder did not change, and nothing in the game folder is newer than the trial. Screenshots stayed in the session scratchpad.
+
 # Version 0.10.0 — 2026-10-25
 
 - On the release tree, Blender 4.5.14 with `--factory-startup` passes all thirteen scripts: the eleven of 0.9.0, the new `blender_fixes.py` and the new `blender_weapon_grips.py`. The 96 unit tests pass, and `app.js` and `preview.js` pass `node --check`.
