@@ -1,3 +1,13 @@
+# Unreleased — the mirrored katana strikes with its edge — 2026-10-25
+
+- The 116 unit tests pass. Blender 4.5.14 with `--factory-startup` passes all seventeen scripts, `blender_preview_lighting.py` among them. `blender_fixes.py`, flagged by the batch script for its expected refusal messages, passes on its own.
+- `blender_mirror.py`, new case: a curved katana mesh, its flat sides facing the bone's ±Y, on a bridge socket that copies `R_Weapon`, which rests with armature X halfway between edge and flat. `R_Weapon`'s reflection is the flip of its Y within 1e-6, and the mirrored katana lies on the mirror image of the original within 1.2e-6 m; with the reflection of armature X, it lay 90.0 cm off.
+- Read-only trials in the background, scenes not saved, measured as the largest over sampled frames of the mean distance from each mirrored vertex to the reflected original:
+  - Isshin's c5400_a000_003024 on Wolf, from the user's scene, baked with the source's grip: the katana within 0.06 cm, against 0.63 cm with the mirror of 0.11.0. The scabbard on the sheath keeps its side, by design.
+  - Wolf's a000_710200 with the Mortal Blade, from the event 715 test scene: on the frames where event 715 hangs a weapon on dummy 20, the Mortal Blade lies within 0.1 cm of the mirror image. The katana, on the sheath's dummy 147 all through, and the Mortal Blade's sheath keep their side, by design.
+- The mirrored Isshin clip exported with read-back: 106 frames, 114 tracks, the `R_Weapon` track among them, read back within 0.000°.
+- Not checked: game playback of a mirrored clip.
+
 # 0.11.0 — weapons lie as the source's — 2026-10-25
 
 - Tagged run 40232279805 from v0.11.0 (e25ac74) built the decoder, packaged, tested the release ZIP on a fresh profile and published the release with `SekiroAnimationBridge-0.11.0-win-x64.zip` (66,051,154 bytes), its `.sha256` and `SekiroRetargetAssistant-0.7.0.zip` (109,338 bytes).

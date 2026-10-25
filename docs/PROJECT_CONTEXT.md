@@ -1,3 +1,13 @@
+# Unreleased — the mirrored katana strikes with its edge (retarget add-on)
+
+- State: committed on branch `mirror-sword-edge`, not released; no version change.
+- The user asked, with two screenshots: "For the mirroring can you also check the math for the weapon orientation? After mirroring it seems to hit with the flat side of the Katana. You can also check if this or the previous issue apply to the other parts like the prosthetics too." Then: "After mirroring an animation the weapon sockets and such would not just need to be fixed in the blender scene playback synthetically but in in such a way that they would actually work in the game." Then: "Actually I have decided that for most sockets mirroring makes no sense, sry for the extra work." and "the sword is the one important part."
+- Cause: symmetry() chose each gear bone's reflection W from the meshes that the armature bends with the gear's bones. Wolf's weapons have no such mesh; the bridge hangs them by sockets. So R_Weapon took the reflection of armature X seen from its rest, and R_Weapon rests with that plane halfway between the katana's edge and its flat (the plane x = y of the bone frame): the mirrored blade turned 90° about itself.
+- Fix in mirror.py: held_meshes() finds the bridge sockets (a COPY_TRANSFORMS on the rig's bone at full influence) and their meshes, through parents only, with any event 715 mount at its own place (below()). symmetry() adds their vertices and offers the reflections across the mesh's principal axes besides the bone's own axes. For the katana that is the flip of bone Y.
+- Why this holds in the game: the game hangs the sword on dummy 20, which follows R_Weapon, as the socket does. W changes R_Weapon's motion, which the export writes into its HKX track, so no scene-only correction is involved.
+- Kept unmirrored, by the user's decision: the sheath (dummy 147, on a bone skinned with the clothes), LargeSheath (149), the prosthetic tools on L_Forearm (dummies 112–124), weapons that event 715 moves to such dummies, TAE event dummies and part clips. The mount/anchor handling for those was tried and taken out again.
+- Tests: blender_mirror.py gained the socket katana; results in VERIFICATION.md.
+
 # Current update: 0.11.0 — weapons lie as the source's (retarget add-on 0.7.0)
 
 - State: released as 0.11.0 with the retarget add-on 0.7.0, from tag v0.11.0. It holds the grip fix (this section), the event 715 fix (next section), and the panel review, Mirror animation and the Part animations view, which were merged on main after 0.10.0 without a release. The branch weapon-locations, with the event 715 fix and then the grip fix, went into main by fast-forward.
@@ -139,7 +149,7 @@ Elsewhere:
   - Gear that keeps its side does not follow a mirrored draw or sheathe: Wolf's Sheath and cases stay on the left, so a mirrored sheathing ends at the right hip without a scabbard there.
   - TAE events, such as the dummy poly an effect comes from, and weapon part clips are not mirrored.
   - The Action editor switches the armature's action only, not HKX_RootMotion's; the mirror assigns both, and export by name pairs them.
-  - Gear without a mesh in the scene, such as Wolf's weapons, takes the own reflection; a weapon model that is not symmetric about that plane comes out turned. Asymmetric gear, such as Isshin's guns (1.5 cm) and c5100's head, cannot mirror exactly, nor can an asymmetric costume, such as Wolf's prosthetic arm.
+  - Gear without a mesh in the scene takes the own reflection; a weapon model that is not symmetric about that plane comes out turned. (Since the unreleased katana fix above, the meshes on bridge weapon sockets count, so Wolf's weapons in hand no longer do.) Asymmetric gear, such as Isshin's guns (1.5 cm) and c5100's head, cannot mirror exactly, nor can an asymmetric costume, such as Wolf's prosthetic arm.
   - A bone without a counterpart that rests far off the middle line outside any gear would reflect in place there; none was seen. A pair whose rests are not mirror images keeps its rest places, as Isshin's L_Yari_Storage and R_Yari_Storage.
   - Constraints are not mirrored; the status names them.
   - The row sits under the rig name in the control rig panel; the add-on UI review branch suggests where it goes when both are merged.

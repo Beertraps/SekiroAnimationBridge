@@ -1,3 +1,11 @@
+# Unreleased — the mirrored katana strikes with its edge
+
+## Retarget: Mirror animation
+
+- A mirrored clip moved Wolf's katana into the left hand turned a quarter turn about its blade, so that it struck with the flat side. The mirror reflected the weapon bone across the character's middle plane as seen from the bone's rest, and `R_Weapon` rests with that plane halfway between the katana's edge and its flat. Now the mirror reads the meshes that the bridge's weapon sockets hang on a bone and reflects the bone so that its weapon maps onto itself: the edge stays the edge. On Isshin's clip on Wolf, the mirrored katana now lies within 0.06 cm of the mirror image of the original, against 0.63 cm before, the flat where the edge should be.
+- The change is in the bone's motion, which the export writes into the `R_Weapon` track. The game hangs the sword on that bone's dummy, as the bridge's socket does, so the game shows the sword as Blender does.
+- Only the weapon in the hand changes. Where Wolf's TAE event 715 moves a weapon to another dummy, such as the katana into its sheath, it keeps its side, as do the sheath, the prosthetic tools, TAE events and weapon part clips.
+
 # 0.11.0 — weapon grips that match the source's, weapons that follow the animation's sockets, panel review, mirror animation, part animations view
 
 Install `SekiroRetargetAssistant-0.7.0.zip` over 0.6.0 for the retarget changes, the reworked panels and Mirror animation.

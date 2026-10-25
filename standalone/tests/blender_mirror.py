@@ -8,7 +8,8 @@ either hip have names without a side, a sash hangs on the left hip only, the
 cloth of the left sleeve hangs on the forearm, pouches on either hip rest 5 mm
 from each other's mirrored places, and the right weapon bone rests 3 cm away
 from the mirrored place of the left one. Gear as FromSoftware keeps
-it: a spear rests 2.5 m out to the left, with a fin on either side, and its
+it: a curved katana hangs on a bridge weapon socket of R_Weapon, with its flat
+sides along the bone's Y axis; a spear rests 2.5 m out to the left, with a fin on either side, and its
 keys bring it into the left hand; a cord in the right hand ends in a bone that
 rests 13 m below and is keyed up to it; a scabbard on the left hip has a mesh
 of its own; a sheath on
@@ -21,7 +22,8 @@ wherever a pair rests at mirrored places: the right arm does what the left arm
 did, the body leans and turns the other way, and the cloth bones pair by place
 but the pouches do not;
 gear is placed at the reflection of where it was, so the weapons change hands
-with the motion, the spear goes into the right hand, the bones below gear
+with the motion, the katana is the mirror image of itself, edge and all, the
+spear goes into the right hand, the bones below gear
 mirror across the piece's own plane, so that the spear's fins swap and the cord
 and its far bone reflect their own motion on it, and the scabbard goes to the
 right hip; the sheath that
@@ -66,6 +68,10 @@ SKIN = ({'Sheath': .5, 'L_Thigh': .5}, {'Sheath': 1.0}, {'L_Spear': 1.0}, {'Wire
 # The scabbard's mesh in its bone's rest frame: a wedge along its Y axis, the same on both sides of its X and Z axes
 # but not of its Y axis, so that only a flip of X or Z maps it onto itself.
 SAYA = [(side * (.03 - .033 * y), y, flat * .015) for y in (0, .2, .4, .6) for side in (-1, 1) for flat in (-1, 1)]
+# A katana on a bridge weapon socket of R_Weapon, in the bone's frame: the blade along Z from the hilt, curving toward
+# X, its edge on the X side thinner than its back, its flat sides facing Y. Only a flip of Y maps it onto itself.
+KATANA = [(edge * .015 + .05 * (max(z, 0) / .9) ** 2, flat * (.0005 if edge > 0 else .003), z)
+          for z in (-.2, 0, .2, .4, .6, .9) for edge in (-1, 1) for flat in (-1, 1)]
 
 
 def skeleton():
@@ -273,6 +279,16 @@ def main():
     skin(rig, 'Gear', [(0, 0, .01 * index) for index in range(len(SKIN))], SKIN)
     saya = skin(rig, 'Saya', [rest_local['Saya_Storage'] @ Vector(point) for point in SAYA], [{'Saya_Storage': 1.0}] * len(SAYA))
     saya_before = shapes(rig, saya)
+    socket = bpy.data.objects.new('KATANA | Socket R_Weapon', None)
+    scene.collection.objects.link(socket)
+    socket.parent = rig
+    follow = socket.constraints.new('COPY_TRANSFORMS')
+    follow.target, follow.subtarget = rig, 'R_Weapon'
+    katana_mesh = bpy.data.meshes.new('Katana')
+    katana_mesh.from_pydata(KATANA, [], [])
+    katana = bpy.data.objects.new('KATANA | Weapon', katana_mesh)
+    scene.collection.objects.link(katana)
+    katana.parent = socket
     root = retarget.root_object(rig)
     original_action, original_root = rig.animation_data.action, root.animation_data.action
     # A custom property keyed on the left hand only.
@@ -352,7 +368,21 @@ def main():
     # a flip of its own X or Z, so W is that, and the mirrored scabbard is the flipped original, point for point.
     turns = mirror.symmetry(rig, [name for name in names if rules[name] == 'follow'])
     own = {name: rest_local[name].to_3x3().transposed() @ FLIP.to_3x3() @ rest_local[name].to_3x3() for name in turns}
-    assert all(gap(turns[name], own[name]) < 1e-5 for name in ('L_Weapon', 'R_Weapon', 'L_Spear', 'Wire_01')), turns
+    assert all(gap(turns[name], own[name]) < 1e-5 for name in ('L_Weapon', 'L_Spear', 'Wire_01')), turns
+    # The katana on R_Weapon's socket maps onto itself only under a flip of the bone's Y, so W is that, whatever
+    # armature X is in the bone's frame, and the mirrored katana is the mirror image, edge and all: it strikes with
+    # its edge, not its flat. Armature X seen from R_Weapon's rest, which W was before, leaves it far off.
+    assert gap(turns['R_Weapon'], Matrix.Diagonal((1, -1, 1))) < 1e-6, turns['R_Weapon']
+
+    def katana_error(matrices, turn=None):
+        """How far the mirrored katana's points lie, at most, from the reflection of the original katana's."""
+        return max(min((matrices[f]['R_Weapon'] @ Vector(point) - FLIP @ original[f]['R_Weapon'] @ Vector(other)).length
+                       for other in KATANA) for f in matrices for point in KATANA) if turn is None else \
+            max(min((FLIP @ original[f]['R_Weapon'] @ turn.to_4x4() @ Vector(point) - FLIP @ original[f]['R_Weapon']
+                     @ Vector(other)).length for other in KATANA) for f in original for point in KATANA)
+    katana_mirrored = katana_error(mirrored)
+    katana_before = katana_error(None, own['R_Weapon'])
+    assert katana_mirrored < 1e-5 and katana_before > .005, (katana_mirrored, katana_before)
     assert gap(turns['Saya_Storage'], own['Saya_Storage']) > .5 and abs(turns['Saya_Storage'][1][1] - 1) < 1e-9 and \
         sorted(turns['Saya_Storage'][row][row] for row in range(3)) == [-1, 1, 1], turns['Saya_Storage']
     gear_error = max(gap(mirrored[f][name], FLIP @ original[f][name] @ turns[name].to_4x4())
@@ -477,7 +507,8 @@ def main():
           f'root motion within {root_error:.1e}')
     print(f'Gear placed at its reflection within {gear_error:.1e}, grips within {grip_error:.1e} m, scabbard mesh mirrored '
           f'within {saya_error:.1e} m, bones below gear across its plane within {piece_error:.1e}; bones that keep their '
-          f'motion within {kept:.1e}; bones on their side attached within {attached:.1e} m')
+          f'motion within {kept:.1e}; bones on their side attached within {attached:.1e} m; socket katana mirrored '
+          f'within {katana_mirrored:.1e} m, {katana_before * 100:.1f} cm off with the old reflection')
     print(f'Twice: original back within {twice_error:.1e} (root {root_twice:.1e}); export root motion within '
           f'{root_sample_error:.1e}; readback within {readback_error:.1e} (root {readback_root:.1e})')
     print('Mirror check passed')

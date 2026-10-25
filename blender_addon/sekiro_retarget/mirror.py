@@ -54,6 +54,7 @@ import math
 import re
 import statistics
 import bpy
+import numpy as np
 from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.kdtree import KDTree
 from . import control_rig, mapping, retarget
@@ -264,14 +265,46 @@ def reflect(reflected, location, rotation, scale):
     return turn.transposed() @ location, spin.inverted() @ rotation @ spin, Vector([scale[row] for row in order])
 
 
+def below(obj, top):
+    """An object's matrix in the space of top, one of its parents, through the parents alone: constraints on the
+    objects between, such as a weapon mount's, left out."""
+    matrix = Matrix.Identity(4)
+    while obj is not None and obj != top:
+        matrix = obj.matrix_parent_inverse @ obj.matrix_basis @ matrix
+        obj = obj.parent
+    return matrix
+
+
+def held_meshes(rig, name):
+    """[(mesh, the matrix from the mesh's own space into the bone's)] for the meshes that a bridge weapon socket hangs
+    on a bone, as the game hangs them on the bone's dummy, with any weapon mount at its own place under the socket:
+    where Wolf's TAE event 715 moves the weapon elsewhere for a while, the mount does, and the mesh is then
+    somewhere else."""
+    found = []
+    for holder in bpy.data.objects:
+        if any(c.type == 'COPY_TRANSFORMS' and c.target == rig and c.subtarget == name and not c.mute
+               and c.influence > .999 for c in holder.constraints):
+            found += [(mesh, below(mesh, holder)) for mesh in holder.children_recursive if mesh.type == 'MESH']
+    return found
+
+
 def symmetry(rig, roots):
     """{bone that carries gear: the reflection W in its rest frame that it is placed with}. That of armature X seen
     from its rest frame, as FromSoftware rests weapons facing the middle plane; or, where the gear's mesh shows
-    otherwise, as for a scabbard resting tilted with the hip, the flip of one of the bone's own axes that maps the
-    mesh onto itself much better."""
+    otherwise, the reflection across one of the bone's own axes or one of the mesh's principal axes that maps the
+    mesh onto itself much better: a scabbard rests tilted with the hip, and Wolf's R_Weapon rests with armature X
+    halfway between the katana's edge and its flat, so that reflecting across it would turn the blade a quarter
+    turn about itself, so that the mirrored katana would strike with its flat. The gear's mesh is what the armature
+    bends with the gear's bones and what bridge weapon sockets hang on them (see held_meshes). W turns the bone's
+    exported motion, so the game, which hangs the weapon on the bone's dummy as the socket does, shows the same."""
     bones = rig.data.bones
     owner = {name: root for root in roots for name in [root] + [child.name for child in bones[root].children_recursive]}
     points = {root: [] for root in roots}
+    for name, root in owner.items():
+        # A bone below the root carries its meshes into the root's own space as they rest.
+        to_root = bones[root].matrix_local.inverted() @ bones[name].matrix_local
+        for mesh, into in held_meshes(rig, name):
+            points[root] += [to_root @ into @ vertex.co for vertex in mesh.data.vertices]
     for obj in meshes(rig):
         groups = [owner.get(group.name) for group in obj.vertex_groups]
         into = {root: bones[root].matrix_local.inverted() @ rig.matrix_world.inverted() @ obj.matrix_world for root in roots}
@@ -296,6 +329,11 @@ def symmetry(rig, roots):
         tree.balance()
         sample = points[root][::max(1, len(points[root]) // 2000)]
         options = [own] + [Matrix.Diagonal([-1.0 if row == axis else 1.0 for row in range(3)]) for axis in range(3)]
+        # Across the mesh's principal axes, through the bone's head as all W are.
+        cloud = np.array(sample)
+        centred = cloud - cloud.mean(0)
+        options += [Matrix.Identity(3) - 2 * Matrix([[a * b for b in normal] for a in normal])
+                    for normal in (Vector(axis) for axis in np.linalg.eigh(centred.T @ centred)[1].T)]
         errors = [sum(tree.find(option @ point)[2] for point in sample) / len(sample) for option in options]
         best = min(range(len(options)), key=errors.__getitem__)
         if errors[best] < errors[0] / 2 and errors[0] - errors[best] > SYMMETRY:
