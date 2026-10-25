@@ -8,6 +8,14 @@
 - Kept unmirrored, by the user's decision: the sheath (dummy 147, on a bone skinned with the clothes), LargeSheath (149), the prosthetic tools on L_Forearm (dummies 112–124), weapons that event 715 moves to such dummies, TAE event dummies and part clips. The mount/anchor handling for those was tried and taken out again.
 - Tests: blender_mirror.py gained the socket katana; results in VERIFICATION.md.
 
+# Unreleased — preview lights in new character scenes
+
+- State: committed on branch `mirror-sword-edge` after the katana fix, not released; no version change. The change came from another session; the user asked here to document and commit it.
+- standalone/blender_character.py: setup_view() calls the new setup_preview_lighting(scene, center, height), which makes or reuses three AREA lights with a DISK shape, `Sekiro Preview Key`, `Fill` and `Rim`, at offsets around the models' centre, their size, distance and power scaled with the models' height (scale = max(1.25, height) / 1.8, power with its square), each pointed at the centre. The 3D views' Material Preview now has use_scene_world and use_scene_lights on, where both were off.
+- Reuse by name keeps a second setup_view() from adding lights. Lights are not part of the HKX export.
+- docs/USER_GUIDE.md describes the lights in the character preview section; tests: standalone/tests/blender_preview_lighting.py (new), results in VERIFICATION.md.
+- Open: older scenes get no lights; the guide says to copy them from a new scene.
+
 # Current update: 0.11.0 — weapons lie as the source's (retarget add-on 0.7.0)
 
 - State: released as 0.11.0 with the retarget add-on 0.7.0, from tag v0.11.0. It holds the grip fix (this section), the event 715 fix (next section), and the panel review, Mirror animation and the Part animations view, which were merged on main after 0.10.0 without a release. The branch weapon-locations, with the event 715 fix and then the grip fix, went into main by fast-forward.

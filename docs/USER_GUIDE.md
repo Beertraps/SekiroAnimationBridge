@@ -172,6 +172,8 @@ Alpha-tested fur and hair materials are recognized from their authored alpha thr
 
 Used base-color and normal maps are converted to PNG outside Blender, assigned through the MTD's UV selection, and packed into the `.blend`. Hair transparency and its tint layer are approximated. Materials with an authored solid color retain that color. Missing referenced images produce notices in Activity and a neutral fallback, rather than an unrelated texture assignment.
 
+New scenes include three soft preview lights. Material Preview uses those lights and the scene world, so the character appears similarly in Rendered view. The lights are named `Sekiro Preview Key`, `Sekiro Preview Fill` and `Sekiro Preview Rim` and can be adjusted in Blender without changing animation export. For an older scene, the same lights can be copied from a newly created scene.
+
 This is a character preview, not a reconstruction of every Sekiro shader. Layered effects, dynamic skin expressions and Havok cloth simulation are outside this version. Model and texture inputs affect the Blender preview; HKX export writes animation only.
 
 ## Wolf weapons
@@ -359,6 +361,6 @@ UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
-To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py` and `blender_mirror.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
+To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py`, `blender_mirror.py` and `blender_preview_lighting.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on each version. The release ZIP contains no game assets or local settings; besides the source, it includes the prebuilt decoder and uv, listed in [CREDITS.md](../CREDITS.md).

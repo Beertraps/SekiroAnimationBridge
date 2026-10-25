@@ -6,6 +6,12 @@
 - The change is in the bone's motion, which the export writes into the `R_Weapon` track. The game hangs the sword on that bone's dummy, as the bridge's socket does, so the game shows the sword as Blender does.
 - Only the weapon in the hand changes. Where Wolf's TAE event 715 moves a weapon to another dummy, such as the katana into its sheath, it keeps its side, as do the sheath, the prosthetic tools, TAE events and weapon part clips.
 
+# Unreleased — preview lights in new character scenes
+
+- New character scenes get three soft area lights, `Sekiro Preview Key`, `Sekiro Preview Fill` and `Sekiro Preview Rim`, placed around the imported models and scaled with their height. Material Preview now uses the scene's lights and world instead of Blender's built-in studio light, so the character looks in Material Preview as in Rendered view.
+- The lights are ordinary scene objects: move, recolor or delete them as you like. They do not change the animation export.
+- Scenes made before this version keep their lighting. To get the lights, copy them from a newly created scene.
+
 # 0.11.0 — weapon grips that match the source's, weapons that follow the animation's sockets, panel review, mirror animation, part animations view
 
 Install `SekiroRetargetAssistant-0.7.0.zip` over 0.6.0 for the retarget changes, the reworked panels and Mirror animation.

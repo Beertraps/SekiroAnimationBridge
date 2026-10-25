@@ -8,6 +8,12 @@
 - The mirrored Isshin clip exported with read-back: 106 frames, 114 tracks, the `R_Weapon` track among them, read back within 0.000°.
 - Not checked: game playback of a mirrored clip.
 
+# Unreleased — preview lights in new character scenes — 2026-10-25
+
+- New `blender_preview_lighting.py`, on an owned rig and a one-triangle model: setup_view() adds exactly the three area lights `Sekiro Preview Key`, `Sekiro Preview Fill` and `Sekiro Preview Rim`, each with positive power, and every 3D view's Material Preview uses the scene's lights and world. With the model moved 3 m and the view set up again, there are still three lights, and the key light moved with the model within 1e-5 m.
+- The full run above, with the lights in place, passes all seventeen Blender scripts and the 116 unit tests.
+- Not checked: how the lights look on a real character in a live Blender window.
+
 # 0.11.0 — weapons lie as the source's — 2026-10-25
 
 - Tagged run 40232279805 from v0.11.0 (e25ac74) built the decoder, packaged, tested the release ZIP on a fresh profile and published the release with `SekiroAnimationBridge-0.11.0-win-x64.zip` (66,051,154 bytes), its `.sha256` and `SekiroRetargetAssistant-0.7.0.zip` (109,338 bytes).

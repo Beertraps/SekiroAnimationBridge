@@ -381,15 +381,38 @@ def setup_view(rig):
     high = Vector(tuple(max(p[i] for p in points) for i in range(3))) if points else Vector((0, 0, 2))
     center = (low + high) * .5
     distance = max(1.5, (high - low).length * 1.35)
+    setup_preview_lighting(scene, center, high.z - low.z)
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type == 'VIEW_3D':
                 space = area.spaces.active
                 space.shading.type = 'MATERIAL'
-                space.shading.use_scene_world = False
-                space.shading.use_scene_lights = False
+                space.shading.use_scene_world = True
+                space.shading.use_scene_lights = True
                 space.overlay.show_relationship_lines = False
                 space.region_3d.view_location = center
                 space.region_3d.view_distance = distance
                 space.region_3d.view_rotation = Euler((1.35, 0, .4), 'XYZ').to_quaternion()
     scene.frame_set(1)
+
+
+def setup_preview_lighting(scene, center, height):
+    """Light the packed materials for both Material Preview and rendered view."""
+    scale = max(1.25, height) / 1.8
+    for name, offset, power, size in (
+        ('Key', (2.5, -3.0, 4.0), 550, 3.0),
+        ('Fill', (-2.0, -1.5, 2.0), 350, 2.5),
+        ('Rim', (0.0, 2.5, 3.0), 650, 2.0),
+    ):
+        object_name = 'Sekiro Preview ' + name
+        light = scene.objects.get(object_name)
+        if light is None:
+            data = bpy.data.lights.new(object_name, 'AREA')
+            light = bpy.data.objects.new(object_name, data)
+            scene.collection.objects.link(light)
+        light.data.type = 'AREA'
+        light.data.shape = 'DISK'
+        light.data.size = size * scale
+        light.data.energy = power * scale * scale
+        light.location = center + Vector(offset) * scale
+        light.rotation_euler = (center - light.location).to_track_quat('-Z', 'Y').to_euler()
