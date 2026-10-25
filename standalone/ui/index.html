@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Animation Bridge</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Animation Bridge</title><link rel="stylesheet" href="/style.css"><script src="/preview.js" defer></script><script src="/app.js" defer></script></head>
 <body>
 <svg class="symbols" aria-hidden="true"><defs>
 <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
@@ -11,6 +11,7 @@
 <symbol id="i-settings" viewBox="0 0 24 24"><path d="m10 3-1 3-3 1-2 3 2 2v3l3 2 1 4h4l1-4 3-2v-3l2-2-2-3-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5v14m7-14v14"/></symbol>
 <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 10 5v10l-10 5-10-5V7Zm0 10 10-5M12 12 2 7m10 5v10"/></symbol>
 <symbol id="i-log" viewBox="0 0 24 24"><path d="m4 6 5 5-5 5m8 1h8"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
@@ -95,6 +96,17 @@
             <ul id="scene-checks" class="checks" hidden></ul>
             <div id="clip-issues" class="notice error" hidden></div>
           </section>
+          <details class="block disclosure" id="preview-block" open>
+            <summary><span class="block-title"><h3>Preview</h3><span id="preview-summary">The clip’s skeleton, before import</span></span></summary>
+            <div class="preview-stage"><canvas id="preview-canvas" tabindex="0" role="img" aria-label="Skeleton preview" title="Drag to orbit · double-click to reset the view"></canvas><div id="preview-status" class="preview-status" hidden></div></div>
+            <div class="preview-controls">
+              <button id="preview-play" type="button" class="icon-button" aria-label="Play" aria-pressed="false" disabled><svg aria-hidden="true"><use href="#i-play"/></svg></button>
+              <input id="preview-frame" type="range" min="0" max="0" value="0" step="1" aria-label="Frame" disabled>
+              <span id="preview-time" class="preview-time"></span>
+              <label class="checkbox" title="Move the skeleton by the clip’s root motion"><input id="preview-root" type="checkbox" disabled>Root motion</label>
+            </div>
+            <div id="preview-parts" class="preview-parts" hidden></div>
+          </details>
           <section class="block" id="model-block">
             <header class="block-head">
               <svg class="figure" id="figure" viewBox="0 0 64 120" aria-hidden="true"><g class="region" data-region="head"><circle cx="32" cy="13" r="9"/></g><g class="region" data-region="arms"><path d="M19 27 9 59l5.5 2L24 33Zm26 0 10 32-5.5 2L40 33Z"/></g><g class="region" data-region="torso"><path d="M21 26h22l3 31H18Z"/></g><g class="region" data-region="legs"><path d="M18 59h13l-1.5 56h-8Zm15 0h13l-3.5 56h-8Z"/></g><g class="bones"><path d="M32 22v35M22 29h20M22 29l-8 29m28-29 8 29M32 57l-6 3-1 54m7-57 6 3 2 54"/></g></svg>
@@ -111,6 +123,14 @@
             </div>
             <p id="rig-only" class="muted rig-only" hidden><svg><use href="#i-link"/></svg>Only the editable animation rig is imported.</p>
           </section>
+          <section class="block" id="donor-block">
+            <header class="block-head">
+              <div class="block-title"><h3>Retarget donor</h3><p id="donor-summary">Optional. Pin an animation from any source or game, then choose the character that receives it.</p></div>
+              <button class="help" data-help="donor" aria-label="About the retarget donor">?</button>
+            </header>
+            <div id="donor-card" class="donor-card" hidden><span><strong id="donor-name"></strong><small id="donor-meta"></small></span><button id="donor-remove" class="text-button">Remove</button></div>
+            <button id="donor-pin" class="secondary donor-pin"><svg><use href="#i-person"/></svg><span id="donor-pin-label">Use this animation as the donor</span></button>
+          </section>
           <details class="block disclosure" id="materials-block">
             <summary><span class="block-title"><h3>Textures &amp; materials</h3><span id="materials-summary">Found automatically</span></span></summary>
             <div class="field"><label for="materialBinder">Material library <button class="help" data-help="materialBinder" aria-label="About material library">?</button></label><div class="path-row"><input id="materialBinder" data-config placeholder="MTD library, or Elden Ring’s allmaterial.matbinbnd.dcx" spellcheck="false"><button class="browse" data-pick="materialBinder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
@@ -125,7 +145,7 @@
         </div>
         <footer class="scene-foot">
           <div class="field"><label for="outputBlend">Save scene as <button class="help" data-help="outputBlend" aria-label="About Blender output">?</button></label><div class="path-row"><input id="outputBlend" data-config placeholder="D:\AnimationWork\c5060_a000_003000.blend" spellcheck="false"><button class="browse" data-pick="outputBlend" aria-label="Choose the scene file"><svg><use href="#i-folder"/></svg></button></div></div>
-          <div class="check-row"><label class="checkbox"><input id="import-force" type="checkbox">Replace existing</label><label class="checkbox"><input id="openWhenDone" type="checkbox" data-config>Open in Blender</label></div>
+          <div class="check-row"><label class="checkbox"><input id="import-force" type="checkbox">Replace existing</label><label class="checkbox"><input id="openWhenDone" type="checkbox" data-config>Open in Blender</label><span id="part-option" class="checkbox-help" hidden><label class="checkbox"><input id="partAnimations" type="checkbox" data-config checked>Animate weapon parts</label><button class="help" data-help="partAnimations" aria-label="About part animations">?</button></span></div>
           <button id="run-import" class="primary wide"><svg><use href="#i-import"/></svg>Create Blender scene<svg class="end"><use href="#i-arrow"/></svg></button>
           <p id="blender-ready" class="foot-note"><i class="dot"></i><span>Checking Blender…</span></p>
         </footer>
@@ -161,7 +181,8 @@
           <div class="format-options" role="radiogroup" aria-label="Format"><label class="format-option"><input type="radio" name="format" value="interleaved" checked><span><b>Interleaved <i class="tag">DEFAULT</i></b><small>Uncompressed transforms in the game’s Havok version. Sekiro’s interleaved output is confirmed in game.</small></span></label><label class="format-option"><input type="radio" name="format" value="spline"><span><b>Spline compressed</b><small>Smaller and lossy. Needs the Visual C++ 2010 runtime (x86). Not yet confirmed in game.</small></span></label></div>
           <div id="spline-options" class="field-grid" hidden><div class="field"><label for="quantization">Rotation precision <button class="help" data-help="quantization" aria-label="About rotation precision">?</button></label><select id="quantization" data-config><option value="threecomp40">40-bit · default</option><option value="threecomp48">48-bit · finer</option><option value="uncompressed">Full floats · largest</option></select></div><div class="field"><label for="tolerance">Spline tolerance <button class="help" data-help="tolerance" aria-label="About spline tolerance">?</button></label><input id="tolerance" data-config class="text-input" inputmode="decimal" placeholder="0.001" spellcheck="false"></div></div>
           <div class="field"><label for="outputHKX">Save HKX as <button class="help" data-help="outputHKX" aria-label="About HKX output">?</button></label><div class="path-row"><input id="outputHKX" data-config placeholder="D:\AnimationWork\a000_003000_edited.hkx" spellcheck="false"><button class="browse" data-pick="outputHKX"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
-          <div class="check-row"><label class="checkbox"><input id="export-force" type="checkbox">Replace existing</label><label class="checkbox"><input id="verify" type="checkbox" data-config checked>Read it back and report the difference</label></div>
+          <div class="check-row"><label class="checkbox"><input id="export-force" type="checkbox">Replace existing</label><label class="checkbox"><input id="verify" type="checkbox" data-config checked>Read it back and report the difference</label><span class="checkbox-help"><label class="checkbox"><input id="exportParts" type="checkbox" data-config>Also export part animations</label><button class="help" data-help="exportParts" aria-label="About exporting part animations">?</button></span></div>
+          <p id="parts-note" class="note" hidden>Each animated weapon part’s clip is written beside the HKX under its member name, such as a076_405010_1.hkx, at the part clip’s frame rate. Replace it in the part’s ANIBND with WitchyBND. Not yet tested in game.</p>
           <button id="run-export" class="primary wide"><svg><use href="#i-export"/></svg>Export HKX animation<svg class="end"><use href="#i-arrow"/></svg></button>
           <p class="note">You get a raw HKX and a .motion.json sidecar. Replace the animation in a copy of your binder with WitchyBND. Export bakes the evaluated pose, including constraints, drivers and NLA strips.</p>
         </div>

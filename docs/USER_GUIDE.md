@@ -65,6 +65,19 @@ Reading a character inventories its ANIBND members, identifies skeletons by char
 
 Binder member paths cannot write outside the cache, and a second scan reuses unchanged archive extractions. Scans run in a separate process and can be cancelled from the activity bar. A collected folder needs a new scan after its files change.
 
+### Clip preview
+
+The **Preview** block at the top of the scene panel plays the chosen animation as a skeleton before you import it: bones as lines and joints as dots over a floor grid, upright as in Blender. It shows a clip from a source as soon as its files are matched, and individual files once the animation and the skeleton are chosen.
+
+- Play and pause with the play button, or with Space or Enter on the canvas. Drag the slider, or press `,` and `.` on the canvas, to step through the frames. The line below the slider shows the frame and the time.
+- Drag on the canvas or use the arrow keys to turn the view; double-click resets it.
+- **Root motion** moves the skeleton along the clip's root motion and draws its path on the grid. It is off by default, so the skeleton plays in place.
+- Bones far from the rest of the skeleton, such as Wolf's camera dummy 4 m away, are left out, so the body fills the view.
+
+The preview decodes the clip with the HKX decoder from Setup and keeps the result in this tool's `work\asset-cache\previews`, so the same clip shows at once the next time; nothing is written beside your files. A very long clip shows only every second or later frame, in the preview only. It starts playing by itself unless Windows' animation effects are off, and pauses while the window is hidden. Collapse the block to stop decoding previews while you browse; the workspace remembers whether it is open.
+
+The preview has no meshes and no weapons. The weapon part clips that will play with the animation are listed below it; see [Animated weapon parts](#animated-weapon-parts).
+
 ### Which files to put in a collected folder
 
 | Purpose | Wolf / c0000 | Example NPC: Owl / c5060 |
@@ -173,6 +186,28 @@ Existing `.blend` scenes keep their previous preview setup until re-imported or 
 
 CLI options: `-ReferenceModel "D:\Assets\c0000.chrbnd.dcx"` and optional `-WeaponAttachmentsFile "D:\Work\attachments.json"`. That JSON maps package IDs to placements, for example `{"wp_a_0310":"right","wp_a_0700":"auto"}`. Custom sockets use `"dummy:112"`. Weapons of the other games are covered in [OTHER_GAMES.md](OTHER_GAMES.md).
 
+## Animated weapon parts
+
+Some of Wolf's weapons animate their own bones. The Loaded Umbrella opens, the Loaded Axe and the Loaded Spear move, the Mist Raven, Sabimaru, Divine Abduction and the Finger Whistle have clips too, and the Mortal Blade, its sheath and Kusabimaru have a few. Such a weapon's part binder holds an animation binder named after the model it animates: `WP_A_0760_1.anibnd` in `parts\wp_a_0760.partsbnd.dcx` animates the umbrella model `WP_A_0760_1`. Its clips carry Wolf's TAE animation IDs, so `a076_405010_1.hkx` plays while Wolf plays `a076_405010`. This replaces the earlier limit that the weapons' own animation clips are not simulated; the other limits in [Wolf weapons](#wolf-weapons) stay.
+
+### Part clips on import
+
+With **Animate weapon parts** on, the import keys each selected weapon with the clip it plays with the chosen animation. The option is on by default and shows under **Save scene as** once a weapon is selected. The clip is chosen in this order:
+
+1. The part's clip with the same ID. The part's own TAE can give an ID another clip: the umbrella's `a076_405033` plays `a076_421020_1`.
+2. A clip whose ID plays the same body clip in the character's TAE. Wolf's TAE gives the prosthetic tools' `a07X_412000` the body clip `a070_412000`, so with `a070_412000` the umbrella plays `a076_412000_1` and the Loaded Axe `a073_412000_1`; a clip in the tool's own animation category comes first. A source finds the TAE in the character's `c0000.anibnd.dcx`. Individual files skip this step.
+3. Otherwise the part holds its rest pose, `a999_000000`, which every animation without a clip of its own shares. It is not keyed.
+
+The **Preview** block lists the clip that each selected weapon plays and why; the activity log names them too, and the import result counts them. A part clip is keyed on the weapon's own rig, the hidden `<MODEL> | Weapon rig` armature under its socket, in an action named `<MODEL> | <clip>`, such as `WP_A_0760_1 | a076_405010_1`. The rig gains every bone of the part's skeleton. A part clip keeps its own frame rate on the scene's timeline: a 30 fps part clip in a 60 fps scene is keyed on every second frame. Edit it like any action.
+
+A clip that moves bones the weapon's model lacks is not keyed, and the activity log says so. TAE events that hide a weapon, swap its model masks or move it to another dummy are not applied.
+
+### Part clips on export
+
+**Also export part animations** on the export page also writes the clip of each animated weapon part in the scene. Each is sampled from its weapon rig over the same frames as the character, at the part clip's own frame rate, written in the character HKX's format and settings, and read back like it. A file keeps its member name and goes beside the character's HKX, such as `a076_405010_1.hkx`; two weapons with a clip of the same name each get a folder named after the model. A weapon that holds its rest pose is not written.
+
+Replace the file in the part's animation binder with WitchyBND, for example `WP_A_0760_1.anibnd` inside `parts\wp_a_0760.partsbnd.dcx`. The bridge does not repack binders, and part clips written this way are not yet tested in game.
+
 ## Edit and export
 
 Edit the main animation rig in Blender and save the scene. On the UI's export page, choose the scene and click **Read actions** to list its actions and frame ranges; the file is not changed. Then choose:
@@ -195,9 +230,21 @@ Open the receiving character's bridge scene, use **Append source .blend**, run *
 
 Bone names do not have to match. The matcher combines normalized names and aliases with each rig's anatomy (hierarchy and rest positions) and left/right position. On owned synthetic rigs of 15 conventions, six of them with scrambled bone names, every core body bone matched in every pairing. On the supplied FromSoftware rigs with scrambled names, all core bones matched for most pairs; pairs with a Dark Souls 1 rig missed one or two spine bones, because its spine has fewer bones.
 
-The bake keeps the target's skeleton, proportions and track layout. It poses the target limbs like the source's rest stance, moves the body with the source hips scaled by leg length, and carries the travel on the bone above hips and spine. Root motion comes from the source, from the body's travel, from the target clip, or is left out. A weapon bone in the hand, such as Wolf's `R_Weapon`, is matched to the weapon the source holds, and the bake turns it so that the blade points like the source's. **Keep hands out of the body**, on by default, moves a hand out through its arm where it or its weapon would go into a thicker target torso; clipping that the source animation already has stays. This is FK retargeting: foot contacts and other contacts can still need cleanup, and TAE events are not retimed. See [the add-on README](../blender_addon/sekiro_retarget/README.md) for every option.
+The bake keeps the target's skeleton, proportions and track layout. It poses the target limbs like the source's rest stance, moves the body with the source hips scaled by leg length, and carries the travel on the bone above hips and spine. Root motion comes from the source, from the body's travel, from the target clip, or is left out. A weapon bone in the hand, such as Wolf's `R_Weapon`, is matched to the weapon the source holds, and the bake turns it so that the blade points like the source's. A weapon that the source holds in the other hand, such as Godfrey's left-hand axe on Isshin's right-hand katana, and a weapon bone that rests away from the hand, such as Isshin's spear, are placed in the hand that holds the source weapon, and they turn, show and hide with it. The eye on a weapon's row in the bone list hides that weapon for the whole clip, as FromSoftware clips hide weapons, by scaling it to 0.1%. **Keep hands out of the body**, on by default, moves a hand out through its arm where it or its weapon would go into a thicker target torso; clipping that the source animation already has stays. **Keep arms close to the body**, also on by default, does the opposite for a slimmer target: where the source holds an arm close to its own body, the target's arm turns in at the shoulder until it stands as close, at the target's size, instead of being held out. This is FK retargeting: foot contacts and other contacts can still need cleanup, and TAE events are not retimed. See [the add-on README](../blender_addon/sekiro_retarget/README.md) for every option.
 
 For animating by hand, the add-on's **Control rig** panel gives an imported rig animator controls: FK controls that point along the limbs, IK arms and legs with pole targets and an IK/FK slider per limb, and a root control. The clip is baked onto the controls without changing the pose; the game bones follow the controls, so export works as before. **Switch to IK** and **Switch to FK** change a limb without a jump, and **Remove control rig** bakes the edited motion back onto the game bones or restores the original action. See [Control rig](../blender_addon/sekiro_retarget/README.md#control-rig).
+
+### Import the donor with the target
+
+One import can bring both characters of a retarget into one scene, so the donor needs no scene of its own and no **Append source .blend**:
+
+1. On the import page, choose the donor's animation, from any source or game, and click **Use this animation as the donor** in the **Retarget donor** block. The block keeps it pinned while you choose other animations.
+2. Choose the animation of the receiving character, the target. The block shows the donor, and the suggested scene name becomes `<target>_<clip>_from_<donor>_<clip>.blend`.
+3. Click **Create Blender scene**. The activity log marks the donor's steps with *Donor:*, and the result names the donor clip.
+
+The scene holds both rigs, each with its own action, root-motion object and embedded HKX metadata. The target is set up exactly as after a single import: it keeps the scene's frame range, frame rate, export rig and selection, so the export page and the add-on's **Export HKX** treat it as before, and **Read actions** leaves out the donor's action. Everything of the donor is named *Donor*: for example the rig `Donor c5060`, `Donor HKX_RootMotion`, the actions `Donor a000_003041_Sekiro` and `Donor a000_003041_RootMotion`, and the metadata text `Sekiro Source - Donor - a000_003041.json`. Rigs of the same name, such as c0000 from Sekiro and Elden Ring, stay apart that way. The donor stands beside the target through its delta location, which leaves its keys as imported and does not change the bake. Its action starts at frame 1 with its own length and frame rate; the bake then sets the scene to the new clip. Weapon part clips are imported for the target only.
+
+When the file opens in Blender, the add-on fills in **Source** with the donor and **Target** with the target, so you continue with **Match bones automatically**. The same animation cannot be both the donor and the target. **Remove** in the **Retarget donor** block goes back to importing one character.
 
 ## CLI
 
@@ -244,12 +291,47 @@ For example, from PowerShell:
 .\standalone\sekiro_animation_cli.ps1 import -BlenderExe "D:\Blender\blender.exe" -Animation "D:\SekiroWork\a000_000100.hkx" -Compendium "D:\SekiroWork\a000_lo.compendium" -Skeleton "D:\SekiroWork\c0000_skeleton.hkx" -PreviewModels @("D:\SekiroWork\head.flver", "D:\SekiroWork\body.flver") -TextureDirectory "D:\SekiroWork\textures" -MaterialBinder "D:\SekiroUnpacked\mtd\allmaterialbnd.mtdbnd.dcx" -OutputBlend "D:\SekiroWork\custom.blend"
 ```
 
+### Retarget donor options
+
+`import` takes a second clip as the retarget donor through `-Donor` versions of the input options, and builds the two-character scene described in [Import the donor with the target](#import-the-donor-with-the-target). Without a folder or files of its own, the donor reads the target's `-AssetFolder` with its layout, catalog and game.
+
+| Option | Purpose |
+| --- | --- |
+| `-DonorAssetClip`, `-DonorAssetCharacter` | The donor clip, and its character in a game folder or custom layout |
+| `-DonorAssetFolder`, `-DonorAssetCatalog`, `-DonorSourceLayout`, `-DonorSourceLayoutFile`, `-DonorGame` | Another source for the donor, with its own layout and game |
+| `-DonorAnimation`, `-DonorSkeleton`, `-DonorCompendium`, `-DonorSkeletonCompendium` | The donor's extracted files instead of a source |
+| `-DonorCharacterSource`, `-DonorModels`, `-DonorPreset`, `-DonorRigOnly` | The donor's model, or only its rig |
+| `-DonorTextureDirectory`, `-DonorMaterialBinder`, `-DonorReferenceModel` | The donor's additional textures, material library and rig attachment model |
+
+For example, Owl's clip from a collected folder onto Wolf from a game folder:
+
+```powershell
+.\standalone\sekiro_animation_cli.cmd import -BlenderExe "D:\Blender\blender.exe" -AssetFolder "D:\SekiroUnpacked" -SourceLayout game -AssetCharacter c0000 -AssetClip "a000_000100.hkx" -DonorAssetFolder "D:\Assets\Owl" -DonorAssetClip "a000_003041.hkx" -OutputBlend "D:\SekiroWork\c0000_a000_000100_from_c5060_a000_003041.blend"
+```
+
+### Weapon part options
+
+[Animated weapon parts](#animated-weapon-parts) are keyed on import by default.
+
+| Option | Purpose |
+| --- | --- |
+| `-NoPartAnimations` | `import`: leave every weapon in its rest pose instead of keying its part clip |
+| `-ExportParts` | `export`: also write each animated weapon part's clip beside the HKX, under its member name |
+
+For example, the umbrella's clip with Wolf's `a076_405010.hkx`:
+
+```powershell
+.\standalone\sekiro_animation_cli.ps1 export -BlenderExe "D:\Blender\blender.exe" -InputBlend "D:\SekiroWork\c0000_a076_405010.blend" -OutputHKX "D:\SekiroWork\export\a076_405010.hkx" -ExportParts
+```
+
+This writes `a076_405010.hkx` and `a076_405010_1.hkx` into `D:\SekiroWork\export`.
+
 ## Local files and support
 
 UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json` and your sources in `ui-sources.json` beside it, so an older version of the bridge leaves them alone. Scans are in this tool's `work\asset-cache`. Activity logs go under this tool's `work\logs`. The UI has one conversion at a time and can cancel its process tree. Closing the workspace stops its local server; after closing the window, an idle server also exits automatically.
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
-To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py` and `blender_synthetic_check.py`. `blender_weapons.py` also needs an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
+To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py` and `blender_arm_gap.py`. `blender_weapons.py` also needs an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on each version. The release ZIP contains no game assets or local settings; besides the source, it includes the prebuilt decoder and uv, listed in [CREDITS.md](../CREDITS.md).

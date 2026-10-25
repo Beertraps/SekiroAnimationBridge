@@ -315,6 +315,11 @@ details.block[open]>summary{margin-bottom:14px}
 .resolved dt{color:var(--ink-3)}
 .resolved dd{margin:0;font-family:var(--mono);word-break:break-all;color:var(--ink-2)}
 .resolved dd.none{font-family:var(--sans);color:var(--ink-4)}
+.donor-card{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;border:1px solid var(--accent-line);border-radius:8px;background:var(--accent-soft)}
+.donor-card>span{flex:1;min-width:0}
+.donor-card strong{display:block;font:600 12.5px var(--mono);word-break:break-all}
+.donor-card small{display:block;font-size:11px;color:var(--ink-3)}
+.donor-pin{margin-top:12px}
 .scene-foot{padding:14px 18px 12px;border-top:1px solid var(--line);background:var(--surface-2);border-radius:0 0 var(--radius) var(--radius)}
 .scene-foot .field{margin-bottom:10px}
 .scene-foot .check-row{margin-bottom:12px}
@@ -520,4 +525,23 @@ dialog::backdrop{background:rgb(8 12 10/.48);backdrop-filter:blur(2px)}
   .result{padding-left:18px}
   .picker-status,.toast{left:16px;right:16px;bottom:70px}
 }
+/* Clip preview */
+.preview-stage{position:relative;border:1px solid var(--line);border-radius:var(--radius-2);background:var(--surface-2);overflow:hidden}
+.preview-stage canvas{display:block;width:100%;height:210px;cursor:grab;touch-action:none}
+.preview-stage canvas:active{cursor:grabbing}
+.preview-stage canvas:focus-visible{outline-offset:-2px}
+.preview-status{position:absolute;inset:0;display:grid;place-items:center;padding:16px;text-align:center;font-size:12px;color:var(--ink-3);pointer-events:none}
+.preview-status.error{color:var(--err)}
+.preview-controls{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:8px}
+.preview-controls input[type=range]{flex:1;min-width:60px;accent-color:var(--accent)}
+.preview-controls .checkbox{white-space:nowrap}
+/* The time sits on its own line below the slider, so a narrow scene panel keeps every control readable. */
+.preview-time{order:1;flex-basis:100%;font:11px/1.4 var(--mono);color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preview-parts{margin-top:10px;font-size:11.5px;color:var(--ink-2)}
+.preview-parts ul{margin:4px 0 0;padding:0;list-style:none;display:grid;gap:3px}
+.preview-parts li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.preview-parts b{font-weight:600;color:var(--ink)}
+.preview-parts code{font-family:var(--mono);font-size:11px}
+.preview-parts small{color:var(--ink-3)}
+.checkbox-help{display:inline-flex;align-items:center;gap:6px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

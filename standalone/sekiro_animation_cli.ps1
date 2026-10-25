@@ -15,6 +15,16 @@ param(
     [string]$PreviewModel,[string]$PreviewTexture,
     [string]$TextureDirectory,[string]$MaterialBinder,
     [string]$ReferenceModel,[string]$WeaponAttachmentsFile,
+    # Retarget donor: a second clip and character that the import places beside the target.
+    [string]$DonorAnimation,[string]$DonorCompendium,[string]$DonorSkeleton,[string]$DonorSkeletonCompendium,
+    [string]$DonorAssetFolder,[string]$DonorAssetCatalog,[string]$DonorAssetClip,[string]$DonorAssetCharacter,
+    [ValidateSet('auto','folder','game','custom')][string]$DonorSourceLayout,[string]$DonorSourceLayoutFile,
+    [switch]$DonorRigOnly,
+    [ValidateSet('auto','sekiro','ds1','ds1r','ds3','er')][string]$DonorGame,
+    [string]$DonorCharacterSource,
+    [ValidateSet('auto','npc','player','wolf','tutorial','mortal')][string]$DonorPreset,
+    [string[]]$DonorModels,
+    [string]$DonorTextureDirectory,[string]$DonorMaterialBinder,[string]$DonorReferenceModel,
     [string]$OutputBlend,[string]$InputBlend,[string]$OutputHKX,
     [ValidateSet('spline','interleaved')][string]$HKXFormat='interleaved',
     [string]$Action,
@@ -26,6 +36,8 @@ param(
     [ValidateSet('threecomp40','threecomp48','uncompressed')][string]$Quantization='threecomp40',
     [double]$Tolerance=0.001,
     [switch]$NoVerify,
+    # Weapon part clips: import keys each animated part with its clip; export can write those clips too.
+    [switch]$NoPartAnimations,[switch]$ExportParts,
     [switch]$Force
 )
 $ErrorActionPreference='Stop'
@@ -56,11 +68,34 @@ $request=@{
     format=$HKXFormat; force=[bool]$Force;
     exportAction=$Action; frameRange=$FrameRange; trackSet=$Tracks; rootMotion=$RootMotion;
     rootBone=$RootBone; rootVertical=[bool]$RootVertical; rootYaw=[bool]$RootYaw;
-    quantization=$Quantization; tolerance=$Tolerance; verify=![bool]$NoVerify
+    quantization=$Quantization; tolerance=$Tolerance; verify=![bool]$NoVerify;
+    partAnimations=![bool]$NoPartAnimations; exportParts=[bool]$ExportParts
 }
 if($PSBoundParameters.ContainsKey('FrameStart')){$request.frameStart=$FrameStart}
 if($PSBoundParameters.ContainsKey('FrameEnd')){$request.frameEnd=$FrameEnd}
 if($PSBoundParameters.ContainsKey('FrameRate')){$request.frameRate=$FrameRate}
+if(@($PSBoundParameters.Keys | Where-Object {$_ -like 'Donor*'}).Count){
+    if($Mode -ne 'import'){throw 'The -Donor options add a retarget donor to an import. Use them with import.'}
+    # Without its own folder or files, the donor reads the target's source with its layout and game.
+    $shared=!$DonorAssetFolder -and !$DonorAnimation
+    $donorFolder=$(if($shared){$AssetFolder}else{$DonorAssetFolder})
+    $donorLayout=$(if($DonorSourceLayout){$DonorSourceLayout}elseif($shared){$SourceLayout}else{'folder'})
+    $donorFolders=$(if($shared){$sourceFolders}else{@{}})
+    if($DonorSourceLayoutFile){$donorFolders=Get-Content -LiteralPath $DonorSourceLayoutFile -Raw | ConvertFrom-Json; if($donorLayout -eq 'folder'){$donorLayout='custom'}}
+    $donorModels=@()
+    if($DonorModels){$donorModels+=@($DonorModels)}
+    $request.donor=@{
+        game=$(if($DonorGame){$DonorGame}elseif($shared){$Game}else{'auto'});
+        animation=$DonorAnimation; compendium=$DonorCompendium; skeleton=$DonorSkeleton; skeletonCompendium=$DonorSkeletonCompendium;
+        assetFolder=$donorFolder; assetCatalog=$(if($DonorAssetCatalog){$DonorAssetCatalog}elseif($shared){$AssetCatalog}else{''});
+        assetClip=$DonorAssetClip; assetCharacter=$DonorAssetCharacter;
+        sourceLayout=$donorLayout; sourceFolders=$donorFolders; sourceRecursive=$true;
+        inputMethod=$(if($donorFolder){'folder'}else{'manual'});
+        characterSource=$DonorCharacterSource; preset=$(if($DonorPreset){$DonorPreset}else{'auto'}); models=@($donorModels);
+        includeCharacter=[bool](($DonorCharacterSource -or $donorModels.Count -or $donorFolder) -and !$DonorRigOnly);
+        textureDirectory=$DonorTextureDirectory; materialBinder=$DonorMaterialBinder; referenceModel=$DonorReferenceModel
+    }
+}
 $requestFile=Join-Path $env:TEMP ('SekiroBridgeRequest-'+[guid]::NewGuid().ToString('N')+'.json')
 try {
     $request | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $requestFile -Encoding UTF8

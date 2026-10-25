@@ -242,7 +242,12 @@ def import_character(manifest_path, rig):
             names = [str(n) for n in preview['bone_names']]
             used = set(int(i) for i in indices[weights > 1e-6])
             if model.get('attachment'):
-                skin_rig=weapon_rig(rig,preview,used,collection,model['name'],model['attachment'])
+                # An animated part's rig carries every bone of its HKX skeleton, not only the weighted ones.
+                from blender_parts import part_motion, skeleton_bones, animate_part
+                motion = part_motion(model)
+                bones = used | skeleton_bones(motion, names) if motion else used
+                skin_rig=weapon_rig(rig,preview,bones,collection,model['name'],model['attachment'])
+                if motion: animate_part(skin_rig, motion, model['name'])
             else:
                 ensure_model_bones(rig, preview, used)
                 skin_rig = skin_rig_for_part(rig, preview, used, collection, model['name'])

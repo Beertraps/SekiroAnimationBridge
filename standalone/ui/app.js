@@ -42,7 +42,8 @@ const help={
  textureDirectory:['Additional textures','Optional folder containing .texbnd(.dcx), .tpf(.dcx) packages or extracted images. NPC texture IDs can differ from their model ID: Owl c5060 uses c5069.texbnd.dcx and shared common_body.tpf.dcx. A game folder finds such packages in chr and parts by the IDs its models and materials name; a collected folder reads the clip’s folder. A binder’s own TPF files are also read automatically.'],
  outputBlend:['Blender scene','Choose a new .blend filename. The imported action, original animation metadata, rigged character parts and used texture images are saved in the scene. Images are packed, so you can move the .blend file. Existing output is replaced only when the checkbox is enabled. A source suggests a name in its scenes folder.'],
  inputBlend:['Edited Blender scene','Choose a .blend scene created by this tool, or one where the retarget add-on baked motion onto a bridge rig. Save your changes in Blender first. Read actions lists the scene’s armature actions and frame ranges without changing the file.'],
- exportAction:['Action','The active action is the one assigned to the rig when the scene was saved. Read actions lists every action that keys this rig’s bones, with its frame range, so you can export another take without reassigning it in Blender. With the retarget add-on’s control rig on the armature, only actions that animate its controls are listed, because the game bones follow the controls. A matching root-motion action, named like the importer’s _RootMotion or the retarget add-on’s RootMotion action, is used with it.'],
+ exportAction:['Action','The active action is the one assigned to the rig when the scene was saved. Read actions lists every action that keys this rig’s bones, with its frame range, so you can export another take without reassigning it in Blender. With the retarget add-on’s control rig on the armature, only actions that animate its controls are listed, because the game bones follow the controls. A matching root-motion action, named like the importer’s _RootMotion or the retarget add-on’s RootMotion action, is used with it. Actions that another armature in the scene plays, such as a retarget donor’s, are left out.'],
+ donor:['Retarget donor','A donor is a second animation that the import places beside this character, so the retarget add-on can bake it onto this one without a second import. Choose the donor’s animation from any source or game and pin it, then choose the animation of the character that receives it.\n\nThe scene keeps the receiving character’s frame range, frame rate and export settings, so it exports as a single-character scene does. The donor’s rig, model, actions and HKX metadata are named Donor and stand to its side. In Blender, the retarget add-on fills in Source and Target by itself: Match bones and Bake come next.\n\nRemove the donor to import one character again.'],
  frameRange:['Frame range','Scene start to end uses the scene’s frame range; import and the retarget add-on set it to the clip length. Action keyframe range follows the chosen action’s first and last keys. Imported clip length samples frame 1 to the original frame count. Custom takes any start and end frame.\n\nThe pose is sampled by time. If the scene frame rate differs from the output rate, samples fall between frames and are interpolated.'],
  trackSet:['Tracks','Source clip tracks keeps the original track list. This is the safest choice: bones without a track stay under the game’s control, for example face, cloth or weapon bones driven by other animation layers.\n\nSource tracks + keyed bones adds the bones keyed in the chosen action. Every skeleton bone writes a track for each bone and holds unkeyed bones in their Blender pose. Added tracks follow the original ones, so existing track indices stay the same.'],
  frameRate:['Frame rate','Samples per second in the HKX. Leave this empty to keep the source clip’s rate, normally 30. The clip duration stays the same; a higher rate only adds samples. TAE event times are in seconds, so they stay aligned.'],
@@ -50,6 +51,8 @@ const help={
  quantization:['Rotation precision','How spline compression stores rotations. 40-bit is the default. 48-bit is finer at a slightly larger size. Full floats store rotations without quantization. Interleaved output is not affected.'],
  tolerance:['Spline tolerance','The largest difference the spline compressor accepts while fitting curves, from 0.000001 to 0.1. Smaller values keep more detail and make larger files. The default is 0.001. With Read the HKX back enabled, the export reports the actual difference.'],
  outputHKX:['HKX output','Export writes a raw HKX and an adjacent .motion.json sidecar. Use WitchyBND to replace the animation member in a copy of your binder. Model geometry, TAE events and unrelated HKX metadata are not exported.\n\nRead the HKX back decodes the written file again and reports the largest rotation and translation differences from the sampled pose.'],
+ partAnimations:['Animate weapon parts','Some weapons animate their own bones: the Loaded Umbrella opens, the Loaded Axe and Loaded Spear move, the Mortal Blade’s sheath turns. Their part binder holds an animation binder for the model, such as WP_A_0760_1.anibnd, with clips named after the character’s animation IDs.\n\nThe import keys each chosen weapon with the clip of the same ID. Where the character’s TAE gives several IDs one body clip, such as a076_412000 playing a070_412000, the part plays the clip of the ID in its own category. A part without a clip for the animation keeps its rest pose. The preview lists which clip each part plays.\n\nTAE events that hide a weapon or move it to another dummy are not applied.'],
+ exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. Each file keeps the part clip’s member name, such as a076_405010_1.hkx, and its own frame rate; the format and settings follow the character’s HKX.\n\nReplace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. The bridge does not repack archives. Part clips are not yet tested in game.'],
  blender:['Blender executable','Choose blender.exe from your Blender installation. Version 4.5.14 is checked locally. The scripts use Blender’s built-in Python APIs and require no add-on. Compatibility with 5.2 still needs a run on that version.'],
  writer:['Conversion Python','Choose python.exe from the writer environment, normally %LOCALAPPDATA%\\SekiroAnimationBridge\\writer-env\\Scripts\\python.exe. The bridge creates it on the first start with Soulstruct, Soulstruct Havok and NumPy; tools/setup_writer.cmd repeats that setup. Blender’s bundled Python stays separate.'],
  decoder:['HKX decoder','Release ZIPs include SekiroMotionDecoder.exe in their decoder folder, and the bridge selects it automatically. In a source checkout, build it with tools/SekiroMotionDecoder/build_decoder.cmd; that path is under %LOCALAPPDATA%\\SekiroAnimationBridge\\decoder. Version 0.5 handles tagfiles, native PC packfiles, spline/interleaved animations and separate animation/skeleton compendiums.']
@@ -144,6 +147,7 @@ function rangeNote(){
 }
 function updateExportOptions(){
  const root=$('rootMotion').value,tracks=$('trackSet').value,range=$('frameRange').value;
+ $('parts-note').hidden=!$('exportParts').checked;
  document.querySelectorAll('#range-buttons [data-range]').forEach(b=>{const on=b.dataset.range===range;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on));});
  $('custom-range').hidden=range!=='custom';$('root-bone-fields').hidden=root!=='bone';
  $('spline-options').hidden=document.querySelector('[name="format"]:checked')?.value!=='spline';
@@ -369,7 +373,8 @@ async function resolveClip(restore=false){
 }
 function suggestBlend(clip,restore){
  const source=activeSource();if(!source)return;
- const suggested=joinPath(source.scenes||joinPath(source.root||source.path,'Blender'),`${clip.character||'character'}_${clip.name.replace(/\.hkx$/i,'')}.blend`),current=$('outputBlend').value.trim();
+ const donor=config.donor&&!donorIsCurrent()?'_from_'+config.donor.fileTag:'';
+ const suggested=joinPath(source.scenes||joinPath(source.root||source.path,'Blender'),`${clip.character||'character'}_${clip.name.replace(/\.hkx$/i,'')}${donor}.blend`),current=$('outputBlend').value.trim();
  if(restore&&current)return;
  if(!lastSuggestedBlend||!current||current===lastSuggestedBlend){$('outputBlend').value=suggested;lastSuggestedBlend=suggested;}
 }
@@ -403,7 +408,100 @@ function renderSceneHead(){
  const found=['animation','skeleton','compendium'].filter(key=>value(key));
  $('resolved-summary').textContent=found.length?`${found.map((k,i)=>i?k:k[0].toUpperCase()+k.slice(1)).join(', ').replace(/, ([^,]*)$/,' and $1')} ${folder?'matched':'chosen'}`:'Animation, skeleton and compendium';
  $('materials-summary').textContent=(value('materialBinder')?basename(value('materialBinder')):'No material library')+(textures.length?' · textures from '+textures.map(t=>basename(t)||t).join(', '):'');
+ schedulePreview();
+ renderDonor();
 }
+
+/* Retarget donor: a pinned second animation that the import places beside the selected one */
+const donorKeys=['inputMethod','assetFolder','assetCatalog','sourceLayout','sourceFolders','sourceRecursive','game','assetCharacter','assetClip',
+ 'animation','compendium','skeleton','skeletonCompendium','characterSource','preset','models','includeCharacter','materialBinder','textureDirectory','referenceModel','weaponAttachments'];
+function donorIsCurrent(){
+ const d=config.donor,source=activeSource();if(!d)return false;
+ return d.inputMethod==='folder'?inputMethod==='folder'&&d.assetClip===clipId&&samePath(d.assetFolder,source?.root||source?.path):inputMethod==='manual'&&samePath(d.animation,$('animation').value.trim());
+}
+function renderDonor(){
+ const d=config.donor,current=donorIsCurrent();
+ $('donor-card').hidden=!d;if(d){$('donor-name').textContent=d.label;$('donor-meta').textContent=d.detail;}
+ $('donor-summary').textContent=!d?'Optional. Pin an animation from any source or game, then choose the character that receives it.':current?'This animation is the donor. Now choose the animation of the character that receives it.':'Imported beside this character, for the retarget add-on to bake onto it.';
+ $('donor-pin').hidden=current;$('donor-pin-label').textContent=d?'Replace the donor with this animation':'Use this animation as the donor';
+}
+function pinDonor(){
+ const folder=inputMethod==='folder',clip=folder?currentClip():null;
+ if(folder){
+  if(!clip)throw Error('Choose the donor’s animation first.');
+  if(!clip.ready)throw Error(clip.issues.join('\n'));
+  if(resolving||!selection)throw Error('Wait until the animation’s files are matched.');
+ }else requireFields(['animation','skeleton']);
+ if($('includeCharacter').checked&&!parts.some(p=>p.selected))throw Error('Select one or more character parts for the donor, or switch to Rig only.');
+ const v=values(),name=folder?clip.name.replace(/\.hkx$/i,''):basename(v.animation).replace(/\.hkx$/i,'');
+ config.donor={...Object.fromEntries(donorKeys.map(key=>[key,v[key]])),label:name,fileTag:folder?`${clip.character||'character'}_${name}`:name,
+  detail:(folder?[(clip.character||'').toUpperCase(),gameNames[clip.game]||'',activeSource()?.name||'']:[gameNames[v.game]||'Game read from the file','extracted files']).filter(Boolean).join(' · ')};
+ renderDonor();saveSoon();toast('Donor pinned. Now choose the animation of the character that receives it.');
+}
+function removeDonor(){
+ config.donor=null;renderDonor();if(inputMethod==='folder'&&currentClip())suggestBlend(currentClip(),false);saveSoon();
+}
+
+/* Clip preview: the clip's skeleton on a canvas, and the part clips that play with it */
+let previewKey='',previewTimer,previewSequence=0,partKey='',partTimer,partSequence=0,partRows=null;
+function previewInputs(){const v=key=>$(key).value.trim();return {animation:v('animation'),skeleton:v('skeleton'),compendium:v('compendium'),skeletonCompendium:v('skeletonCompendium')};}
+function schedulePreview(){
+ schedulePartClips();
+ const folder=inputMethod==='folder',clip=folder?currentClip():null,inputs=previewInputs();
+ const ready=folder?!!(clip?.ready&&selection&&!resolving):!!(inputs.animation&&inputs.skeleton);
+ const waiting=folder?(!clip?'Choose an animation to see its skeleton move.':!clip.ready?'This clip is missing inputs, so it cannot be previewed.':'Matching files…'):'Choose the animation and skeleton files to see the clip.';
+ // The clip is decoded only while the preview is open.
+ const key=!ready?'wait:'+waiting:$('preview-block').open?JSON.stringify(inputs):'closed';
+ if(key===previewKey)return;
+ previewKey=key;clearTimeout(previewTimer);const seq=++previewSequence;
+ if(!ready){ClipPreview.clear(waiting);$('preview-summary').textContent='The clip’s skeleton, before import';return;}
+ if(key==='closed'){ClipPreview.pause();return;}
+ ClipPreview.clear('Reading the clip…');
+ previewTimer=setTimeout(async()=>{
+  try{
+   const data=await api('preview',inputs);if(seq!==previewSequence)return;
+   ClipPreview.show(data);
+   $('preview-summary').textContent=`${data.skeleton} · ${plural(data.bones.length,'bone')} · ${plural(data.frameCount,'frame')} at ${formatNumber(data.frameRate)} fps${data.root?' · root motion':''}`;
+  }catch(e){if(seq!==previewSequence)return;previewKey='';ClipPreview.clear(e.message,'error');}
+ },300);
+}
+function schedulePartClips(){
+ const folder=inputMethod==='folder',clip=folder?currentClip():null,animation=$('animation').value.trim();
+ const models=$('includeCharacter').checked?parts.filter(p=>p.selected&&/^wp_/i.test(p.id)).map(p=>p.path):[];
+ $('part-option').hidden=!models.length;
+ const ready=models.length&&(folder?!!(clip?.ready&&selection&&!resolving&&catalog):!!animation);
+ const request=ready?(folder?{path:catalogPath,folder:catalog.folder,clip:clip.id,models}:{animation,models}):null;
+ const key=request?JSON.stringify(request):'';
+ if(key===partKey)return;
+ partKey=key;clearTimeout(partTimer);const seq=++partSequence;
+ if(!request){partRows=null;renderPartClips();return;}
+ partTimer=setTimeout(async()=>{
+  try{const found=await api('part-clips',request);if(seq===partSequence){partRows=found;renderPartClips();}}
+  catch(e){if(seq===partSequence){partRows={error:e.message};renderPartClips();}}
+ },250);
+}
+function renderPartClips(){
+ const box=$('preview-parts'),r=partRows;box.hidden=!r;
+ if(!r){box.innerHTML='';return;}
+ if(r.error){box.innerHTML=`<small>${escape('The weapons’ part clips could not be read: '+r.error)}</small>`;return;}
+ if(!r.parts.length){box.innerHTML='<small>The chosen weapons have no animated parts.</small>';return;}
+ const playing=r.parts.filter(p=>!p.rest),resting=r.parts.filter(p=>p.rest),on=$('partAnimations').checked;
+ box.innerHTML=`<b>${on?'Weapon part clips with this animation':'Weapon part clips · not imported while Animate weapon parts is off'}</b><ul>`
+  +playing.map(p=>`<li><b>${escape(p.name)}</b><code>${escape(p.member.replace(/\.hkx$/i,''))}</code><small>${escape(p.reason)}</small></li>`).join('')
+  +(resting.length?`<li><small>${escape('Rest pose: '+resting.map(p=>p.name).join(', '))}</small></li>`:'')
+  +`</ul><small>${escape((r.tae?'':'Without the character’s TAE, only a clip of the same ID pairs. ')+'Parts are not drawn in the preview.')}</small>`;
+}
+function partSummary(mode,r){
+ if(mode==='import'){
+  const n=(r.partClips||[]).filter(p=>!p.rest).length,notes=(r.partNotices||[]).length;
+  return (n?` · ${plural(n,'part clip')}`:'')+(notes?` · ${plural(notes,'part notice')} (see Activity)`:'');
+ }
+ return r.parts?.length?' · '+r.parts.map(p=>p.clip).join(', '):'';
+}
+ClipPreview.mount({canvas:'preview-canvas',play:'preview-play',frame:'preview-frame',time:'preview-time',root:'preview-root',status:'preview-status'});
+try{if(localStorage.getItem('bridge-preview-open')==='0')$('preview-block').open=false;}catch(e){}
+$('preview-block').addEventListener('toggle',()=>{try{localStorage.setItem('bridge-preview-open',$('preview-block').open?'1':'0');}catch(e){}schedulePreview();});
+$('partAnimations').addEventListener('change',renderPartClips);
 
 /* Character model */
 const wolfRoles=[['fc','Head'],['am','Arms','with prosthetic'],['bd','Torso'],['lg','Legs']];
@@ -654,6 +752,7 @@ async function start(mode){
    if(!clip.ready)throw Error(clip.issues.join('\n'));
    if(resolving||!selection)throw Error('Wait until the animation’s files are matched.');
   }
+  if(mode==='import'&&donorIsCurrent())throw Error('This animation is the retarget donor. Choose the animation of the character that receives it, or remove the donor.');
   requireFields(mode==='import'?(folder?['blender','outputBlend']:['blender','animation','skeleton','outputBlend']):mode==='inspect'?['blender','inputBlend']:['blender','inputBlend','outputHKX']);
   if(mode==='import'&&$('includeCharacter').checked){
    if(!folder&&!parts.length&&$('characterSource').value)await findModels();
@@ -698,12 +797,13 @@ function renderResult(value){
  box.dataset.job=value.id;
  if(value.mode==='inspect'){const info=r.scene;box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(info?`Rig ${info.rig} · ${plural(info.actions.length,'armature action')} · choose the action and frames`:'Scene read')}</p></div>`;return;}
  let details;
- if(value.mode==='import')details=`${plural(r.frames,'frame')} · ${plural(r.parts,'model part')} · ${plural(r.textures,'material image')}`;
+ if(value.mode==='import')details=`${plural(r.frames,'frame')} · ${plural(r.parts,'model part')} · ${plural(r.textures,'material image')}${r.donor?` · donor ${String(r.donor.clip).replace(/\.hkx$/i,'')}, ${plural(r.donor.frames,'frame')}`:''}`;
  else{
   const readback=r.readback;
   details=`${plural(r.frames,'frame')}${r.frameRate?' at '+formatNumber(r.frameRate)+' fps':''} · ${plural(r.tracks,'track')} ·${r.compression}${r.compression==='spline'&&r.quantization?' '+r.quantization:''}${r.bytes?` · ${Math.ceil(r.bytes/1024)} KB`:''}`;
   if(readback)details+=` · readback max ${readback.maxRotationDegrees.toFixed(3)}°, ${(readback.maxTranslation*1000).toFixed(2)} mm${readback.maxRotationDegrees>.5||readback.maxTranslation>.005?' (may be visible; lower the spline tolerance)':''}`;
  }
+ details+=partSummary(value.mode,r);
  const warnings=r.warnings?.length?` · ${r.warnings.length} ${value.mode==='import'?'material':'export'} notice${r.warnings.length===1?'':'s'} (see Activity)`:'';
  box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(details+warnings)}</p></div>${value.mode==='import'?`<button type="button" class="secondary" data-open="blender">${icon('play')}Open Blender</button>`:''}<button type="button" class="secondary" data-open="reveal">${icon('folder')}Show file</button>`;
  box.querySelectorAll('[data-open]').forEach(el=>el.addEventListener('click',()=>openOutput(el.dataset.open,value.output)));
@@ -842,7 +942,7 @@ document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('chan
  }
  if(id==='game'&&folder)$('game').value=activeSource()?.game||'auto';
  if(id==='inputBlend')forgetScene();
- if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame'].includes(id))updateExportOptions();
+ if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts'].includes(id))updateExportOptions();
  if(['blender','writer','decoder','oodle'].includes(id))checkEnvironment();
  renderSceneHead();saveSoon();
 }));
@@ -850,6 +950,7 @@ document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('chan
 document.querySelectorAll('[name="format"]').forEach(el=>el.addEventListener('change',()=>{updateExportOptions();saveSoon();}));
 ['import-force','export-force'].forEach(id=>$(id).addEventListener('change',()=>{config.force=$(id).checked;saveSoon();}));
 $('scan').addEventListener('click',()=>findModels());$('add-models').addEventListener('click',()=>pick('models',{multiple:true}));
+$('donor-pin').addEventListener('click',()=>{try{pinDonor();}catch(e){toast(e.message,true);}});$('donor-remove').addEventListener('click',removeDonor);
 $('run-import').addEventListener('click',()=>start('import'));$('run-export').addEventListener('click',()=>start('export'));$('inspect-scene').addEventListener('click',()=>start('inspect'));
 $('check-environment').addEventListener('click',checkEnvironment);
 $('cancel-picker').addEventListener('click',cancelPicker);

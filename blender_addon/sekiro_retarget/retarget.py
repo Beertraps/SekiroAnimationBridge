@@ -11,13 +11,23 @@ object, from the body's travel, from the target's original clip, or is left out.
 
 A weapon that the target and source bones both carry as an elongated mesh is
 turned in its bone so that the two blades stay parallel, whatever the bones'
-own axes are. With body clearance, a hand that would go into the target's
+own axes are. A weapon bone that takes a source weapon from the other hand,
+or that rests away from its hand until a clip brings it in, is placed in the
+hand that holds the source weapon: its line keeps the source weapon's offset
+from that hand, its grip stays in the hand, and it turns, shows and hides
+like the source weapon. A weapon that the map hides shrinks to 0.1% on every
+frame, as FromSoftware clips hide weapons.
+With body clearance, a hand that would go into the target's
 torso, with the weapon it holds, is moved out through its arm, easing in and
 out over neighbouring frames, because a thinner source can hold its hands
 closer to its body than the target can. Clipping that the source has in its
 own body stays: only what goes deeper, at the target's size, is moved out.
+A source with a wider body holds its arms out to clear it: where its arm
+stands close to its body, the target's arm turns in at the shoulder until it
+stands as close to the target's torso, at the target's size.
 """
 import base64
+import contextlib
 import json
 import math
 import re
@@ -31,6 +41,9 @@ from mathutils.bvhtree import BVHTree
 from . import mapping as matching
 
 BONE_CURVE = re.compile(r'pose\.bones\["((?:[^"\\]|\\.)*)"\]')
+# The scale of a hidden weapon. Isshin's clips shrink his spear and scabbard to 0.1%; unlike 0, this leaves the
+# bones below a hidden weapon a parent they can be placed against.
+HIDDEN = 1e-3
 
 
 def source_text(rig):
@@ -70,12 +83,13 @@ def bake_base(rig, key, current):
 
     Baking again with other options or a corrected bone map then gives the
     same result as a first bake instead of building on the previous result.
+    None when the earlier bake started from nothing.
     """
     if current is not None and not current.get('sekiro_retarget'):
         rig[key] = current
         return current
     recorded = rig.get(key)
-    return recorded if isinstance(recorded, bpy.types.ID) else current
+    return recorded if isinstance(recorded, bpy.types.ID) else None
 
 
 def assign_action(obj, action):
@@ -384,12 +398,13 @@ def weapon_axis(rig, bone, graph):
     return axis if axis.dot(tip) >= 0 else -axis
 
 
-def weapon_turns(source, target, bone_map, stance, rotation, graph):
+def weapon_turns(source, target, bone_map, stance, rotation, graph, holds=()):
     """Per mapped weapon bone, a turn in its own space that keeps its weapon parallel to the source's.
 
     A mapped bone takes its source bone's rotation change from rest. Both weapon meshes are fixed to their
     bones, so turning the target bone by the difference of the two long axes at rest keeps the blades parallel
-    at every frame, also where a game authored the two weapon bones with different axes.
+    at every frame, also where a game authored the two weapon bones with different axes. A bone in holds takes
+    the source bone's own rotation, so its turn is the difference of the two axes in the bones' own spaces.
     """
     turns = {}
     for name, source_name in bone_map.items():
@@ -400,10 +415,52 @@ def weapon_turns(source, target, bone_map, stance, rotation, graph):
         target_axis, source_axis = weapon_axis(target, name, graph), weapon_axis(source, source_name, graph)
         if target_axis is None or source_axis is None:
             continue
-        wanted = (target.data.bones[name].matrix_local.to_quaternion().inverted() @ stance.get(name, Quaternion()).inverted() @
-                  rotation @ source.data.bones[source_name].matrix_local.to_quaternion() @ source_axis)
+        wanted = source_axis if name in holds else (
+            target.data.bones[name].matrix_local.to_quaternion().inverted() @ stance.get(name, Quaternion()).inverted() @
+            rotation @ source.data.bones[source_name].matrix_local.to_quaternion() @ source_axis)
         turns[name] = target_axis.rotation_difference(wanted)
     return turns
+
+
+def weapon_holds(source, target, bone_map):
+    """Mapped weapon bones that the bake places where the source holds its weapon: {target bone: (holder, anchor)}.
+
+    The anchor is the nearest mapped bone above the source weapon, normally its hand, and the holder is the
+    target bone mapped to it. A target weapon bone below the holder that rests at its hand, mapped to a source
+    weapon that rests at the anchor, keeps its own grip and only turns like the source: the usual case. The bake
+    places any other in the holder: one in the other hand, as when Isshin's R_Katana takes Godfrey's L_Axe, or
+    one that rests away from the hand until a clip brings it in, as Isshin's spear L_Yari does.
+    """
+    inverse = {source_name: name for name, source_name in bone_map.items()}
+    models = {rig: matching.Rig(rig_bones(rig)) for rig in (source, target)}
+    holds = {}
+    for name, source_name in bone_map.items():
+        if not (matching.weapon_name(name) or matching.weapon_name(source_name)):
+            continue
+        anchor = next((bone.name for bone in source.data.bones[source_name].parent_recursive if bone.name in inverse), None)
+        if anchor is None:
+            continue
+        holder = inverse[anchor]
+        if (holder in {bone.name for bone in target.data.bones[name].parent_recursive} and
+                models[target].rests_at(name, holder) and models[source].rests_at(source_name, anchor)):
+            continue
+        holds[name] = (holder, anchor)
+    return holds
+
+
+@contextlib.contextmanager
+def rest_pose(*rigs):
+    """The rigs shown in their rest pose meanwhile, so that a weapon that a clip hides by scaling keeps its shape."""
+    saved = [(rig.data, rig.data.pose_position) for rig in rigs]
+    try:
+        for data, position in saved:
+            data.pose_position = 'REST'
+        bpy.context.view_layer.update()
+        yield
+    finally:
+        for data, position in saved:
+            data.pose_position = position
+        bpy.context.view_layer.update()
 
 
 def subtree(bones, name):
@@ -418,27 +475,38 @@ def thin(points, cell):
     return points[np.sort(first)]
 
 
-def body_geometry(rig, body, graph):
+def body_geometry(rig, body, graph, holds=None):
     """The torso and hand geometry of a rig's meshes, for keep_clear; None without a torso to keep clear of.
 
     The torso is the mesh that the hips, the spine and the bones above them deform most, so cloth, limbs and
     the head are left out. A hand's points are the vertices that the hand, its fingers or a weapon bone in it
-    deform most, and the meshes those bones carry; each point stays fixed to its bone.
+    deform most, and the meshes those bones carry; each point stays fixed to its bone. holds names the weapon
+    bones that the bake places in another bone, with that bone: a weapon placed in a hand belongs to that hand.
+    An arm's limb points are the vertices that its forearm, hand and fingers deform most, without the weapons
+    in the hand: they show how far the arm stands from the body.
     """
     hips, spine, bones = body.get(('', 'hips')), body['spine'], rig.data.bones
     if not hips or not spine or not body.get('forward'):
         return None
     torso = {hips, *spine} | {parent.name for name in (hips, spine[0]) for parent in bones[name].parent_recursive}
+    holds = holds or {}
+    placed = set().union(*(subtree(bones, name) for name in holds))
     sides = {}
     for side in 'LR':
         chain = [body.get((side, role)) for role in ('upperarm', 'forearm', 'hand')]
         if all(chain) and chain[1] in subtree(bones, chain[0]) and chain[2] in subtree(bones, chain[1]):
             heads = [bones[name].head_local for name in chain]
+            held = (subtree(bones, chain[2]) - placed).union(*(subtree(bones, name) for name, holder in holds.items() if holder == chain[2]))
             sides[side] = dict(chain=chain, arm=(heads[1] - heads[0]).length + (heads[2] - heads[1]).length,
-                               held=subtree(bones, chain[2]), points=[])
+                               held=held, points=[], limb=[])
     if not sides:
         return None
     holder = {name: side for side, item in sides.items() for name in item['held']}
+    limb = {}
+    for side, item in sides.items():
+        lower = subtree(bones, item['chain'][1])
+        weapons = set().union(*(subtree(bones, name) for name in lower if matching.weapon_part(name) or carried_meshes(rig, name)))
+        limb.update((name, side) for name in lower - weapons - placed)
     cell = min(item['arm'] for item in sides.values()) / 50
     names, to_rig = set(bones.keys()), rig.matrix_world.inverted()
     chunks, faces, offset = [], [], 0
@@ -477,6 +545,11 @@ def body_geometry(rig, body, graph):
             indices = [i for i, other in enumerate(strongest) if other == name]
             local = thin(rest[indices] @ np.array(armature.data.bones[name].matrix_local.inverted()).T, cell)
             sides[holder[name]]['points'].append((name, local, post))
+        for name in {name for name in strongest if name in limb}:
+            indices = [i for i, other in enumerate(strongest) if other == name]
+            # Coarser than the hand points: a gap is measured, not a contact.
+            local = thin(rest[indices] @ np.array(armature.data.bones[name].matrix_local.inverted()).T, 2 * cell)
+            sides[limb[name]]['limb'].append((name, local, post))
     if not faces:
         return None
     for name, side in holder.items():
@@ -485,7 +558,7 @@ def body_geometry(rig, body, graph):
             inverse = np.array((rig.matrix_world @ rig.pose.bones[name].matrix).inverted())
             local = np.c_[world @ inverse[:3, :3].T + inverse[:3, 3], np.ones(len(world))]
             sides[side]['points'].append((name, thin(local, cell), np.identity(4)))
-    return dict(chunks=chunks, faces=faces, sides=sides, torso=torso)
+    return dict(chunks=chunks, faces=faces, sides=sides, torso=torso, placed=placed)
 
 
 def skin(chunks, poses):
@@ -674,8 +747,9 @@ def keep_clear(rig, body, geometry, pose_frames, rate, allowed=None):
     sides = geometry['sides']
     for item in sides.values():
         upper, fore, hand = item['chain']
-        item['fore_part'] = subtree(bones, fore) - item['held']
-        item['upper_part'] = subtree(bones, upper) - subtree(bones, fore)
+        # A weapon placed in the other hand moves with that hand alone.
+        item['fore_part'] = subtree(bones, fore) - subtree(bones, hand) - geometry['placed']
+        item['upper_part'] = subtree(bones, upper) - subtree(bones, fore) - geometry['placed']
     count = len(pose_frames)
     allowed = {side: allowed[side] if allowed and side in allowed else [0.0] * count for side in sides}
     options = {side: [None] * count for side in sides}
@@ -747,6 +821,166 @@ def keep_clear(rig, body, geometry, pose_frames, rate, allowed=None):
     return report
 
 
+def limb_frames(rig, body, geometry, pose_frames):
+    """Per frame: the spine's turn from rest, the torso's surface as a BVH tree, and per arm its limb points (forearm,
+    hand and fingers, without what the hand holds) in armature space."""
+    spine = body['spine'][0]
+    rest_turn = rig.data.bones[spine].matrix_local.to_quaternion().inverted()
+    for poses in pose_frames:
+        tree = BVHTree.FromPolygons(skin(geometry['chunks'], poses).tolist(), geometry['faces'])
+        arms = {}
+        for side, item in geometry['sides'].items():
+            points = [(np.array(poses[name]) @ local.T)[:3].T @ post[:3, :3].T + post[:3, 3] for name, local, post in item['limb']]
+            arms[side] = np.concatenate(points) if points else np.empty((0, 3))
+        yield poses[spine].to_quaternion() @ rest_turn, tree, arms
+
+
+def nearest_gap(tree, points, limit):
+    """(distance, point, torso surface point) where the points come nearest the torso, within limit; else None."""
+    best = None
+    for point in points:
+        location, normal, index, distance = tree.find_nearest(Vector(point), limit)
+        if location is not None and (best is None or distance < best[0]):
+            best = (distance, Vector(point), location)
+    return best
+
+
+def source_gaps(source, body, geometry, source_frames, target_geometry, bone_map):
+    """Per target arm and frame, how far the matching source arm stands from the source's own torso: the gap scaled
+    to the target by the ratio of arm lengths, and the gap in the source's arm lengths. None where the source arm
+    stands farther than half an arm from its body; an arm without limb points in either rig is left out."""
+    gaps = {side: [] for side in geometry['sides']}
+    for turn, tree, arms in limb_frames(source, body, geometry, source_frames):
+        for side, points in arms.items():
+            found = nearest_gap(tree, points, .5 * geometry['sides'][side]['arm']) if len(points) else None
+            gaps[side].append(found[0] if found else None)
+    wanted = {}
+    for side, item in target_geometry['sides'].items():
+        match = next((other for other, source_item in geometry['sides'].items()
+                      if source_item['chain'][2] == bone_map.get(item['chain'][2])), None)
+        if match and geometry['sides'][match]['limb'] and item['limb']:
+            arm = geometry['sides'][match]['arm']
+            wanted[side] = [None if gap is None else (gap * item['arm'] / arm, gap / arm) for gap in gaps[match]]
+    return wanted
+
+
+def keep_close(rig, body, geometry, pose_frames, rate, wanted):
+    """Turn each arm in at the shoulder where it stands farther from the torso than the source's arm stands from the
+    source's torso, at the target's size; returns what turned per arm.
+
+    wanted gives, per arm and frame, the source's gap scaled to the target and in the source's arm lengths. Up to a
+    quarter of an arm, the target's arm takes that gap, but no less than 2% of its length; from there to half an
+    arm, less and less of the difference is taken out, and beyond, the arm is left alone, so swings away from the
+    body keep their reach. A gap is the nearest approach of the arm's limb points to the torso surface. The whole
+    arm turns about the shoulder joint toward that surface, with the elbow's bend, the hand and what it holds, by
+    at most 45°. Turns are averaged twice over 0.1 s on either side, so they ease in and out, but no frame turns
+    its arm nearer the torso than 2% of the arm's length. Where both hands come within 0.4 arm lengths of each
+    other, as on one hilt, the arms stay as they are, so the grip holds; their turns ease out over the 0.2 s before
+    and back in over the 0.2 s after. An arm whose torso lies along it, which turning at the shoulder cannot bring
+    closer, stays too.
+    """
+    bones = rig.data.bones
+    sides = {side: item for side, item in geometry['sides'].items() if side in wanted}
+    count = len(pose_frames)
+    for item in sides.values():
+        # The arm turns with what its hand holds, also a weapon placed there, but not with one placed in the other hand.
+        item['turned'] = (subtree(bones, item['chain'][0]) - geometry['placed']) | item['held']
+    together = [False] * count
+    if len(sides) == 2:
+        span = .4 * min(item['arm'] for item in sides.values())
+        together = [(poses[sides['L']['chain'][2]].translation - poses[sides['R']['chain'][2]].translation).length < span
+                    for poses in pose_frames]
+    vectors = {side: [Vector()] * count for side in sides}  # Each frame's turn as a rotation vector, in the spine's rest frame
+    turns, gripped = [], {side: [] for side in sides}
+    for t, (turn, tree, arms) in enumerate(limb_frames(rig, body, geometry, pose_frames)):
+        turns.append(turn)
+        for side, item in sides.items():
+            goal, points = wanted[side][t], arms[side]
+            if goal is None or not len(points):
+                continue
+            x = min(max((goal[1] - .25) / .25, 0.0), 1.0)
+            weight = 1 - x * x * (3 - 2 * x)
+            if weight <= 0:
+                continue
+            found = nearest_gap(tree, points, 2 * item['arm'])
+            if found is None:
+                continue
+            gap, closest, surface = found
+            want = weight * (gap - max(goal[0], .02 * item['arm']))
+            shoulder = pose_frames[t][item['chain'][0]].translation
+            lever, pull = closest - shoulder, surface - closest
+            if want <= 1e-6 or lever.length < 1e-6 or pull.length < 1e-9:
+                continue
+            pull.normalize()
+            sideways = (pull - lever.normalized() * lever.normalized().dot(pull)).length
+            if sideways < .2:
+                continue
+            if together[t]:
+                # Its turn still counts toward the frames around, which ease out of it before the grip.
+                gripped[side].append(t + 1)
+            axis = lever.cross(pull).normalized()
+            angle = want / (lever.length * sideways)
+            origin = np.array(shoulder)
+            for _ in range(2):
+                # Another point can come nearest as the arm turns; measure again and scale the turn.
+                moved = nearest_gap(tree, (points - origin) @ np.array(Matrix.Rotation(angle, 3, axis)).T + origin, 2 * item['arm'])
+                got = gap - moved[0] if moved else 0.0
+                if got <= 1e-9:
+                    break
+                angle *= min(2.0, max(.5, want / got))
+            angle = min(angle, math.radians(45))
+            vectors[side][t] = turn.inverted() @ (axis * angle)
+    half = max(1, round(.1 * rate))
+    # Toward frames with both hands together, turns ease out over 0.2 s, so that none is left where the grip holds.
+    marks = [t for t in range(count) if together[t]]
+    holds = [min(1.0, min((abs(t - mark) for mark in marks), default=2 * half) / (2 * half)) for t in range(count)]
+    targets = {}
+    for side in sides:
+        series = vectors[side]
+        if any(vector.length for vector in series):
+            for _ in range(2):
+                series = [sum(series[max(0, i - half):i + half + 1], Vector()) / len(series[max(0, i - half):i + half + 1])
+                          for i in range(count)]
+        targets[side] = [turns[t] @ series[t] * (x * x * (3 - 2 * x)) for t, x in enumerate(holds)]
+    # The averaging carries turns onto frames that need less; none takes an arm nearer its torso than 2% of its length.
+    busy = [t for t in range(count) if any(targets[side][t].length >= 1e-6 for side in sides)]
+    for t, (_, tree, arms) in zip(busy, limb_frames(rig, body, geometry, [pose_frames[t] for t in busy])):
+        for side, item in sides.items():
+            vector, points = targets[side][t], arms[side]
+            if vector.length < 1e-6 or not len(points):
+                continue
+            axis, origin = vector.normalized(), np.array(pose_frames[t][item['chain'][0]].translation)
+
+            def clear(angle):
+                found = nearest_gap(tree, (points - origin) @ np.array(Matrix.Rotation(angle, 3, axis)).T + origin, 2 * item['arm'])
+                return found is None or found[0] >= .02 * item['arm']
+
+            if clear(vector.length):
+                continue
+            low, high = 0.0, vector.length
+            for _ in range(8):
+                middle = (low + high) / 2
+                low, high = (middle, high) if clear(middle) else (low, middle)
+            targets[side][t] = axis * low
+    report, scale = [], uniform_scale(rig)
+    for side, item in sides.items():
+        upper, hand, moved = item['chain'][0], item['chain'][2], []
+        for t, poses in enumerate(pose_frames):
+            vector = targets[side][t]
+            if vector.length < 1e-6:
+                continue
+            shoulder, wrist = poses[upper].translation.copy(), poses[hand].translation.copy()
+            move = Matrix.Translation(shoulder) @ Matrix.Rotation(vector.length, 4, vector.normalized()) @ Matrix.Translation(-shoulder)
+            for name in item['turned']:
+                poses[name] = move @ poses[name]
+            moved.append((t + 1, (poses[hand].translation - wrist).length, math.degrees(vector.length)))
+        if moved or gripped[side]:
+            report.append(dict(side=side, hand=item['chain'][2], frames=[t for t, length, angle in moved],
+                               largest=max((length for t, length, angle in moved), default=0.0) * scale,
+                               angle=max((angle for t, length, angle in moved), default=0.0), gripped=gripped[side]))
+    return report
+
+
 def spans(frames):
     """Frame numbers as ranges, such as 3–7, 12."""
     parts, start = [], None
@@ -780,7 +1014,8 @@ def bake(scene, settings):
         scale = rig.matrix_world.to_scale()
         if min(scale) <= 0 or max(scale) - min(scale) > 1e-4:
             raise ValueError('Source and target armatures need positive uniform object scale.')
-    target_text = bake_base(target, 'sekiro_retarget_base_text', source_text(target))
+    # A bake's own copy of the target metadata serves where the original is gone.
+    target_text = bake_base(target, 'sekiro_retarget_base_text', source_text(target)) or source_text(target)
     source_document, target_document = read_motion(source), decode(target_text) if target_text else None
     if target.get('sekiro_animation_bridge') and not target_document:
         raise ValueError('The target bridge metadata is missing.')
@@ -841,6 +1076,18 @@ def bake(scene, settings):
     source_rest_rotation = {name: matrix.to_quaternion() for name, matrix in source_rest.items()}
     target_rest = {b.name: b.matrix_local.copy() for b in ordered}
     carried = {carrier} | {b.name for b in bones if carrier in {p.name for p in b.parent_recursive}} if carrier else set()
+    holds = weapon_holds(source, target, bone_map)
+    # A holder is placed before what it holds; the bones below a placed weapon follow it.
+    placing = sorted(holds, key=lambda name: (len(bones[holds[name][0]].parent_recursive), len(bones[name].parent_recursive)))
+    below = {name: [bone for bone in ordered if name in {parent.name for parent in bone.parent_recursive}] for name in holds}
+    for name in placing:
+        if holds[name][0] in carried:
+            carried |= subtree(bones, name)  # It travels with the hand that holds it, wherever its own bone hangs.
+    # Weapons that the map hides on every frame, outer ones first, and the bones that hide with them.
+    hiding = sorted((row.target for row in settings.rows if row.hidden and row.target in bones),
+                    key=lambda name: len(bones[name].parent_recursive))
+    under = {name: [bone for bone in ordered if name in {parent.name for parent in bone.parent_recursive}] for name in hiding}
+    facing = {}  # Each placed weapon's last rotation, kept while the source hides its weapon by scaling it to zero.
     # Bridge imports leave unanimated bones at their HKX reference pose, a fraction of a
     # millimetre from the edit-bone rest. That pose, not identity, is where they rest.
     animated = action_bones(base_action) | action_bones(target_action)
@@ -848,18 +1095,29 @@ def bake(scene, settings):
     source_root_samples, target_root_samples = [], []
     pose_frames = []
     original_frame = scene.frame_current
+    # An earlier bake's action makes way for the clip that bake started from; on the target, also for no clip.
     replaced = [(obj, current) for obj, current, base in ((target, target_action, base_action), (dst_root, root_action, base_root))
-                if obj and base is not None and base != current]
+                if obj and base != current and (base is not None or obj == target)]
+    stale = set()
     for obj, current in replaced:
         assign_action(obj, base_action if obj == target else base_root)
+        if obj == target:
+            stale = action_bones(current) - action_bones(base_action)
+    for name in stale:
+        # Otherwise a bone that only the earlier bake animated keeps its pose from that bake.
+        target.pose.bones[name].matrix_basis = still[name]
     try:
         scene.frame_set(1)
         bpy.context.view_layer.update()
         graph = bpy.context.evaluated_depsgraph_get()
-        weapons = weapon_turns(source, target, bone_map, stance, rotation, graph)
-        geometry = body_geometry(target, target_body, graph) if settings.body_clearance else None
-        # The source's own torso and hands show the clipping that its animation already has.
-        source_geometry = body_geometry(source, source_body, graph) if geometry else None
+        with rest_pose(source, target):
+            weapons = weapon_turns(source, target, bone_map, stance, rotation, graph, holds)
+            # The long axis of each source weapon that the bake places; without a mesh, FromSoftware's bone X axis.
+            lines = {name: weapon_axis(source, bone_map[name], graph) or Vector((1, 0, 0)) for name in holds}
+            geometry = body_geometry(target, target_body, graph, {name: holder for name, (holder, anchor) in holds.items()}) \
+                if settings.body_clearance or settings.arm_gap else None
+            # The source's own torso, arms and hands show the clipping and the arm gaps that its animation already has.
+            source_geometry = body_geometry(source, source_body, graph) if geometry else None
         source_frames = []
         # Sample both rigs before assigning a new action; the original target clip
         # supplies animation for bones that deliberately remain unmapped.
@@ -885,8 +1143,8 @@ def bake(scene, settings):
                 delta = source_poses[name].to_quaternion() @ source_rest_rotation[name].inverted()
                 return rotation @ delta @ rotation_inverse
 
-            poses = {}
-            for bone in ordered:
+            def pose_of(bone):
+                """A bone's armature-space pose, from its parent's pose in poses."""
                 name = bone.name
                 parent_pose = poses[bone.parent.name] if bone.parent else None
                 keywords = dict(parent_matrix=parent_pose, parent_matrix_local=target_rest[bone.parent.name]) if bone.parent else {}
@@ -899,11 +1157,14 @@ def bake(scene, settings):
                         orientation = turn(source_carrier) @ target_rest[name].to_quaternion()
                     local_rest = target_rest[bone.parent.name].inverted_safe() @ target_rest[name] if bone.parent else target_rest[name]
                     head = parent_pose @ local_rest.translation if bone.parent else local_rest.translation.copy()
-                    poses[name] = Matrix.LocRotScale(head, orientation, baseline_scales[name])
-                elif name in connectors or settings.unmapped == 'REST':
-                    poses[name] = bone.convert_local_to_pose(still[name], target_rest[name], **keywords)
-                else:
-                    poses[name] = bone.convert_local_to_pose(baseline[name], target_rest[name], **keywords)
+                    return Matrix.LocRotScale(head, orientation, baseline_scales[name])
+                if name in connectors or settings.unmapped == 'REST':
+                    return bone.convert_local_to_pose(still[name], target_rest[name], **keywords)
+                return bone.convert_local_to_pose(baseline[name], target_rest[name], **keywords)
+
+            poses = {}
+            for bone in ordered:
+                poses[bone.name] = pose_of(bone)
             if settings.body_translation and source_hips:
                 # Move the carrier and everything below it so the hips follow the source hips.
                 shift = source_poses[source_hips].translation - source_rest[source_hips].translation
@@ -911,6 +1172,33 @@ def bake(scene, settings):
                 residual = desired - poses[hips].translation
                 for name in carried:
                     poses[name].translation += residual
+            for name in placing:
+                # In the hand that holds the source weapon, turned and shown or hidden like it. The weapon's line
+                # keeps its offset from that hand, scaled; along the line its grip stays in the hand, as a weapon in
+                # its own hand does, while Godfrey's grip slides along his long axe.
+                holder, anchor = holds[name]
+                held = source_poses[bone_map[name]]
+                scale = held.to_scale()
+                if min(scale) >= .01:
+                    facing[name] = rotation @ held.to_quaternion()
+                turned = facing.get(name, rotation @ source_rest_rotation[bone_map[name]])
+                line = turned @ lines[name]
+                offset = rotation @ (held.translation - source_poses[anchor].translation) * travel
+                # A source weapon hidden at 0 shrinks this one to HIDDEN, so that the bones below it keep a position.
+                poses[name] = Matrix.LocRotScale(poses[holder].translation + offset - line * offset.dot(line),
+                                                 turned @ weapons.get(name, Quaternion()), Vector([max(v, HIDDEN) for v in scale]))
+                for bone in below[name]:
+                    poses[bone.name] = pose_of(bone)
+            for name in hiding:
+                # Shrunk where it is, as FromSoftware clips hide a weapon. A bone below it follows it, and a mapped one,
+                # which takes its own scale rather than its parent's, shrinks too.
+                location, orientation, unused = poses[name].decompose()
+                poses[name] = Matrix.LocRotScale(location, orientation, Vector((HIDDEN, HIDDEN, HIDDEN)))
+                for bone in under[name]:
+                    poses[bone.name] = pose_of(bone)
+                    if bone.name in bone_map:
+                        location, orientation, unused = poses[bone.name].decompose()
+                        poses[bone.name] = Matrix.LocRotScale(location, orientation, Vector((HIDDEN, HIDDEN, HIDDEN)))
             pose_frames.append(poses)
 
         mode = settings.root_motion
@@ -953,8 +1241,14 @@ def bake(scene, settings):
                            for location, euler in source_root_samples]
         elif mode == 'TARGET':
             root_values = [(location.copy(), euler.z) for location, euler in target_root_samples]
-        allowed = source_clipping(source, source_body, source_geometry, source_frames, geometry, bone_map) if source_geometry else None
-        clearance = keep_clear(target, target_body, geometry, pose_frames, rate, allowed) if geometry else []
+        # Arms first, so that a hand they bring close to the body is still kept out of it.
+        wanted = source_gaps(source, source_body, source_geometry, source_frames, geometry, bone_map) \
+            if settings.arm_gap and source_geometry else {}
+        closeness = keep_close(target, target_body, geometry, pose_frames, rate, wanted) if wanted else []
+        clearing = settings.body_clearance and geometry
+        allowed = source_clipping(source, source_body, source_geometry, source_frames, geometry, bone_map) \
+            if clearing and source_geometry else None
+        clearance = keep_clear(target, target_body, geometry, pose_frames, rate, allowed) if clearing else []
 
         channels, previous, keyed = {}, {}, set()
         tracked = {b.name for b in target.pose.bones if 'hkx_track_index' in b}
@@ -1032,12 +1326,14 @@ def bake(scene, settings):
         scene.frame_end = count
         scene.render.fps = max(1, round(rate))
         scene.render.fps_base = scene.render.fps / rate
-        untracked = sorted(set(bone_map) - tracked) if tracked else []
+        untracked = sorted((set(bone_map) | set(hiding)) - tracked) if tracked else []
         if untracked:
-            warnings.append(f'{len(untracked)} mapped bones have no HKX track in the target clip; '
+            warnings.append(f'{len(untracked)} mapped or hidden bones have no HKX track in the target clip; '
                             'export with the "Original tracks + keyed bones" track set to include them.')
         notes = [f"{name} turned {math.degrees(turn.angle):.0f}° so that its weapon points like the source's."
                  for name, turn in sorted(weapons.items()) if math.degrees(turn.angle) >= .5]
+        notes += [f'{name} is placed in {holder}, where the source holds {bone_map[name]}.' for name, (holder, anchor) in sorted(holds.items())]
+        notes += [f'{name} is hidden on every frame.' for name in hiding]
         for item in clearance:
             hand = 'Left' if item['side'] == 'L' else 'Right'
             if item['frames']:
@@ -1049,11 +1345,22 @@ def bake(scene, settings):
                                 'it goes in too deep to move out through the arm.')
         if any(item['frames'] for item in clearance) and not source_geometry:
             notes.append('The source has no body mesh to compare with, so clipping already in its animation was removed too.')
+        for item in closeness:
+            hand = 'Left' if item['side'] == 'L' else 'Right'
+            if item['frames']:
+                notes.append(f"{hand} arm turned in toward the body on frames {spans(item['frames'])}, by up to "
+                             f"{item['angle']:.0f}°, {item['largest'] * 100:.1f} cm at the hand, to stand as close as the source's.")
+            if item['gripped']:
+                notes.append(f"{hand} arm kept as it is on frames {spans(item['gripped'])}, where both hands are together.")
+        if settings.arm_gap and geometry and not wanted:
+            reason = 'the source has no body mesh' if not source_geometry else 'no arm has a mesh in both rigs'
+            notes.append(f'Arm distances to the body were not compared: {reason}.')
         result = dict(source=source.name, target=target.name, mapped=len(bone_map), frames=count, scale=factor,
                       action=action.name, root_motion=mode, rest_mode=settings.rest_mode, carrier=carrier or '',
                       keyed=len(keyed), untracked=untracked, warnings=warnings, notes=notes, clearance=clearance,
-                      source_clipping=source_geometry is not None,
+                      source_clipping=bool(clearing and source_geometry), closeness=closeness, arm_gaps=bool(wanted),
                       weapons={name: round(math.degrees(turn.angle), 1) for name, turn in weapons.items()},
+                      placed={name: holder for name, (holder, anchor) in holds.items()}, hidden=hiding,
                       method='World-space FK from the source rest pose' + (' with matched rest stances' if align else '') +
                              '; target proportions retained')
         scene['sekiro_retarget_report'] = json.dumps(result)

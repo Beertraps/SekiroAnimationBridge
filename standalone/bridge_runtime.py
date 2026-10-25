@@ -110,9 +110,9 @@ def writer_arguments(request, fmt, stats):
     return args
 
 
-def discover_source(request):
+def discover_source(request, notify=event):
     from asset_discovery import discover
-    return discover(request.get('assetFolder', ''), HOME/'work/asset-cache', event, request.get('oodle', ''), request.get('game', 'auto'),
+    return discover(request.get('assetFolder', ''), HOME/'work/asset-cache', notify, request.get('oodle', ''), request.get('game', 'auto'),
                     request.get('sourceLayout') or 'folder', request.get('sourceFolders'), request.get('sourceRecursive', True))
 
 
@@ -128,6 +128,76 @@ def character_clips(catalog, character):
     if not character:
         return catalog
     return dict(catalog, clips=[c for c in catalog['clips'] if character in (c['characterKey'], c['character'])])
+
+
+def part_clips(models, manifest, animation, game, decoder, work, tae_binder=None, character='', notify=event):
+    """Match each animated weapon part to the clip it plays with this animation, and decode it into the manifest."""
+    from part_animations import plan, prepare, character_tae
+    rows = plan(models, Path(animation).name, character_tae(tae_binder), character)
+    if not rows:
+        return [], []
+    notify('character', 'Decoding weapon part animations', 46)
+
+    def decode(clip, compendium, skeleton, output):
+        # A part's skeleton shares the clips' compendium.
+        run([decoder, clip, compendium, skeleton, output, *([compendium] if compendium != '-' else [])])
+    report, notices = prepare(manifest, rows, decode, work, game)
+    for notice in notices:
+        print('NOTICE: ' + notice, flush=True)
+    return report, notices
+
+
+def part_outputs(blender, blend, motion, output, force, temp):
+    """Sample every animated weapon part over the character's exported frames.
+
+    Returns (index entry, final HKX path) pairs. A part clip keeps its member name,
+    such as a076_405010_1.hkx, beside the character's HKX; two models that share a
+    clip name each get a folder named after the model.
+    """
+    sampled = json.loads(Path(motion).read_text(encoding='utf-8')).get('export', {})
+    folder = temp / 'parts'
+    event('blender', 'Sampling the weapon part animations in Blender', 50)
+    run([blender, '--background', blend, '--python', HERE / 'blender_parts.py', '--', 'export', '--output-dir', folder,
+         '--frame-start', f"{sampled['frameStart']:g}", '--frame-end', f"{sampled['frameEnd']:g}"])
+    if not (folder / 'parts.json').is_file():
+        raise RuntimeError('Blender did not sample the part animations. See the activity log.')
+    index = json.loads((folder / 'parts.json').read_text(encoding='utf-8'))
+    if not index:
+        print('NOTICE: This scene has no animated weapon parts, so only the character HKX is written.', flush=True)
+    names = [entry['clip'].lower() for entry in index]
+    pairs = []
+    for entry in index:
+        if entry['missingBones']:
+            print(f"NOTICE: {entry['name']}'s rig lacks {', '.join(entry['missingBones'][:6])}; those tracks keep the reference pose.", flush=True)
+        target = output.parent / entry['clip'] if names.count(entry['clip'].lower()) == 1 else output.parent / entry['name'] / entry['clip']
+        if target.resolve() == output.resolve():
+            raise ValueError(f"The HKX output has the name of {entry['name']}'s part clip. Choose another name for the character's HKX.")
+        pairs.append((entry, output_file(str(target), '.hkx', force)))
+    return pairs
+
+
+def donor_request(request):
+    """Input options of the retarget donor, with the tools and weapon settings it shares with the target.
+
+    A donor gets no weapon part clips, since the bake does not read them.
+    """
+    donor = request['donor']
+    if not isinstance(donor, dict):
+        raise ValueError('The retarget donor must be a set of input options, like the target clip.')
+    shared = {key: request[key] for key in ('decoder', 'oodle', 'weaponAttachments') if key in request}
+    return {**shared, **donor, 'partAnimations': False}
+
+
+def donor_event(stage, message, progress, **extra):
+    """Progress of the donor's preparation, which runs between the target's character and Blender."""
+    event(stage, 'Donor: ' + message, min(60, 40 + progress // 2), **extra)
+
+
+def add_donor_report(report, donor):
+    """Describe the donor beside the target. Its warnings join the target's, marked as the donor's."""
+    report['warnings'] = [*report['warnings'], *('Donor: ' + warning for warning in donor.pop('warnings'))]
+    report['donor'] = donor
+    return report
 
 
 def convert(request):
@@ -176,13 +246,16 @@ def convert(request):
             count = len(info['actions'])
             event('done', f"Read {count} action{'' if count == 1 else 's'} from {Path(blend).name}", 100, output=blend, report=dict(scene=info))
             return blend
-        if mode == 'import':
+
+        def prepare(request, temp, event=event):
+            """Decode one clip into temp and prepare its character. A retarget donor passes an event that names it."""
             refreshed = False
+            tae_binder, tae_character = None, ''
             if request.get('inputMethod') == 'folder':
                 from asset_discovery import load_catalog, selection, inventory_character, refresh_clip
                 cache, character, clip = HOME/'work/asset-cache', request.get('assetCharacter', ''), request.get('assetClip')
                 if not request.get('assetCatalog'):
-                    path, catalog = discover_source(request)
+                    path, catalog = discover_source(request, event)
                     if catalog['layout'] != 'folder':
                         if not character:
                             raise ValueError(f"This source holds {len(catalog['characters'])} characters. Choose one, for example -AssetCharacter c0000.")
@@ -210,6 +283,10 @@ def convert(request):
                 for key in ('textureDirectory', 'materialBinder', 'referenceModel'):
                     if not request.get(key): request[key] = resolved[key]
                 request['textureFolders'], request['textureRecursive'] = resolved['textureFolders'], resolved['textureRecursive']
+                # The character's TAE tells which part clip plays with a body clip that several animation IDs share.
+                from part_animations import character_binder
+                chosen = next(c for c in catalog['clips'] if c['id'] == clip or c['name'].lower() == str(clip).lower())
+                tae_binder, tae_character = character_binder(catalog, chosen), chosen.get('character', '')
             animation = existing(request.get('animation'), 'Animation HKX')
             skeleton = existing(request.get('skeleton'), 'Skeleton HKX')
             compendium = existing(request['compendium'], 'Compendium') if request.get('compendium') else '-'
@@ -234,7 +311,6 @@ def convert(request):
                 raise ValueError('The installed animation decoder is from an older version. Run tools/SekiroMotionDecoder/build_decoder.cmd from this updated tool folder.')
             if source_info['container']=='packfile' and 'native-packfiles' not in version.stdout:
                 raise ValueError('This game needs the 0.5 decoder with native packfile support. Run tools/SekiroMotionDecoder/build_decoder.cmd.')
-            output = output_file(request.get('outputBlend'), '.blend', force)
             event('decode', 'Decoding animation and skeleton', 15)
             motion = temp / 'motion.json'
             skeleton_compendium = request.get('skeletonCompendium', '')
@@ -267,11 +343,33 @@ def convert(request):
                     request.get('referenceModel', ''), request.get('weaponAttachments', {}), document['skeletonName'], source_game,
                     [bone['name'] for bone in document['skeleton']['bones']],
                     request.get('textureFolders') or None, bool(request.get('textureRecursive')))
+                if request.get('partAnimations', True):
+                    report['partClips'], report['partNotices'] = part_clips(sources, manifest, animation, source_game, decoder,
+                                                                             temp / 'parts', tae_binder, tae_character, event)
                 character = json.loads(manifest.read_text(encoding='utf-8'))
                 report.update(parts=len(character['models']), textures=character['texture_count'], warnings=character['warnings'],
                               vertices=sum(m['stats']['vertices'] for m in character['models']),
                               triangles=sum(m['stats']['triangles'] for m in character['models']))
                 character_args = ['--character-manifest', manifest]
+            return motion, character_args, report
+
+        if mode == 'import':
+            output = output_file(request.get('outputBlend'), '.blend', force)
+            donor_input = donor_request(request) if request.get('donor') else None
+            motion, character_args, report = prepare(request, temp)
+            if donor_input:
+                # A second clip for the retarget add-on, from any source or game. Blender places it beside the target.
+                (temp / 'donor').mkdir()
+                try:
+                    donor_motion, donor_character, donor = prepare(donor_input, temp / 'donor', donor_event)
+                except (ValueError, RuntimeError) as exc:
+                    raise (ValueError if isinstance(exc, ValueError) else RuntimeError)(f'Donor: {exc}') from exc
+                if Path(donor_input['animation']).resolve() == Path(request['animation']).resolve():
+                    raise ValueError('The donor is the same animation as the target. Choose a different clip as the donor.')
+                character_args += ['--donor-motion-json', donor_motion]
+                if donor_character:
+                    character_args += ['--donor-character-manifest', donor_character[-1]]
+                add_donor_report(report, donor)
             event('blender', 'Building the editable Blender scene', 62)
             staged_blend = temp / output.name
             run([blender, '--background', '--factory-startup', '--python', HERE / 'blender_bridge.py', '--',
@@ -304,10 +402,22 @@ def convert(request):
             sampling = sampling_arguments(request)
             event('blender', 'Sampling the edited animation in Blender', 25)
             run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export', '--output-json', motion, *sampling])
-        event('write', f'Writing {fmt} HKX' + (' and reading it back' if '--verify' in writing else ''), 70)
+        parts = part_outputs(blender, blend, motion, output, force, temp) if mode == 'export' and request.get('exportParts') else []
+        event('write', f'Writing {fmt} HKX' + (' and part clips' if parts else '') + (' and reading it back' if '--verify' in writing else ''), 70)
         run([writer, '-E', '-X', 'utf8', HERE / 'build_animation.py', motion, staged_hkx, *writing])
+        for entry, target in parts:
+            # Part clips use the character's format and settings at their own frame rate.
+            run([writer, '-E', '-X', 'utf8', HERE / 'build_animation.py', entry['motion'], temp / 'parts' / (entry['model'] + '.hkx'),
+                 *writer_arguments(request, fmt, temp / 'parts' / (entry['model'] + '.stats.json'))])
         atomic_copy(motion, sidecar)
         atomic_copy(staged_hkx, output)
+        written = []
+        for entry, target in parts:
+            atomic_copy(temp / 'parts' / (entry['model'] + '.hkx'), target)
+            part_stats = json.loads((temp / 'parts' / (entry['model'] + '.stats.json')).read_text(encoding='utf-8'))
+            written.append(dict(model=entry['name'], clip=entry['clip'], output=str(target), frames=entry['frames'],
+                                frameRate=entry['frameRate'], bytes=part_stats['bytes'], readback=part_stats.get('readback')))
+            print(f"Part clip {entry['clip']} of {entry['name']}: {target}", flush=True)
         doc = json.loads(motion.read_text(encoding='utf-8'))
         stats = json.loads(stats_path.read_text(encoding='utf-8'))
         sampled = doc.get('export', {})
@@ -316,7 +426,7 @@ def convert(request):
                           sidecar=str(sidecar), bytes=stats['bytes'], quantization=stats['quantization'],
                           tolerance=stats['tolerance'], readback=stats.get('readback'), action=sampled.get('action', ''),
                           rootMotion=sampled.get('rootMotion', ''), addedTracks=len(sampled.get('addedTracks', [])),
-                          warnings=sampled.get('warnings', [])))
+                          warnings=sampled.get('warnings', []), parts=written))
         return str(output)
 
 

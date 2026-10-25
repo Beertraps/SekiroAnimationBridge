@@ -29,6 +29,12 @@ def source_changed(self, context):
     self.enabled = bool(self.source)
     self.confidence = 1.0 if self.source else 0
     self.reason = 'Manual mapping' if self.source else 'Unassigned'
+    if self.source:
+        # A source bone drives one target bone, so giving Godfrey's L_Axe to Isshin's spear takes it from his katana.
+        for row in self.id_data.sekiro_retarget.rows:
+            if row.source == self.source and row.as_pointer() != self.as_pointer():
+                row.source = ''
+                row.reason = 'Source moved to ' + self.target
 
 
 def preferences(context):
@@ -55,6 +61,9 @@ class SKR_BoneMap(PropertyGroup):
     target: StringProperty(name='Target bone')
     source: StringProperty(name='Source bone', update=source_changed)
     enabled: BoolProperty(name='Use mapping', default=True)
+    hidden: BoolProperty(name='Hide', default=False,
+        description='Hide this weapon on every frame of the bake by scaling it to 0.1%, as FromSoftware clips hide '
+                    'weapons; the bones below it hide with it')
     confidence: FloatProperty(name='Match strength', min=0, max=1)
     reason: StringProperty()
     suggestion: StringProperty()
@@ -93,6 +102,10 @@ class SKR_Settings(PropertyGroup):
         description='Where a hand, or what it holds, would go into the target torso deeper than the source\'s hand goes '
                     'into its own body, move it out through the arm, easing in and out; for a target with a thicker body '
                     'than the source')
+    arm_gap: BoolProperty(name='Keep arms close to the body', default=True,
+        description='Where the source holds an arm close to its own body, turn the target\'s arm in at the shoulder until '
+                    'it stands as close to the target\'s torso, at the target\'s size, easing in and out; for a source '
+                    'with a wider body than the target. Needs body meshes on both rigs')
     timing: EnumProperty(name='Clip timing', items=[
         ('SOURCE','Use source length','Update target metadata to the source duration'),
         ('TARGET','Fit target length','Resample source motion across the target clip length')], default='SOURCE')
@@ -345,7 +358,8 @@ class SKR_OT_save_map(Operator,ExportHelper):
     def execute(self,context):
         try:
             rows=context.scene.sekiro_retarget.rows
-            document=dict(format='sekiro-retarget-map',version=1,mappings=[dict(target=r.target,source=r.source,enabled=r.enabled) for r in rows])
+            document=dict(format='sekiro-retarget-map',version=1,
+                          mappings=[dict(target=r.target,source=r.source,enabled=r.enabled,hidden=r.hidden) for r in rows])
             Path(self.filepath).write_text(json.dumps(document,indent=2),encoding='utf-8')
             return {'FINISHED'}
         except Exception as exc:
@@ -371,6 +385,7 @@ class SKR_OT_load_map(Operator,ImportHelper):
                 row=rows[item['target']]
                 row.source=item['source'] if item['source'] in settings.source.data.bones else ''
                 row.enabled=bool(row.source and item.get('enabled',True));row.reason='Loaded bone map'
+                row.hidden=bool(item.get('hidden',False))
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -445,6 +460,8 @@ class SKR_UL_bones(UIList):
         row.prop(item,'enabled',text='')
         row.label(text=item.target,icon='BONE_DATA')
         row.label(text=f'{round(item.confidence*100)}%' if item.source else '—',icon='CHECKMARK' if item.source else 'QUESTION')
+        if mapping.weapon_part(item.target) or item.hidden:
+            row.prop(item,'hidden',text='',icon='HIDE_ON' if item.hidden else 'HIDE_OFF',emboss=False)
         if data.source:column.prop_search(item,'source',data.source.data,'bones',text='From')
         else:column.label(text='Select source')
 
@@ -486,7 +503,8 @@ class SKR_PT_panel(Panel):
         layout.prop(settings,'rest_mode');layout.prop(settings,'root_motion')
         if settings.root_motion in ('AUTO','EXTRACT'):layout.prop(settings,'root_yaw')
         layout.prop(settings,'unmapped');layout.prop(settings,'timing')
-        layout.prop(settings,'body_translation');layout.prop(settings,'body_clearance');layout.prop(settings,'auto_scale')
+        layout.prop(settings,'body_translation');layout.prop(settings,'body_clearance');layout.prop(settings,'arm_gap')
+        layout.prop(settings,'auto_scale')
         if not settings.auto_scale:layout.prop(settings,'travel_scale')
         row=layout.row();row.enabled=bool(settings.rows)
         row.operator('sekiro_retarget.bake',icon='ACTION')
@@ -544,8 +562,12 @@ CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_OT_match,SKR_OT_use_active
 def register():
     for cls in CLASSES:bpy.utils.register_class(cls)
     bpy.types.Scene.sekiro_retarget=PointerProperty(type=SKR_Settings)
+    from . import imported_pair
+    imported_pair.register()
 
 
 def unregister():
+    from . import imported_pair
+    imported_pair.unregister()
     del bpy.types.Scene.sekiro_retarget
     for cls in reversed(CLASSES):bpy.utils.unregister_class(cls)

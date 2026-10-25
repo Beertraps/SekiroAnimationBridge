@@ -111,6 +111,38 @@ class MatchConventions(unittest.TestCase):
         self.assertTrue(mapping.weapon_name('R_Katana') and mapping.weapon_name('R_Weapon') and mapping.weapon_name('L_Yari'))
         self.assertFalse(any(mapping.weapon_name(name) for name in ('Katana_Saya_Storage', 'B_Wepon_Case', 'R_Finger1', 'L_Shield')))
 
+    def test_weapon_parts_are_held_and_stored_weapons_and_shields(self):
+        # The bones that get a Hide toggle in the bone list.
+        self.assertTrue(all(mapping.weapon_part(name) for name in (
+            'R_Katana', 'R_Katana_Saya', 'back_Yari_Storage', 'Katana_Saya_Storage', 'B_Wepon_Case', 'L_Shield', 'c4720_L_Axe')))
+        self.assertFalse(any(mapping.weapon_part(name) for name in ('R_Hand', 'R_Finger1', 'Spine2', 'Pelvis', 'L_ForeArmTwist')))
+
+    def test_weapon_changes_hands_when_only_the_other_hand_holds_one(self):
+        # Godfrey-like source: an axe in the left hand, nothing in the right. Isshin-like target: a katana at the
+        # right hand, and a spear and a gun that rest 1.7 m and 1.2 m from the left hand until a clip brings them in.
+        source = [mapping.Bone('L_Axe' if name == 'L_Weapon' else name, parent, head)
+                  for name, parent, head, label in humanoids.fromsoftware(45, 'elden') if name != 'R_Weapon']
+        renamed = {'R_Weapon': 'R_Katana', 'L_Weapon': 'L_Yari'}
+        target = [mapping.Bone(renamed.get(name, name), parent, head) for name, parent, head, label in humanoids.fromsoftware(0, 'souls')]
+        heads = {bone.name: bone.head for bone in target}
+        away = lambda distance: tuple(h + d for h, d in zip(heads['L_Hand'], (distance * .8, -distance * .6, 0)))
+        target = [mapping.Bone(bone.name, bone.parent, away(1.7)) if bone.name == 'L_Yari' else bone for bone in target]
+        target.append(mapping.Bone('L_Gun', 'L_Hand', away(1.2)))
+        rig = mapping.Rig(target)
+        self.assertTrue(rig.rests_at('R_Katana', 'R_Hand'))
+        self.assertFalse(rig.rests_at('L_Yari', 'L_Hand') or rig.rests_at('L_Gun', 'L_Hand'))
+        rows = {row['target']: row for row in mapping.match_bones(source, target)}
+        self.assertEqual((rows['R_Katana']['source'], rows['R_Katana']['reason'], rows['R_Katana']['confidence']),
+                         ('L_Axe', 'Weapon from the other hand', .8))
+        self.assertEqual((rows['L_Yari']['source'], rows['L_Gun']['source']), ('', ''))
+        # A weapon at the target's left hand keeps the axe on its own side.
+        own = target + [mapping.Bone('L_Katana', 'L_Hand', heads['L_Hand'])]
+        rows = {row['target']: row['source'] for row in mapping.match_bones(source, own)}
+        self.assertEqual((rows['R_Katana'], rows['L_Katana']), ('', ''))  # Three in the left hand: left for review.
+        single = [bone for bone in own if bone.name not in ('L_Yari', 'L_Gun')]
+        rows = {row['target']: row['source'] for row in mapping.match_bones(source, single)}
+        self.assertEqual((rows['R_Katana'], rows['L_Katana']), ('', 'L_Axe'))
+
     def test_counterparts_by_name_and_by_mirrored_position(self):
         named = mapping.Rig(bones(humanoids.unreal()))
         self.assertEqual(named.counterpart('lowerarm_l'), 'lowerarm_r')

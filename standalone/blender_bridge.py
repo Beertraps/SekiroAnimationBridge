@@ -48,8 +48,11 @@ def make_active(context, obj):
     context.view_layer.objects.active = obj
 
 
-def write_action(obj, name, channels):
-    """Build sampled curves in bulk, including Blender 4.4+ action slots."""
+def write_action(obj, name, channels, frames=None):
+    """Build sampled curves in bulk, including Blender 4.4+ action slots.
+
+    Samples are keyed on frames 1, 2, 3, ... unless frames gives each sample's scene frame.
+    """
     action = bpy.data.actions.new(name)
     if hasattr(action, "slots"):
         slot = action.slots.new("OBJECT", obj.name)
@@ -63,7 +66,8 @@ def write_action(obj, name, channels):
         for axis in range(len(samples[0])):
             curve = curves.new(path, index=axis)
             curve.keyframe_points.add(len(samples))
-            coordinates = [value for i, sample in enumerate(samples) for value in (float(i + 1), float(sample[axis]))]
+            coordinates = [value for i, sample in enumerate(samples)
+                           for value in (float(frames[i] if frames else i + 1), float(sample[axis]))]
             curve.keyframe_points.foreach_set("co", coordinates)
             for point in curve.keyframe_points:
                 point.interpolation = "LINEAR"
@@ -238,6 +242,96 @@ def import_motion(motion):
     make_active(bpy.context, rig)
     scene.frame_set(1)
     print("Editable animation ready", flush=True)
+    return rig
+
+
+DONOR_KINDS = ("objects", "collections", "actions", "texts", "armatures")
+SCENE_RIG_KEYS = ("sekiro_bridge_active_rig", "sekiro_bridge_export_rig", "sekiro_bridge_source_text")
+
+
+def donor_name(name, kind):
+    """Name of a donor's data block: 'Donor ' before objects, actions and armatures, 'Donor' in collections and texts."""
+    if kind == "collections":
+        return re.sub(r"^Sekiro\b", "Donor", name) if name.startswith("Sekiro") else "Donor " + name
+    if kind == "texts":
+        if name.startswith("Sekiro Source - "):
+            return "Sekiro Source - Donor - " + name[len("Sekiro Source - "):]
+        stem, dot, suffix = name.rpartition(".")
+        return "{} - Donor.{}".format(stem, suffix) if dot else name + " - Donor"
+    return "Donor " + name
+
+
+def character_span(rig):
+    """Lowest and highest X of a bridge rig's meshes in the evaluated scene, or of its bones when it has none."""
+    deps = bpy.context.evaluated_depsgraph_get()
+    points = [obj.matrix_world @ Vector(corner) for obj in rig.children_recursive if obj.get("sekiro_flver_preview")
+              for corner in obj.evaluated_get(deps).bound_box]
+    if not points:
+        points = [rig.matrix_world @ point for bone in rig.pose.bones for point in (bone.head, bone.tail)]
+    return min(point.x for point in points), max(point.x for point in points)
+
+
+def import_donor(motion, target, manifest=None):
+    """Add a second character beside the target, for the retarget add-on to bake from.
+
+    The target keeps the scene: its frame range, frame rate, export rig and
+    embedded metadata stay as a single import leaves them. The donor's data is
+    named "Donor ..." so that rigs of the same name, such as c0000 from two
+    games, stay apart. It stands beside the target through delta transforms,
+    which leave its keys and the add-on's armature-space bake unchanged.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from blender_character import import_character, setup_view
+    scene = bpy.context.scene
+    settings = scene.render.fps, scene.render.fps_base, scene.frame_start, scene.frame_end
+    keys = {key: scene[key] for key in SCENE_RIG_KEYS if key in scene}
+    before = {kind: set(getattr(bpy.data, kind)) for kind in DONOR_KINDS}
+    rig = import_motion(motion)
+    if manifest:
+        import_character(manifest, rig)
+
+    renamed = {kind: {} for kind in DONOR_KINDS}
+    for kind in DONOR_KINDS:
+        taken = {item.name for item in before[kind]}
+        for item in [item for item in getattr(bpy.data, kind) if item not in before[kind]]:
+            # Blender appends .001 when the target already has the name the importer asked for.
+            match = re.fullmatch(r"(.+)\.\d{3,}", item.name)
+            old, item.name = item.name, donor_name(match.group(1) if match and match.group(1) in taken else item.name, kind)
+            renamed[kind][old] = item.name
+    root = root_motion_object(rig)
+    rig["sekiro_bridge_source_text"] = rig["sekiro_bridge_source_text_data"].name
+    if root is not None:
+        rig["sekiro_root_motion_object"] = root.name
+    if "sekiro_preview_meshes" in rig:
+        objects = renamed["objects"]
+        rig["sekiro_preview_meshes"] = json.dumps([objects.get(name, name) for name in json.loads(rig["sekiro_preview_meshes"])])
+    for obj in (rig, root):
+        slot = getattr(obj.animation_data, "action_slot", None) if obj is not None and obj.animation_data else None
+        if slot is not None and hasattr(slot, "name_display"):
+            slot.name_display = obj.name
+
+    scene.render.fps, scene.render.fps_base, scene.frame_start, scene.frame_end = settings
+    for key in SCENE_RIG_KEYS:
+        if key in keys:
+            scene[key] = keys[key]
+        elif key in scene:
+            del scene[key]
+    scene["sekiro_bridge_retarget_source"] = rig
+    scene.frame_set(1)
+    bpy.context.view_layer.update()
+    low, high = character_span(target)
+    donor_low, donor_high = character_span(rig)
+    offset = high - donor_low + max(0.5, 0.25 * max(high - low, donor_high - donor_low))
+    for obj in (rig, root):
+        if obj is not None:
+            obj.delta_location = (offset, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    if any(obj.get("sekiro_flver_preview") for obj in scene.objects):
+        setup_view(target)
+    else:
+        make_active(bpy.context, target)
+        scene.frame_set(1)
+    print("Added {} beside {}, {:.2f} m along X".format(rig.name, target.name, offset), flush=True)
     return rig
 
 
@@ -537,6 +631,18 @@ def set_time(scene, time):
     bpy.context.view_layer.update()
 
 
+def own_rotation(pose_bone):
+    """A pose bone's keyed rotation, which its matrices lose when it is scaled to nothing."""
+    if pose_bone.rotation_mode == "QUATERNION":
+        rotation = pose_bone.rotation_quaternion.copy()
+    elif pose_bone.rotation_mode == "AXIS_ANGLE":
+        angle, x, y, z = pose_bone.rotation_axis_angle
+        rotation = Quaternion((x, y, z), angle)
+    else:
+        rotation = pose_bone.rotation_euler.to_quaternion()
+    return rotation.normalized() if rotation.magnitude > 1e-8 else Quaternion()
+
+
 def extract_root_motion(matrices, axes, yaw):
     """Root transforms carrying one bone's travel and, optionally, its heading.
 
@@ -650,7 +756,7 @@ def export_motion(output_json: Path, **overrides):
 
     original_frame = scene.frame_current
     restore = []
-    worlds, root_samples = [], []
+    worlds, bases, rotations, root_samples = [], [], [], []
     try:
         if action != current:
             restore.append(assign_action(rig, action))
@@ -662,6 +768,8 @@ def export_motion(output_json: Path, **overrides):
         for time in times:
             set_time(scene, time)
             worlds.append([pose_bone.matrix.copy() for pose_bone in pose_bones])
+            bases.append([pose_bone.matrix_basis.copy() for pose_bone in pose_bones])
+            rotations.append([own_rotation(pose_bone) for pose_bone in pose_bones])
             if root_mode == "object":
                 root_samples.append([float(root.location.x), float(root.location.z), float(root.location.y),
                                      -float(root.rotation_euler.z)])
@@ -688,19 +796,31 @@ def export_motion(output_json: Path, **overrides):
             world[:] = [inverse @ matrix if index in moved else matrix for index, matrix in enumerate(world)]
 
     rest_local = [trs_matrix(bone) for bone in bones]
+    # A bone's own rest offset from its parent, where Blender's parent is the skeleton's.
+    own_rest = [pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local
+                if parent >= 0 and pose_bone.parent is not None and pose_bone.parent.name == names[parent] else None
+                for pose_bone, parent in zip(pose_bones, parents)]
     exported = set(track_bones)
     frames, previous = [], {}
-    for world in worlds:
+    for world, basis, own in zip(worlds, bases, rotations):
         game_world, local = [], {}
         for index, parent in enumerate(parents):
-            if index in exported:
+            if index in exported and parent >= 0 and own_rest[index] is not None and min(game_world[parent].to_scale()) < 1e-6:
+                # A parent scaled to nothing, as games hide a weapon, has no inverse: the bone keeps its own channels,
+                # so that it is in place when the parent shows again or the game blends into another clip.
+                matrix = local[index] = own_rest[index] @ basis[index]
+            elif index in exported:
                 matrix = local[index] = game_world[parent].inverted_safe() @ world[index] if parent >= 0 else world[index]
             else:
                 matrix = rest_local[index]
             game_world.append(game_world[parent] @ matrix if parent >= 0 else matrix)
         frame = []
         for index in track_bones:
-            sample = bl_to_game_trs(*local[index].decompose())
+            location, rotation, scale = local[index].decompose()
+            if own_rest[index] is not None and min(abs(value) for value in scale) < 1e-6:
+                # A matrix scaled to nothing has lost its rotation: the bone keeps the one it is keyed with.
+                rotation = own_rest[index].to_quaternion() @ own[index]
+            sample = bl_to_game_trs(location, rotation, scale)
             # Keep each track's quaternions in one hemisphere for the spline compressor.
             if index in previous and sum(a * b for a, b in zip(sample["rotation"], previous[index])) < 0:
                 sample["rotation"] = [-value for value in sample["rotation"]]
@@ -746,9 +866,12 @@ def inspect_scene(output_json: Path):
     root = root_motion_object(rig)
     actions = []
     controlled = bool(rig.get("sekiro_control_rig"))
+    # A second character, such as a retarget donor, plays its own action; it is not one to export from this rig.
+    played = {obj.animation_data.action for obj in scene.objects if obj != rig and obj.type == "ARMATURE"
+              and obj.animation_data and obj.animation_data.action}
     for action in bpy.data.actions:
         keyed = keyed_bones(action, rig) & set(names)
-        if not keyed or (controlled and not drives_controls(action, rig)):
+        if not keyed or (action in played and action != current) or (controlled and not drives_controls(action, rig)):
             continue
         start, end = action.frame_range
         paired = paired_root_action(action)
@@ -787,6 +910,8 @@ def main():
     import_parser.add_argument("--model-preview-data", type=Path)
     import_parser.add_argument("--preview-texture", type=Path)
     import_parser.add_argument("--character-manifest", type=Path)
+    import_parser.add_argument("--donor-motion-json", type=Path, help="second clip to place beside the first, for retargeting")
+    import_parser.add_argument("--donor-character-manifest", type=Path)
     export_parser = modes.add_parser("export", help="Sample an edited .blend into bridge motion JSON.")
     export_parser.add_argument("--output-json", required=True, type=Path)
     export_parser.add_argument("--action", default="", help="armature action to sample (default: the active action)")
@@ -819,6 +944,9 @@ def main():
             import_preview_model(args.model_preview_data, rig, args.preview_texture)
         elif args.preview_texture:
             raise ValueError("A preview texture requires a FLVER model preview.")
+        if args.donor_motion_json:
+            donor = json.loads(args.donor_motion_json.read_text(encoding="utf-8-sig"))
+            import_donor(donor, rig, args.donor_character_manifest)
         args.output_blend.parent.mkdir(parents=True, exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=str(args.output_blend.resolve()))
         print("Created Blender scene: {}".format(args.output_blend.resolve()))

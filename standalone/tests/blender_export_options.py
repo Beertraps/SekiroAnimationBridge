@@ -151,4 +151,27 @@ with tempfile.TemporaryDirectory() as temp:
     assert names[clip_action.name]['active'] and names[clip_action.name]['rootAction'] == root_object.animation_data.action.name
     assert names['take2_Sekiro']['rootAction'] == 'take2_RootMotion' and names[clip_action.name]['untracked'] == ['Extra']
     assert info['defaultRootBone'] == 'Pelvis' and info['rootObject']['name'] == 'HKX_RootMotion' and info['frameCount'] == COUNT
-print('PASS: export defaults, track sets, parent compensation, frame ranges, resampling, root extraction, takes and inspect', flush=True)
+
+    # Hiding the pelvis on frames 4-6 by scaling it to 0 keeps its keyed rotation, and the spine below it keeps its own
+    # channels rather than the inverse of a matrix scaled to nothing. At 0.1%, as FromSoftware hides weapons, both come
+    # from the matrices.
+    for value in (0.0, 1e-3):
+        hidden = clip_action.copy(); hidden.name = 'hidden_Sekiro'
+        for curve in action_curves(hidden):
+            if curve.data_path == 'pose.bones["Pelvis"].scale':
+                for point in curve.keyframe_points:
+                    if 4 <= point.co[0] <= 6: point.co[1] = value
+                curve.update()
+        result, _ = export(temp, 'hidden', action=hidden.name, root_motion='none')
+        for i in range(COUNT):
+            assert all(math.isfinite(v) for sample in result['frames'][i] for key in ('translation', 'rotation', 'scale')
+                       for v in sample[key]), (value, i)
+            pelvis, spine = result['frames'][i][1], result['frames'][i][2]
+            assert close(pelvis['scale'], [value] * 3 if 3 <= i <= 5 else [1, 1, 1]), (value, i, pelvis)
+            assert close(pelvis['translation'], frames[i][1]['translation']), (value, i, pelvis)
+            assert same_rotation(pelvis['rotation'], frames[i][1]['rotation']), (value, i, pelvis)
+            assert close(spine['translation'], frames[i][2]['translation'], 1e-3) and close(spine['scale'], [1, 1, 1], 1e-3), (value, i, spine)
+            assert same_rotation(spine['rotation'], frames[i][2]['rotation']), (value, i, spine)
+        bpy.data.actions.remove(hidden)
+print('PASS: export defaults, track sets, parent compensation, frame ranges, resampling, root extraction, takes, inspect '
+      'and hidden parents', flush=True)

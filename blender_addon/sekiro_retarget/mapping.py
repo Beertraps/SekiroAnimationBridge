@@ -11,8 +11,9 @@ chains of different lengths still line up, and fingers by finger and segment.
 A bone between two matched bones in both hierarchies is matched structurally,
 a helper beside a matched parent by a shared name part, and a weapon bone in a
 matched hand by the weapon bone in the other rig's hand, leaving out weapons
-that the source clip hides. Uncertain bones stay unassigned with a suggestion
-for review.
+that the source clip hides. Where only one hand holds a weapon in the source
+and only the other one in the target, the weapon changes hands. Uncertain
+bones stay unassigned with a suggestion for review.
 """
 from collections import Counter
 from dataclasses import dataclass
@@ -93,6 +94,12 @@ def weapon_name(name):
     """Whether a bone name says it holds a weapon (R_Weapon, R_Katana) rather than storing one (Katana_Saya_Storage)."""
     tokens = set(words(name))
     return bool(tokens & WEAPONS) and not tokens & STORAGE
+
+
+def weapon_part(name):
+    """Whether a bone name mentions a weapon, held or stored (R_Katana, R_Katana_Saya, back_Yari_Storage), or a shield:
+    a bone that clips hide by scaling it to almost nothing."""
+    return bool(set(words(name)) & (WEAPONS | STORAGE | {'shield'}))
 
 
 def sub(a, b):
@@ -487,6 +494,16 @@ class Rig:
             stack.extend(self.children.get(name, ()))
         return found
 
+    def rests_at(self, name, hand):
+        """Whether a bone rests within three quarters of a forearm's length of a hand, as a weapon held there does.
+
+        Isshin's spear L_Yari rests 1.7 m from his hand until a clip brings it in."""
+        info, grip = self.bones.get(name), self.bones.get(hand)
+        forearm = self.bones.get(self.roles.get((grip.side, 'forearm')) or grip.parent) if grip else None
+        if not (info and info.head and grip.head and forearm and forearm.head):
+            return False
+        return distance(info.head, grip.head) <= .75 * distance(grip.head, forearm.head)
+
     def position(self, name):
         """Rest position relative to the hips in leg lengths (left, forward, up), or None."""
         if not self.body:
@@ -521,7 +538,8 @@ def assignment(target, source, confidence, reason):
 def match_bones(source, target, hidden=()):
     """Return one row per target; uncertain fuzzy suggestions stay unassigned.
 
-    Left/right differences are forbidden. Source bones are used at most once.
+    Left/right differences are forbidden, except for a weapon that changes
+    hands. Source bones are used at most once.
     Anatomical roles and chains come before exact names, so a FromSoftware
     L_Shoulder helper cannot take Mixamo's LeftShoulder clavicle, and a
     three-bone spine maps its chest onto a two-bone spine's top bone.
@@ -532,10 +550,10 @@ def match_bones(source, target, hidden=()):
     src, dst = Rig(source_bones), Rig(target_bones)
     assigned, used = {}, set()
 
-    def assign(target_name, source_name, confidence, reason):
+    def assign(target_name, source_name, confidence, reason, across=False):
         if target_name in assigned or source_name in used or target_name not in dst.bones or source_name not in src.bones:
             return False
-        if dst.bones[target_name].side != src.bones[source_name].side:
+        if dst.bones[target_name].side != src.bones[source_name].side and not across:
             return False
         assigned[target_name] = assignment(target_name, source_name, confidence, reason)
         used.add(source_name)
@@ -614,16 +632,31 @@ def match_bones(source, target, hidden=()):
     # The weapon in a matched hand: Sekiro's R_Weapon dummy takes an enemy's R_Katana. Isshin's hand also
     # holds R_Gun and R_Katana_Wire; his clip hides the gun, and the katana is the hand's own child. Only a
     # single weapon bone on each side is matched; the bake turns weapons with meshes so that blades point alike.
+    def weapons_in(hand, free=True):
+        sources = [name for name in src.held(hand) if name not in hidden and not (free and name in used)]
+        direct = [name for name in sources if src.bones[name].parent == hand]
+        return direct if len(sources) > 1 and len(direct) == 1 else sources
+
     for side in ('L', 'R'):
         hand = dst.roles.get((side, 'hand'))
         if hand not in assigned:
             continue
         targets = [name for name in dst.held(hand) if name not in assigned]
-        sources = [name for name in src.held(assigned[hand]['source']) if name not in used and name not in hidden]
-        direct = [name for name in sources if src.bones[name].parent == assigned[hand]['source']]
-        sources = direct if len(sources) > 1 and len(direct) == 1 else sources
+        sources = weapons_in(assigned[hand]['source'])
         if len(targets) == 1 and len(sources) == 1:
             assign(targets[0], sources[0], .9, 'Weapon in the matched hand')
+
+    # Where only one hand holds a weapon in the source and only the other one in the target, the weapon changes
+    # hands: Godfrey holds his axe in the left hand and Isshin his katana in the right, so R_Katana takes L_Axe and
+    # the bake puts it in Isshin's left hand. Weapons that rest away from the hand, as Isshin's spear does, are
+    # left for review: the user may give the axe to the spear instead.
+    hands = [dst.roles.get((side, 'hand')) for side in ('L', 'R')]
+    if all(hand in assigned for hand in hands):
+        targets = [[name for name in dst.held(hand) if dst.rests_at(name, hand)] for hand in hands]
+        sources = [weapons_in(assigned[hand]['source'], free=False) for hand in hands]
+        for this, other in ((0, 1), (1, 0)):
+            if len(sources[this]) == 1 and not sources[other] and len(targets[other]) == 1 and not targets[this]:
+                assign(targets[other][0], sources[this][0], .8, 'Weapon from the other hand', across=True)
 
     changed = True
     while changed:

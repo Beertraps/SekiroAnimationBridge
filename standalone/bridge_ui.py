@@ -28,7 +28,8 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'textureDirectory','preset','outputBlend','inputBlend','outputHKX','format','includeCharacter','openWhenDone','force','models','previewTexture','lastImportedBlend',
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
-        'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme'}
+        'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme','donor',
+        'partAnimations','exportParts'}
 
 
 def find_blender():
@@ -60,7 +61,8 @@ def defaults():
         outputHKX=str(HOME/'work/wolf_animation_edited.hkx'), format='interleaved',
         exportAction='', frameRange='scene', frameStart='', frameEnd='', frameRate='', trackSet='original', rootMotion='auto',
         rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
-        sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, theme='auto')
+        sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, theme='auto',
+        partAnimations=True, exportParts=False)
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)
     if SETTINGS.is_file():
@@ -200,7 +202,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(dict(config=CONFIG,job=snapshot(),root=str(HOME),version=version))
             if self.path=='/api/environment': return self.send_json(environment())
             return self.send_json({'error':'Unknown route'},404)
-        routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/app.js':('ui/app.js','text/javascript')}
+        routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/app.js':('ui/app.js','text/javascript'),
+                '/preview.js':('ui/preview.js','text/javascript')}
         if self.path not in routes: return self.send_error(404)
         file,mime=routes[self.path]; data=(HERE/file).read_bytes()
         self.send_response(200); self.send_header('Content-Type',mime+'; charset=utf-8')
@@ -240,6 +243,22 @@ class Handler(BaseHTTPRequestHandler):
                 path=Path(data['path']).resolve()
                 if path.parent != (HOME/'work/asset-cache/catalogs').resolve(): raise ValueError('Invalid folder catalog.')
                 return self.send_json(selection(load_catalog(path,data['folder']),data['clip'],data.get('preset','auto')))
+            if self.path=='/api/preview':
+                # The configured decoder only; the request names the clip's files.
+                from clip_preview import preview
+                decoder=CONFIG.get('decoder') or str(default_decoder())
+                return self.send_json(preview({k:str(data.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
+                                              decoder,HOME/'work/asset-cache/previews',CONFIG.get('oodle','')))
+            if self.path=='/api/part-clips':
+                from clip_preview import part_rows
+                catalog=None
+                if data.get('path'):
+                    path=Path(data['path']).resolve()
+                    if path.parent != (HOME/'work/asset-cache/catalogs').resolve(): raise ValueError('Invalid folder catalog.')
+                    from asset_discovery import load_catalog
+                    catalog=load_catalog(path,data['folder'])
+                return self.send_json(part_rows(catalog,data.get('clip',''),str(data.get('animation') or ''),
+                                                [str(p) for p in data.get('models') or []],CONFIG.get('oodle','')))
             if self.path=='/api/scan':
                 if data.get('files'):
                     parts=[dict(id=asset_id(p),name=asset_id(p).upper(),role=ROLES.get(asset_id(p).split('_')[0],'Extra model'),path=p,selected=True,container='Model file') for p in data['files']]

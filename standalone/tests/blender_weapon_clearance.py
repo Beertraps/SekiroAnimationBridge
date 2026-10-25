@@ -249,6 +249,7 @@ assert not any(row.source == 'R_Gun' for row in settings.rows)
 
 plain = bake(body_clearance=False)
 assert plain['weapons'] and abs(plain['weapons']['R_Weapon'] - 90) < 1, plain['weapons']
+assert not plain['placed'], plain['placed']  # The socket rests at the hand that holds the sword: its own grip.
 assert not plain['clearance'], plain['clearance']
 before = sample()
 contact = [i + 1 for i, frame in enumerate(before) if frame['inside']]
@@ -268,7 +269,7 @@ assert any('kept out of the body' in note for note in report['notes']), report['
 assert report['source_clipping'] is False and any('no body mesh' in note for note in report['notes']), report
 
 moved = [{side: frame['wrists'][side] - plain_frame['wrists'][side] for side in 'LR'} for frame, plain_frame in zip(after, before)]
-# Within single-precision noise: the second bake reads bone scales from the first bake's action.
+# Each bake starts from the target as it was before any bake, so frames away from contact come out the same.
 still = [i + 1 for i, shift in enumerate(moved) if max(vector.length for vector in shift.values()) < 1e-5]
 assert still[:3] == [1, 2, 3] and still[-3:] == [COUNT - 2, COUNT - 1, COUNT], still
 for frame in still:
