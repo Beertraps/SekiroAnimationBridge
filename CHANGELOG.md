@@ -1,4 +1,16 @@
-# Unreleased — weapons follow the animation's sockets
+# 0.11.0 — weapon grips that match the source's, weapons that follow the animation's sockets, panel review, mirror animation, part animations view
+
+Install `SekiroRetargetAssistant-0.7.0.zip` over 0.6.0 for the retarget changes, the reworked panels and Mirror animation.
+
+## Retarget: weapons lie as the source's
+
+The source's grip could leave the weapon visibly turned in the fist, so that it needed a rotation by hand after the bake. Two causes, both measured on Isshin's c5400_a000_003024 on Wolf:
+
+- The bake laid the target's weapon on the source's only by the long axes, by the smallest turn, so the blade's roll about its axis came from how the two weapon bones and models were authored. Wolf's Kusabimaru lay about 50° about the blade from where Isshin's katana lies. Now, where both blades have a flat side, the flat sides are laid on each other too, so the edge faces where the source's does. Of the two ways to lay one on the other, the bake takes the one where the meshes, scaled to the same length, lie closer together, which keeps a curved blade's edge on the source's edge side. A weapon without a flat side, such as a round shaft, keeps the smallest turn. This holds for every bake, whatever the grip, and the turn that the status lists for a weapon bone includes the roll.
+- *Source's grip* put the weapon at the source's place in the palm but kept the bake's world turn, so the blade pointed as the source's in the world while the bake turned Wolf's palm about 10° otherwise than Isshin's: in his palm, the blade lay 5.75° off and the edge 42° off. Now the weapon turns in the palm as the source's turns in the source's palm. In Wolf's palm the blade and the edge lie as Isshin's within 0.02°, and the blade points up to 5.75° from Isshin's in the world.
+- The second hand's place on the weapon, which turns from the source's weapon into the target's as the bake turns the bone, gets the same roll.
+
+## Weapons follow the animation's sockets
 
 Part clips played on the wrong socket: the bridge kept every weapon model on the one dummy of WepAbsorpPosParam, while the game moves models between dummies and hides them with Wolf's TAE event 715. The opening Loaded Umbrella (`WP_A_0760_1`) sat on the forearm next to the folded one instead of in the left hand.
 
@@ -7,11 +19,11 @@ Part clips played on the wrong socket: the bridge kept every weapon model on the
 - The activity log names each weapon that moves, such as *Weapon place: WP_A_0760_1 follows event 715 of a076_405010: dummy 21 (L_Weapon) from 0.00 s*, and the import result counts *N weapons placed by the TAE*. A dummy that the model's FLVER lacks gives a notice, and the weapon stays on its own dummy.
 - Not covered: weapons with a placement chosen by hand, individual files without Wolf's TAE, other games, and events 710, 711 and 713.
 
-# Unreleased — retarget add-on panel review
+## Retarget add-on panel review
 
 The Retarget Assistant's panels were reviewed in each of their states and reworked for animators new to Blender: the steps come in order, each says what it needs, and nothing is cut at the sidebar's default width. What the operators do, their names in scripts and the saved settings stay as in add-on 0.6.0, so scenes from 0.6.0 open with the same settings and scripts that call the operators keep working.
 
-## Retarget panel
+### Retarget panel
 
 - The four steps are sub-panels that can be closed once done: **1. Choose rigs**, **2. Match bones**, **3. Bake motion** and **4. Export HKX**. The bake options sit under the Bake button in four groups that start closed, *Pose and timing*, *Body travel*, *Arms and hands* and *Weapons*, and the export's game, format, tracks, frames, root motion and read-back check in *Export settings*, where the export's message about a scene without a recorded game now points. After a bake, the first screen of the sidebar at Blender's default size now reaches past the Export button to the bake's result; in 0.6.0 it ended in the export options, above the Export button.
 - **Target (receives the motion)** comes first, then **Source (gives the motion)** with **Append source .blend** right under it, in the order the workflow takes. The button beside each field shows an arrow instead of a second eyedropper next to Blender's own and has a tooltip: it takes the armature selected in the viewport or Outliner. The step warns when both fields hold the same armature.
@@ -23,27 +35,27 @@ The Retarget Assistant's panels were reviewed in each of their states and rework
 - **Blade follows source** shows whole percents.
 - New tooltips for the Source and Target fields, *Show unmatched / uncertain only*, the bone list's checkbox and source field, Rest stance, Root motion, Unmapped bones, Clip timing, Travel scale, Format, Rotations, Tracks, the export's Root motion, Replace existing, the fix menu and its Frames, and for **Use selected armature** (formerly *Use active armature*), **Use suggestion**, **Save bone map**, **Load bone map** and **Clear posed frames**.
 
-## Control rig panel
+### Control rig panel
 
 - Before **Add control rig**, a short text says what it adds; the button has the Add icon.
 - When the armature is not in Pose Mode, as after opening a file again, the panel says that the controls are posed in Pose Mode and offers a **Pose Mode** button; while another object is active, it says to select the armature.
 - A line says what the IK sliders mean, *0 follows FK, 1 follows IK*, and a gap separates the limbs.
 - The main button of each step, Match, Bake, Export, Add control rig and **Apply fix**, is taller.
 
-## Fixes
+### Fixes
 
 - The alert for a limb in FK reads *Left leg is not in IK on this frame. The fix moves its IK controls, so switch it to IK first.*, on lines of its own with **Switch to IK** below; before, it shared a row with the button and was cut to *Left leg is not…*.
 - The auto keying warning of **Adjust over frames** comes right under the hint, before you pose, instead of after **Use this pose**.
 - For **Weapon into sheath**, the default that an empty field uses is named under that field.
 - The hints, the status after **Use this pose** and the refusals say **Apply fix**, as the button reads, instead of *Apply*.
 
-## Checks
+### Checks
 
 - New Blender test `blender_panels.py`; see VERIFICATION.md.
 
-# Unreleased — mirror animation
+## Mirror animation
 
-## Retarget add-on: Mirror animation
+### Retarget add-on: Mirror animation
 
 - **Mirror animation**, a new button under the armature's name in the **Control rig** panel, adds a left-right mirrored copy of the armature's action, "*clip* Mirrored", with mirrored root motion in "*clip* Mirrored RootMotion", and plays it, so that a right-handed slash becomes a left-handed one. The original action and root motion are kept. Both exporters write the copy: **Export HKX** as the active action, and the bridge's export page and CLI by name, pairing its root motion by name. Mirroring the copy gives the original back.
 - Each bone with a counterpart takes its counterpart's motion, reflected through both bones' rest frames, so FromSoftware's left and right bones, which rest half a turn from mirror images, mirror correctly where Blender's Paste Flipped Pose turns them wrong. Bones whose names give no side, such as cloth on either hip, pair where one rests at the other's mirrored place. Bones on the middle line reflect their own motion, and root motion's sideways travel and turns change sign.
@@ -52,16 +64,16 @@ The Retarget Assistant's panels were reviewed in each of their states and rework
 - **Mirror L → R** and **Mirror R → L** in the bone list are unchanged.
 - New Blender test `blender_mirror.py`; see VERIFICATION.md. The add-on package includes the new module `mirror.py`.
 
-# Unreleased — part animations view
+## Part animations view
 
-## Import: start from a weapon part
+### Import: start from a weapon part
 
 - **Part animations**, a new view on the import page beside **Source library** and **Individual files**, for Sekiro sources. It works the other way round from **Animate weapon parts**: choose an animated weapon part, such as the Loaded Umbrella `WP_A_0760`, to list its clips, then a clip, such as `a076_412000_1`, to list the player animations that it plays in, each with its archive and the reason. The reason is the same ID, an ID that the part's own TAE gives the clip, or an ID that Wolf's TAE gives the same body clip: *TAE of C0000: a076_412000 plays a070_412000*. Choosing an animation selects it and the part for import and turns on **Animate weapon parts**, so **Create Blender scene** keys the weapon with that clip.
 - The view asks the import's own pairing about every player animation, so an animation that it lists is one whose import keys the clip. In the game folder, 23 of the 36 weapon parts animate, and 381 of their 389 clips play in one player animation each. The spears' `a078_425010_1` and `a078_426010_1` and the Finger Whistle's `a079_423000_1` play in none and are marked *not played*.
 - Weapon parts show their names from the game, such as *Loaded Umbrella* for `WP_A_0760`, in the new view and in the import's model list for Sekiro. Before, only the Kusabimaru and the Mortal Blade had names.
 - The view remembers the chosen part and clip for each source and scrolls them into view. The arrow keys, Home and End move through its lists, and `/` jumps to the part clip search.
 
-## Tests
+### Tests
 
 - New unit tests `test_part_view.py` for the listing, the pairing and the two new routes, and new pairing tests in `test_part_animations.py`. See VERIFICATION.md.
 

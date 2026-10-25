@@ -47,6 +47,7 @@ import bpy
 import numpy as np
 from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.kdtree import KDTree
 from . import mapping as matching
 
 BONE_CURVE = re.compile(r'pose\.bones\["((?:[^"\\]|\\.)*)"\]')
@@ -416,13 +417,64 @@ def weapon_axis(rig, bone, graph, local=None):
     return axis if axis.dot(tip) >= 0 else -axis
 
 
+def blade_flat(local, axis):
+    """The normal of the flat side of a weapon's front part, from its vertices local in the bone's space, square to
+    axis; the sign is arbitrary. None where the front is not clearly flatter one way, as a round shaft is."""
+    along = local @ np.array(axis)
+    front = local[along > .4 * along.max()]
+    if len(front) < 4:
+        return None
+    centred = front - front.mean(0)
+    values, vectors = np.linalg.eigh(centred.T @ centred)
+    if values[1] < 4 * max(values[0], 1e-12):
+        return None  # Less than twice as wide as thick.
+    flat = Vector(vectors[:, 0])
+    flat -= axis * flat.dot(axis)
+    return flat.normalized() if flat.length > 1e-6 else None
+
+
+def overlap(points, others, turn, scale):
+    """How far, on average, points turned by turn and scaled lie from the nearest of others."""
+    tree = KDTree(len(others))
+    for index, point in enumerate(others):
+        tree.insert(point, index)
+    tree.balance()
+    moved = (points @ np.array(turn.to_matrix()).T) * scale
+    return sum(tree.find(tuple(point))[2] for point in moved) / len(moved)
+
+
+def weapon_match(target_local, target_axis, source_local, source_axis, near):
+    """The turn from the target weapon bone's space to the source's that lays the target weapon on the source's: long
+    axis on long axis and the flat side of the blade on the source's. Of the two ways to lay one flat side on the
+    other, the one where the meshes, scaled to the same length, lie closer together, so that a curved blade's edge
+    stays on the source's edge side; where both lie as close, as for a straight double-edged blade, the one nearer
+    to near. None where either blade has no clear flat side."""
+    target_flat, source_flat = blade_flat(target_local, target_axis), blade_flat(source_local, source_axis)
+    if target_flat is None or source_flat is None:
+        return None
+    from_target = Matrix((target_axis, target_flat, target_axis.cross(target_flat))).transposed()
+    choices = []
+    for sign in (1, -1):
+        flat = source_flat * sign
+        onto = Matrix((source_axis, flat, source_axis.cross(flat))).transposed()
+        choices.append((onto @ from_target.transposed()).to_quaternion())
+    lengths = [np.ptp(local @ np.array(axis)) for local, axis in ((target_local, target_axis), (source_local, source_axis))]
+    step = max(1, len(target_local) // 1500), max(1, len(source_local) // 3000)
+    gaps = [overlap(target_local[::step[0]], source_local[::step[1]], turn, lengths[1] / max(lengths[0], 1e-9)) for turn in choices]
+    if abs(gaps[0] - gaps[1]) > .1 * max(gaps):
+        return choices[gaps.index(min(gaps))]
+    return max(choices, key=lambda turn: abs(turn.dot(near)))
+
+
 def weapon_turns(source, target, bone_map, stance, rotation, graph, holds=()):
-    """Per mapped weapon bone, a turn in its own space that keeps its weapon parallel to the source's.
+    """Per mapped weapon bone, a turn in its own space that keeps its weapon lying as the source's.
 
     A mapped bone takes its source bone's rotation change from rest. Both weapon meshes are fixed to their
-    bones, so turning the target bone by the difference of the two long axes at rest keeps the blades parallel
-    at every frame, also where a game authored the two weapon bones with different axes. A bone in holds takes
-    the source bone's own rotation, so its turn is the difference of the two axes in the bones' own spaces.
+    bones, so turning the target bone by the difference of the two weapons at rest keeps them lying alike at
+    every frame, also where a game authored the two weapon bones or models with different axes: the long axes
+    parallel and, where both blades have a flat side, the flat sides too (see weapon_match), so that the edge
+    faces where the source's does; otherwise only the long axes, by the smallest turn. A bone in holds takes the
+    source bone's own rotation, so its turn is the difference of the two weapons in the bones' own spaces.
     """
     turns = {}
     for name, source_name in bone_map.items():
@@ -430,13 +482,17 @@ def weapon_turns(source, target, bone_map, stance, rotation, graph, holds=()):
             continue
         if not (matching.weapon_name(source_name) or carried_meshes(source, source_name)):
             continue
-        target_axis, source_axis = weapon_axis(target, name, graph), weapon_axis(source, source_name, graph)
+        target_local, source_local = weapon_points(target, name, graph), weapon_points(source, source_name, graph)
+        target_axis, source_axis = weapon_axis(target, name, graph, target_local), weapon_axis(source, source_name, graph, source_local)
         if target_axis is None or source_axis is None:
             continue
-        wanted = source_axis if name in holds else (
+        # From the source bone's space to the target bone's, as the bake turns the bone.
+        into = Quaternion() if name in holds else (
             target.data.bones[name].matrix_local.to_quaternion().inverted() @ stance.get(name, Quaternion()).inverted() @
-            rotation @ source.data.bones[source_name].matrix_local.to_quaternion() @ source_axis)
-        turns[name] = target_axis.rotation_difference(wanted)
+            rotation @ source.data.bones[source_name].matrix_local.to_quaternion())
+        turn = target_axis.rotation_difference(into @ source_axis)
+        laid = weapon_match(target_local, target_axis, source_local, source_axis, into.inverted() @ turn)
+        turns[name] = turn if laid is None else into @ laid
     return turns
 
 
@@ -1170,11 +1226,13 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
     and the hand's fingers take their pose from that frame wherever the weapon shows, easing in and out over 0.1 s
     around frames that hide it. The wrist turns, without a twist about the blade, the part follow of the way toward
     the bake's blade direction, which is the source's: at 1 the blade points as the source's does, at 0 the wrist
-    turns as the source's does. With the source's grip (mode SOURCE), the weapon keeps its baked turn, so its blade
-    points as the source's does, and sits where the source's weapon bone sits in the source's palm, scaled by the
-    size of the hands; the fingers stay the source's. Where the source hides its weapon, the place where it last
-    showed it holds. Bones below a weapon move with it; weapons placed in a hand from elsewhere (placed) and the
-    other hand stay. fingers names the target's finger bones; samples holds the source's bones per frame.
+    turns as the source's does. With the source's grip (mode SOURCE), the weapon sits in the palm as the source's
+    weapon sits in the source's palm: its bone where the source's weapon bone sits, scaled by the size of the hands,
+    and turned as the source's weapon is turned in that palm, with the turn from the source's weapon to this one
+    (model, see weapon_turns), so that a palm that the bake turns otherwise than the source's still holds the hilt
+    the same way; the fingers stay the source's. Where the source hides its weapon, the grip where it last showed it
+    holds. Bones below a weapon move with it; weapons placed in a hand from elsewhere (placed) and the other hand
+    stay. fingers names the target's finger bones; samples holds the source's bones per frame.
     """
     bones = rig.data.bones
     depth = {bone.name: len(bone.parent_recursive) for bone in bones}
@@ -1185,10 +1243,12 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
             continue
 
         def spot(frame, hidden):
+            """The source's weapon bone in the source's palm: its place, scaled to the target's hand, and its turn."""
             held, frame_palm = frame[item['source']], palm(frame, item['source_hand'], item['source_fingers'])
             if frame_palm is None or (min(held.to_scale()) < .5 and not hidden):
                 return None
-            return (frame_palm.inverted() @ held.translation) * item['ratio']
+            return (frame_palm.inverted() @ held.translation) * item['ratio'], \
+                frame_palm.to_quaternion().inverted() @ held.to_quaternion()
         spots = [spot(frame, False) for frame in samples]
         # A source that hides its weapon on every frame still keys where it holds it, as FromSoftware's clips do.
         item['hidden_source'] = all(value is None for value in spots)
@@ -1238,7 +1298,8 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
                     frame_palm = palm(poses, hand, item['fingers'])
                     if frame_palm is None or item['spots'][t] is None:
                         continue
-                    location, orientation = frame_palm @ item['spots'][t], old.to_quaternion()
+                    place, turn = item['spots'][t]
+                    location, orientation = frame_palm @ place, frame_palm.to_quaternion() @ turn @ item['model']
                 old_location, old_orientation, scale = old.decompose()
                 delta = (Matrix.Translation(location) @ (orientation @ old_orientation.inverted()).to_matrix().to_4x4() @
                          Matrix.Translation(-old_location))
@@ -1517,7 +1578,10 @@ def bake(scene, settings):
             if own is not None:
                 item.update(mode='OWN', grip=own[0], own_fingers=own[1], frame=own[2], shown=own[3])
             elif len(item['fingers']) >= 2 and len(item['source_fingers']) >= 2:
-                item.update(mode='SOURCE', ratio=knuckles(target, hand, item['fingers']).length /
+                # From the target weapon bone's space to the source's: the source's turn that the bake gives this bone.
+                model = (source_rest_rotation[source_name].inverted() @ rotation.inverted() @ stance.get(name, Quaternion()) @
+                         target_rest[name].to_quaternion() @ weapons.get(name, Quaternion()))
+                item.update(mode='SOURCE', model=model, ratio=knuckles(target, hand, item['fingers']).length /
                             knuckles(source, source_hand, item['source_fingers']).length)
             else:
                 grip_notes.append(f'{name} keeps its place in {hand} from the rest pose: the hands have too few fingers to '

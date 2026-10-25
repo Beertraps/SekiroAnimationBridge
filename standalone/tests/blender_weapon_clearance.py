@@ -248,7 +248,9 @@ assert (rows['R_Weapon'].source, rows['R_Weapon'].reason) == ('R_Katana', 'Weapo
 assert not any(row.source == 'R_Gun' for row in settings.rows)
 
 plain = bake(body_clearance=False)
-assert plain['weapons'] and abs(plain['weapons']['R_Weapon'] - 90) < 1, plain['weapons']
+# The source's blade lies along its bone's Y axis, flat side Z; the target's along X, flat side Y. Laying blade on blade
+# and flat side on flat side takes X to Y, Y to Z and Z to X: 120 degrees about (1, 1, 1).
+assert plain['weapons'] and abs(plain['weapons']['R_Weapon'] - 120) < 1, plain['weapons']
 assert not plain['placed'], plain['placed']  # The socket rests at the hand that holds the sword: its own grip.
 assert not plain['clearance'], plain['clearance']
 before = sample()

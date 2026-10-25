@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 6, 0), 'blender': (4, 5, 0),
+    'version': (0, 7, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget', 'category': 'Animation',
     'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, add a control rig with fixes and export HKX',
 }
@@ -120,8 +120,8 @@ class SKR_Settings(PropertyGroup):
     weapon_grip: EnumProperty(name='Weapon grip', items=[
         ('OWN','Target\'s own grip','The weapon sits in the hand as in the target\'s own clip, with the fingers closed '
                'around it as there; the wrist turns so that the blade follows the source\'s'),
-        ('SOURCE','Source\'s grip','The weapon sits in the hand where the source\'s weapon sits in the source\'s hand, '
-                  'scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='OWN')
+        ('SOURCE','Source\'s grip','The weapon sits and turns in the hand as the source\'s weapon sits and turns in the '
+                  'source\'s hand, scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='OWN')
     blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE', precision=0,
         description='How far the wrist turns so that the blade points as the source\'s does: 100% keeps the source\'s '
                     'blade directions, 0% keeps the wrist as the source turns it. Where the two grips differ, turning '

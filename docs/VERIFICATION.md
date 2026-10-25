@@ -1,4 +1,14 @@
-# Unreleased — weapons follow TAE event 715 — 2026-10-25
+# 0.11.0 — weapons lie as the source's — 2026-10-25
+
+- The 116 unit tests pass. Blender 4.5.14 with `--factory-startup` passes all sixteen scripts. `blender_fixes.py`, flagged by the batch script for its expected refusal messages, passes on its own.
+- `blender_weapon_grips.py`, new case: a curved source katana and a target blade authored turned 130° about its axis, in a palm turned 15° from the source's, baked with the source's grip. In the palm the flat side lay as the source's within 0.0000°, the blade and the curve within 0.21° (the curves tilt the meshes' long axes slightly differently), and the place within 0.0004 mm; in the world the blade pointed 14.5° from the source's. The add-on of 0.10.0 failed the same case: blade 12.5°, flat side 47.2° and curve 46.0° off in the palm.
+- `blender_weapon_clearance.py`: the sword's turn is 120°, laying flat side on flat side, instead of 90°; blades parallel within 0.000°.
+- Isshin's c5400_a000_003024 on Wolf, from the user's scene in the background without saving, with the source's grip, measured on 14 frames in the palm frame from the wrist to the knuckles:
+  - Before: Wolf's palm turned 9.83° from Isshin's; in the palm, the blade 5.75° off and its flat side 42.5° off.
+  - After: in the palm, the blade within 0.00° and the flat side within 0.02°; the blade's curve bulges to the same side of the palm as Isshin's within 1.2°. In the world the blade points 5.75° from Isshin's. The weapon turn chose the roll 50° from the smallest turn, where the meshes lay 0.0122 apart on average against 0.0155.
+  - With Wolf's own grip, nothing changed: the wrist turned by up to 43.7°, as before.
+
+# Weapons follow TAE event 715 — 2026-10-25
 
 - The 116 unit tests pass, and `app.js` and `preview.js` pass `node --check`. Blender 4.5.14 with `--factory-startup` passes all sixteen scripts, the new `blender_weapon_locations.py` among them.
 - `blender_weapon_locations.py`: on an owned rig whose L_Weapon bone turns, two models switch between dummy 118 on L_Forearm, dummy 21 on L_Weapon and hidden at 0.05 and 0.15 s. On frames 1 to 13 at 60 fps, visibility matched every change and the rigs' world matrices were within 1.8e-7 of bone times dummy, before and after saving and opening the scene.

@@ -15,6 +15,10 @@ a target clip that does not animate the weapon takes the source's grip, with a n
 weapon on every frame gets a warning. A target weapon that rests away from the hand, as Owl's katana rests a metre from
 his, is placed in the hand where the source holds its weapon: with the target's own grip it then sits there as in the
 target's own clip, with the source's grip it keeps that place, and so it does where the own clip hides it, with a note.
+Last, a curved source katana and a target blade that curves toward another axis of its bone and is turned 130 degrees about
+its own axis, held by a target whose fingers sit 15 degrees about the hand from the source's: with the source's grip
+the blade lies in the target's palm as the source's lies in the source's palm, flat side, curve and all, and so
+points away from the source's blade in the world.
 """
 import json
 import math
@@ -63,14 +67,20 @@ def armature(name, bones, matrix=Matrix.Identity(4)):
     return rig
 
 
-def box(name, low, high, bone, rig):
-    """A blade: a closed box between two corners in a bone's rest space, deformed by that bone alone."""
+def box(name, low, high, bone, rig, bend=None, turn=Matrix.Identity(4)):
+    """A blade: a closed box between two corners in a bone's rest space, deformed by that bone alone. bend (along,
+    toward, depth) curves it ahead of the bone, as a katana curves: depth along axis toward at the far end, growing
+    with the square of the distance along axis along. turn then turns the box in the bone's space."""
     work = bmesh.new()
     bmesh.ops.create_cube(work, size=1.0)
-    bmesh.ops.subdivide_edges(work, edges=work.edges[:], cuts=2, use_grid_fill=True)
+    bmesh.ops.subdivide_edges(work, edges=work.edges[:], cuts=6 if bend else 2, use_grid_fill=True)
     matrix = rig.data.bones[bone].matrix_local
     for vertex in work.verts:
-        vertex.co = matrix @ Vector([low[i] + (vertex.co[i] + .5) * (high[i] - low[i]) for i in range(3)])
+        local = Vector([low[i] + (vertex.co[i] + .5) * (high[i] - low[i]) for i in range(3)])
+        if bend:
+            along, toward, depth = bend
+            local[toward] += depth * (max(local[along], 0) / high[along]) ** 2
+        vertex.co = matrix @ turn @ local
     mesh = bpy.data.meshes.new(name)
     work.to_mesh(mesh)
     work.free()
@@ -182,15 +192,25 @@ def animate_source(rig):
     return goals
 
 
-def target_rig(name, clip, x, away=(0, 0, 0)):
+def target_rig(name, clip, x, away=(0, 0, 0), knuckle_turn=0.0, blade=None, thickness=.006):
     """A Wolf-like target with its own clip: 'own' holds the weapon by OWN with its own finger curls, 'hidden' also
     hides the weapon on every frame, 'bare' leaves the weapon unanimated. away moves the weapon bone's rest place from
-    the hand; the clip still holds the weapon by OWN where it would rest in the hand."""
+    the hand; the clip still holds the weapon by OWN where it would rest in the hand. knuckle_turn turns the right
+    hand's fingers by that many degrees about the line from the wrist to the knuckles, so that the bake turns this
+    palm otherwise than the source's; blade gives box()'s bend and turn instead of a straight blade, and thickness
+    half the blade's thickness."""
     bones = [(bone, parent, tuple(SIZE * value + (offset if bone == 'R_Weapon' else 0) for value, offset in zip(head, away)), label)
              for bone, parent, head, label in humanoids.fromsoftware(45, 'souls') if bone != 'L_Weapon']
+    if knuckle_turn:
+        heads = {bone: Vector(head) for bone, parent, head, label in bones}
+        wrist = heads['R_Hand']
+        line = (sum((heads[f'R_{finger}'] for finger in KNUCKLES), Vector()) / len(KNUCKLES) - wrist).normalized()
+        turn = Matrix.Translation(wrist) @ Matrix.Rotation(math.radians(knuckle_turn), 4, line) @ Matrix.Translation(-wrist)
+        bones = [(bone, parent, tuple(turn @ Vector(head)) if bone.startswith('R_Finger') else head, label)
+                 for bone, parent, head, label in bones]
     rig = armature(name, bones, Matrix.Translation((x, 0, 0)))
     # Wolf's blade lies along his weapon bone's Z axis, with the hilt behind it.
-    box(name + ' blade', (-.006, -.015, -.2), (.006, .015, .9), 'R_Weapon', rig)
+    box(name + ' blade', (-thickness, -.015, -.2), (thickness, .015, .9), 'R_Weapon', rig, *(blade or ()))
     for bone_name, basis in curls(rig, (30, 20, 10)).items():
         pose_bone = rig.pose.bones[bone_name]
         pose_bone.rotation_mode = 'QUATERNION'
@@ -427,6 +447,46 @@ same_place = max((a['R_Weapon'].translation - b['R_Weapon'].translation).length 
                  for a, b in zip(stays_frames, kept_frames))
 assert same_place < 1e-5, f'where the own clip hides it, the weapon should keep the source\'s place: {same_place}'
 
+# Weapons authored otherwise and a palm that the bake turns otherwise. The source's katana curves toward its bone's Z
+# axis, its flat side along Y; the target's blade curves toward its bone's Y axis, its flat side along X, and the
+# whole blade is turned 130 degrees about its Z axis, so that the smallest turn from one long axis to the other leaves
+# the edge facing elsewhere. The target's fingers sit 15 degrees about the line to the knuckles from the source's.
+# With the source's grip, the blade lies in the palm as the source's lies in its palm: along the same line, its flat
+# side the same way and its curve toward the same side.
+curved_source = armature('Curved source', source_bones, Matrix.Translation((-1.5, 0, 0)))
+animate_source(curved_source)
+box('Curved katana', (-.22, -.003, -.015), (1.0, .003, .015), 'R_Katana', curved_source, (0, 2, .06))
+curved_frames = sample(curved_source)
+ROLL = Matrix.Rotation(math.radians(130), 4, 'Z')
+rolled = target_rig('Rolled target', 'own', 9.0, knuckle_turn=15, blade=((2, 1, .05), ROLL), thickness=.003)
+settings.source, settings.target = curved_source, rolled
+assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
+assert {row.target: row.source for row in settings.rows}['R_Weapon'] == 'R_Katana'
+laid, laid_frames = bake(weapon_grip='SOURCE')
+assert laid['grips']['R_Weapon']['mode'] == 'SOURCE', laid['grips']
+# The target's blade, flat side and curve in its bone's space, and the source's in its own.
+model = {'blade': (ROLL @ Vector((0, 0, 1)), Vector((1, 0, 0))), 'flat': (ROLL @ Vector((1, 0, 0)), Vector((0, 1, 0))),
+         'curve': (ROLL @ Vector((0, 1, 0)), Vector((0, 0, 1)))}
+in_palm = dict.fromkeys(model, 0.0)
+world_blade = 0.0
+for t, s in zip(laid_frames, curved_frames):
+    target_turn, source_turn = rigid(t['R_Weapon']).to_quaternion(), rigid(s['R_Katana']).to_quaternion()
+    target_palm, source_palm = palm(t, 'R').to_quaternion(), palm(s, 'R').to_quaternion()
+    for part, (target_line, source_line) in model.items():
+        a = target_palm.inverted() @ target_turn @ target_line
+        b = source_palm.inverted() @ source_turn @ source_line
+        off = lines(a, b)
+        in_palm[part] = max(in_palm[part], min(off, 180 - off) if part == 'flat' else off)
+    world_blade = max(world_blade, lines(target_turn @ model['blade'][0], source_turn @ model['blade'][1]))
+# The bake lays the meshes' long axes on each other, which the two curves tilt off their bones' axes by a little more
+# and less; the flat sides lie square to both.
+assert in_palm['flat'] < .1 and in_palm['blade'] < .5 and in_palm['curve'] < .5, \
+    f"the blade should lie in the palm as the source's lies in its palm: {in_palm}"
+assert world_blade > 5, f'the turned palm should turn the blade away from the source\'s in the world: {world_blade:.2f} degrees'
+laid_spot = max(((palm(t, 'R').inverted() @ t['R_Weapon'].translation) - SIZE * (palm(s, 'R').inverted() @ s['R_Katana'].translation)).length
+                for t, s in zip(laid_frames, curved_frames))
+assert laid_spot < 1e-4, f"the weapon should sit where the source's sits in its palm, scaled to the hand: {laid_spot * 1000:.3f} mm off"
+
 print(f"Weapon grip checks passed: own grip kept within {full_grip[0] * 1000:.4f} mm / {full_grip[1]:.4f} deg with the "
       f"wrist turned up to {full['grips']['R_Weapon']['turn']:.0f} deg, blade parallel within {parallel:.4f} deg, fingers "
       f"within {finger_error:.4f} deg; without blade follow the blade is up to {off_line:.0f} deg off and the wrist "
@@ -435,4 +495,7 @@ print(f"Weapon grip checks passed: own grip kept within {full_grip[0] * 1000:.4f
       f"{held['frames'][-1]}, off the axis as the source within {radial * 1000:.2f} mm (up to {alone * 100:.1f} cm without "
       f"the second hand), arm kept elsewhere within {kept:.1e}; fallback note and hidden-clip warning given; a weapon "
       f"resting away from the hand takes the own grip within {placed_grip[0] * 1000:.4f} mm, blade within "
-      f"{placed_line:.4f} deg, and keeps the source's place with the source's grip or a hiding own clip.")
+      f"{placed_line:.4f} deg, and keeps the source's place with the source's grip or a hiding own clip; a curved blade "
+      f"authored turned 130 deg about its axis, in a palm turned 15 deg, lies in the palm as the source's: flat side "
+      f"within {in_palm['flat']:.4f} deg, blade and curve within {max(in_palm['blade'], in_palm['curve']):.2f} deg, place "
+      f"within {laid_spot * 1000:.4f} mm, {world_blade:.1f} deg from the source's blade in the world.")
