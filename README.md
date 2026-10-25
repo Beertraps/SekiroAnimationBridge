@@ -78,7 +78,7 @@ For retargeting and the control rig, also install **`SekiroRetargetAssistant-<ve
 You need Windows, Git, the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and [uv](https://docs.astral.sh/uv/) (or Python 3.13).
 
 ```bat
-git clone https://github.com/Greiving99/SekiroAnimationBridge.git
+git clone https://github.com/Beertraps/SekiroAnimationBridge.git
 cd SekiroAnimationBridge
 tools\setup_writer.cmd
 tools\SekiroMotionDecoder\build_decoder.cmd
