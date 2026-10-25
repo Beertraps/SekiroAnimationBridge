@@ -91,14 +91,16 @@ const ClipPreview=(()=>{
  function setPlaying(on){
   const d=state.data;on=!!(on&&d&&d.positions.length>1);if(on===state.playing){controls();return;}
   state.playing=on;cancelAnimationFrame(state.raf);
-  if(on){state.last=performance.now();state.raf=requestAnimationFrame(tick);}
+  if(on){state.last=null;state.raf=requestAnimationFrame(tick);}
   controls();
  }
  function tick(now){
   if(!state.playing)return;
   const d=state.data,length=(d.frameCount-1)/d.frameRate||d.duration||1;
-  state.time=(state.time+(now-state.last)/1000)%length;state.last=now;
-  state.frame=Math.min(d.positions.length-1,Math.round(state.time*d.frameRate/d.frameStep));
+  // The clock starts on the first frame: after a long task, such as reading a large clip, a frame's timestamp
+  // can be older than performance.now() when play began, and the time would run back before frame 0.
+  state.time=(state.time+Math.max(0,now-(state.last??now))/1000)%length;state.last=now;
+  state.frame=Math.max(0,Math.min(d.positions.length-1,Math.round(state.time*d.frameRate/d.frameStep)));
   controls();draw();state.raf=requestAnimationFrame(tick);
  }
  function message(text,kind=''){

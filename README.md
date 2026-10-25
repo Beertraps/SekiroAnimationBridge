@@ -19,11 +19,11 @@ flowchart LR
 
 ## What it does
 
-- **Import from game archives.** Point the bridge at your unpacked game folder or a folder of `.dcx` archives, pick a character and an animation, and get a Blender scene with the rig, the skinned model, textures and materials. No manual unpacking of the archives.
+- **Import from game archives.** Point the bridge at your unpacked game folder or a folder of `.dcx` archives, pick a character and an animation, and get a Blender scene with the rig, the skinned model, textures and materials. No manual unpacking of the archives. A skeleton preview plays the animation before the import, and weapons that animate their own parts, such as the Loaded Umbrella, play their clips with it.
 - **Keep several sources.** The bridge recognises the game's own folder structure, reads collected folders, and takes custom layouts for everything else. Save several sources and switch between them; each remembers your last selection.
 - **Edit in plain Blender.** The animation is a normal action on a normal armature. Constraints, drivers and NLA strips are baked on export.
 - **Export to the game's own format.** Writes the HKX version the game uses, interleaved (lossless) or spline-compressed, with options for frame range, frame rate, tracks and root motion, and reads the file back to check it.
-- **Retarget between characters.** The optional Blender add-on moves an animation from one skeleton to another, also when bone names differ, and exports it directly from Blender.
+- **Retarget between characters.** The optional Blender add-on moves an animation from one skeleton to another, also when bone names differ, and exports it directly from Blender. One import can bring both characters into the scene. The bake places held weapons in the right hand, keeps hands out of the body and keeps arms as close to it as the source's.
 - **Animate with controls.** The same add-on gives an imported character a control rig: FK controls along the limbs and IK arms and legs with an IK/FK switch, with the clip baked onto them.
 - **Stay local.** A small UI in an app window, served from your own computer, plus a command line for scripting. Your files never leave your PC.
 

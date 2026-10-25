@@ -180,7 +180,7 @@ Wolf’s body parts share the character skeleton. Separate weapon models have th
 
 The socket profiles are based on vanilla equipment/attachment parameters and c0000’s FLVER dummy data. Unknown prop/cutscene weapon profiles require an explicit placement instead of being left floating at the origin. Modded attachment geometry can be supplied through **Rig attachment model**, and custom dummy IDs can override the vanilla slot choice.
 
-Placement is a preview choice. Equipment state, TAE-driven draw/sheath changes, deployment of prosthetic mechanisms, secondary model visibility and the weapons’ own animation clips are not simulated. Auxiliary meshes retain their authored local rest pose. Shader approximation limits also apply.
+Placement is a preview choice. Equipment state, TAE-driven draw/sheath changes, deployment of prosthetic mechanisms and secondary model visibility are not simulated; the weapons’ own animation clips are covered in [Animated weapon parts](#animated-weapon-parts). Auxiliary meshes retain their authored local rest pose. Shader approximation limits also apply.
 
 Existing `.blend` scenes keep their previous preview setup until re-imported or repaired; updating the scripts does not modify saved scenes.
 
@@ -188,7 +188,7 @@ CLI options: `-ReferenceModel "D:\Assets\c0000.chrbnd.dcx"` and optional `-Weapo
 
 ## Animated weapon parts
 
-Some of Wolf's weapons animate their own bones. The Loaded Umbrella opens, the Loaded Axe and the Loaded Spear move, the Mist Raven, Sabimaru, Divine Abduction and the Finger Whistle have clips too, and the Mortal Blade, its sheath and Kusabimaru have a few. Such a weapon's part binder holds an animation binder named after the model it animates: `WP_A_0760_1.anibnd` in `parts\wp_a_0760.partsbnd.dcx` animates the umbrella model `WP_A_0760_1`. Its clips carry Wolf's TAE animation IDs, so `a076_405010_1.hkx` plays while Wolf plays `a076_405010`. This replaces the earlier limit that the weapons' own animation clips are not simulated; the other limits in [Wolf weapons](#wolf-weapons) stay.
+Some of Wolf's weapons animate their own bones. The Loaded Umbrella opens, the Loaded Axe and the Loaded Spear move, the Mist Raven, Sabimaru, Divine Abduction and the Finger Whistle have clips too, and the Mortal Blade, its sheath and Kusabimaru have a few. Such a weapon's part binder holds an animation binder named after the model it animates: `WP_A_0760_1.anibnd` in `parts\wp_a_0760.partsbnd.dcx` animates the umbrella model `WP_A_0760_1`. Its clips carry Wolf's TAE animation IDs, so `a076_405010_1.hkx` plays while Wolf plays `a076_405010`. The other limits in [Wolf weapons](#wolf-weapons) still apply.
 
 ### Part clips on import
 
@@ -332,6 +332,6 @@ UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
-To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py` and `blender_arm_gap.py`. `blender_weapons.py` also needs an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
+To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_two_characters.py` and `blender_arm_gap.py`. `blender_weapons.py` and `blender_part_animations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on each version. The release ZIP contains no game assets or local settings; besides the source, it includes the prebuilt decoder and uv, listed in [CREDITS.md](../CREDITS.md).

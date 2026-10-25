@@ -1,4 +1,6 @@
-# Unreleased — retarget: weapons in the other hand, weapons that rest away from the hand, and hidden weapons
+# Unreleased — retarget weapon hands and arm distance, two characters from one import, weapon part animations and clip preview
+
+## Retarget: weapons in the other hand, weapons that rest away from the hand, and hidden weapons
 
 - **Weapon from the other hand**: where the source holds a weapon in one hand only and the target in the other hand only, **Match bones automatically** gives the target's weapon the source's at 80%, listed for review. Godfrey holds his axe in his left hand and Isshin his katana in his right, so `R_Katana` takes `L_Axe`. Weapon bones that rest away from the hand, such as Isshin's spear, are not matched this way; choose one by hand to use it instead.
 - **Placed weapons**: the bake places a mapped weapon bone in the hand that holds the source weapon when it takes a weapon from the other hand, or when it rests away from its hand, as Isshin's spear `L_Yari` rests 1.7 m from his hand until a clip brings it in. It keeps the source weapon's offset from that hand, scaled like body travel, with its grip held in the hand along the weapon's line. It turns like the source weapon and shows and hides with it, also where the target's own clip hides the bone, and the bones below it, such as a scabbard, follow. Where the source shrinks its weapon to 0, the placed bone shrinks to 0.1%, so the bones below it keep their place. Before, such a weapon stayed in its own hand or far from the hand. A weapon bone that rests at its own hand and takes a weapon from the matching hand keeps its own grip as before. The status names each placed bone.
@@ -8,6 +10,12 @@
 - **Keep hands out of the body** counts a placed weapon with the hand that holds it.
 - Baking again starts from the target as it was before any bake, now also for bones that only an earlier bake animated and for a target without an action of its own. Before, those kept the earlier bake's pose with *Keep target animation*.
 - New Blender test `blender_weapon_hands.py`, new checks in `blender_export_options.py` for a bone keyed to scale 0, and two new matcher unit tests; see VERIFICATION.md.
+
+## Retarget: arms close to the body
+
+- **Keep arms close to the body**, a new bake option that is on by default: a source whose body is wide for its arms holds them out to clear it, and the bake used to copy those angles, so a slimmer target held its arms out. Now, where the source's forearm, hand or fingers come within a quarter of an arm of its own torso, the target's arm turns in at the shoulder until it stands as close to the target's torso, scaled by the ratio of arm lengths, but no closer than 2% of the arm. The elbow's bend, the hand's rotation and what the hand holds stay as they were. Between a quarter and half an arm, less and less of the difference is taken out, and arms held farther from the body keep their reach. Turns ease in and out over 0.2 s, and where both hands come together, as on one hilt, both arms keep the plain bake, so the grip holds. It needs the character meshes of both rigs; a source without a body mesh is not compared, and the status says so.
+- On a copy of the review scene with Owl's clip on Wolf, the plain bake left Wolf's arms up to 13.8 cm (left) and 10.6 cm (right) farther from his torso than Owl's, at Wolf's size. With the option, the arms turned in by up to 26° and 20°, and from frame 17 on, away from the frames where the hands meet, each arm stood within 1.5 cm of Owl's gap, 0.5 cm on average. No forearm, hand or finger went into the torso.
+- New Blender test `blender_arm_gap.py`; see VERIFICATION.md.
 
 ## Two characters from one import
 
@@ -24,12 +32,6 @@
 - **Part clip export**: **Also export part animations** on the export page, or `-ExportParts`, writes each animated part's clip beside the character's HKX under its member name, such as `a076_405010_1.hkx`. It is sampled over the same frames at the part clip's frame rate, in the character HKX's format, and read back. Replace it in the part's animation binder with WitchyBND; part clips are not yet tested in game.
 - **Clip preview**: the scene panel of the import page plays the chosen animation as a skeleton before the import, with play and pause, a frame slider, orbiting by dragging or with the arrow keys, and optional root motion. Below it, the preview lists the part clip that each selected weapon plays and why. Decoded previews are kept in `work\asset-cache\previews`.
 - New unit tests in `test_part_animations.py` and a new Blender test `blender_part_animations.py`; see VERIFICATION.md.
-
-## Retarget: arms close to the body
-
-- **Keep arms close to the body**, a new bake option that is on by default: a source whose body is wide for its arms holds them out to clear it, and the bake used to copy those angles, so a slimmer target held its arms out. Now, where the source's forearm, hand or fingers come within a quarter of an arm of its own torso, the target's arm turns in at the shoulder until it stands as close to the target's torso, scaled by the ratio of arm lengths, but no closer than 2% of the arm. The elbow's bend, the hand's rotation and what the hand holds stay as they were. Between a quarter and half an arm, less and less of the difference is taken out, and arms held farther from the body keep their reach. Turns ease in and out over 0.2 s, and where both hands come together, as on one hilt, both arms keep the plain bake, so the grip holds. It needs the character meshes of both rigs; a source without a body mesh is not compared, and the status says so.
-- On a copy of the review scene with Owl's clip on Wolf, the plain bake left Wolf's arms up to 13.8 cm (left) and 10.6 cm (right) farther from his torso than Owl's, at Wolf's size. With the option, the arms turned in by up to 26° and 20°, and from frame 17 on, away from the frames where the hands meet, each arm stood within 1.5 cm of Owl's gap, 0.5 cm on average. No forearm, hand or finger went into the torso.
-- New Blender test `blender_arm_gap.py`; see VERIFICATION.md.
 
 # 0.8.0 — retarget: weapons and body clearance
 
