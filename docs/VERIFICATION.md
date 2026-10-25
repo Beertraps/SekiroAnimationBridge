@@ -1,6 +1,7 @@
-# Unreleased — 2026-10-25
+# Version 0.9.0 — 2026-10-25
 
-- On the whole unreleased tree, with the clip preview's playback fix and the foot targets: the 95 unit tests pass, `app.js` and `preview.js` pass `node --check`, and Blender 4.5.14 with `--factory-startup` passes all eleven scripts, `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_weapons.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_part_animations.py`, `blender_two_characters.py`, `blender_arm_gap.py` and `blender_foot_targets.py`, with **Keep arms close to the body** on by default. The sections below give what each change added and how it was checked.
+- On the release tree, with the clip preview's playback fix, the foot targets and the Browse fix: the 95 unit tests pass, `app.js` and `preview.js` pass `node --check`, and Blender 4.5.14 with `--factory-startup` passes all eleven scripts, `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_weapons.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_part_animations.py`, `blender_two_characters.py`, `blender_arm_gap.py` and `blender_foot_targets.py`, with **Keep arms close to the body** on by default. The sections below give what each change added and how it was checked.
+- Before tagging, a ZIP packaged as the workflow does, from a clean copy of the tracked files and without the decoder and uv (77 files), passed the 95 unit tests from its unpacked folder; its `SekiroRetargetAssistant-0.5.0.zip` holds the add-on at version 0.5.0, with `imported_pair.py`.
 
 ## Retarget: weapons in the other hand, weapons that rest away from the hand, and hidden weapons
 

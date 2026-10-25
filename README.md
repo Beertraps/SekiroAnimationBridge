@@ -95,7 +95,7 @@ Run the unit tests with that Python, from the repository folder:
 
 The Blender checks run as `blender --background --factory-startup --python standalone/tests/<script>.py`. All test fixtures are synthetic rigs owned by this project; no game files are needed.
 
-To release, update `VERSION` and `CHANGELOG.md`, then push a tag such as `v0.8.0`. The [release workflow](.github/workflows/release.yml) builds the decoder, adds uv, starts the packaged bridge on a fresh Windows profile, runs the unit tests and publishes the ZIPs.
+To release, update `VERSION` and `CHANGELOG.md`, then push a tag such as `v0.9.0`. The [release workflow](.github/workflows/release.yml) builds the decoder, adds uv, starts the packaged bridge on a fresh Windows profile, runs the unit tests and publishes the ZIPs.
 
 ## Credits
 

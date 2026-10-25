@@ -1,4 +1,6 @@
-# Unreleased — retarget weapon hands, arm distance and foot targets, two characters from one import, weapon part animations and clip preview
+# 0.9.0 — retarget weapon hands, arm distance and foot targets, two characters from one import, weapon part animations and clip preview
+
+Install `SekiroRetargetAssistant-0.5.0.zip` over 0.4.0 for the retarget changes.
 
 ## Retarget: weapons in the other hand, weapons that rest away from the hand, and hidden weapons
 

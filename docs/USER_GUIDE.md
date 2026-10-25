@@ -226,7 +226,7 @@ Original animation annotations and unrelated HKX metadata are not reproduced. Fl
 
 ## Optional Blender retargeting add-on
 
-`SekiroRetargetAssistant-0.4.0.zip` is in the tool folder and on the Releases page. In Blender 4.5, open Edit > Preferences > Add-ons > dropdown menu > Install from Disk, choose this ZIP, and enable **Sekiro Retarget Assistant**. Remove an older version first, or restart Blender after installing over it. Press N in the 3D Viewport and open **Retarget**.
+`SekiroRetargetAssistant-0.5.0.zip` is in the tool folder and on the Releases page. In Blender 4.5, open Edit > Preferences > Add-ons > dropdown menu > Install from Disk, choose this ZIP, and enable **Sekiro Retarget Assistant**. Remove an older version first, or restart Blender after installing over it. Press N in the 3D Viewport and open **Retarget**.
 
 Open the receiving character's bridge scene, use **Append source .blend**, run **Match bones automatically**, review the list and **Bake motion onto target**. Then click **Export HKX** in the add-on: it writes the HKX through this bridge, with the same options and checks as the export page. Alternatively, save the scene and export it here.
 
