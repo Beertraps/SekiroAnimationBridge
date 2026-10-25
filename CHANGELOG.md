@@ -1,3 +1,37 @@
+# Unreleased — retarget add-on panel review
+
+The Retarget Assistant's panels were reviewed in each of their states and reworked for animators new to Blender: the steps come in order, each says what it needs, and nothing is cut at the sidebar's default width. What the operators do, their names in scripts and the saved settings stay as in add-on 0.6.0, so scenes from 0.6.0 open with the same settings and scripts that call the operators keep working.
+
+## Retarget panel
+
+- The four steps are sub-panels that can be closed once done: **1. Choose rigs**, **2. Match bones**, **3. Bake motion** and **4. Export HKX**. The bake options sit under the Bake button in four groups that start closed, *Pose and timing*, *Body travel*, *Arms and hands* and *Weapons*, and the export's game, format, tracks, frames, root motion and read-back check in *Export settings*, where the export's message about a scene without a recorded game now points. After a bake, the first screen of the sidebar at Blender's default size now reaches past the Export button to the bake's result; in 0.6.0 it ended in the export options, above the Export button.
+- **Target (receives the motion)** comes first, then **Source (gives the motion)** with **Append source .blend** right under it, in the order the workflow takes. The button beside each field shows an arrow instead of a second eyedropper next to Blender's own and has a tooltip: it takes the armature selected in the viewport or Outliner. The step warns when both fields hold the same armature.
+- A greyed-out button says why under it: **Match bones automatically** until both rigs are chosen, **Bake motion onto target** until the bones are matched or while the target has a control rig, where the bake stopped with an error before, and **Export HKX** until an output file is chosen.
+- Once a list exists, the match button reads **Match bones again**, and its tooltip says that a new match replaces the list, changes included. The line above the list counts the bones to review, such as *55 of 58 bones matched, 3 to review.*, and rows matched below 94%, which the review filter lists, show a question mark like unmatched rows instead of a check mark. The list's name filter, under the small triangle below it, now finds target and source bones, and its A–Z sort works; before, both did nothing. The box under the list names its bone. Both mirror buttons have the mirror icon; **Save map** and **Load map** have icons and tooltips and show once both rigs are chosen, since Load map matches by itself.
+- *HKX animation bones only* reads **Only bones the clip animates**, with a tooltip that says what it does.
+- Menu names stand above their menus and checkboxes have rows of their own, so names such as *Rest stance*, *Root motion* and *Read back and compare* are no longer cut. Messages wrap by the measured width of the interface font at the panel's width and interface scale, instead of a count of characters that cut the status box's lines.
+- The status box sits under step 4, below the Export button. **Match bones**, **Save map** and **Load map** report in Blender's status bar, and Load map's status counts the loaded list. A running export's status ends with *Esc cancels.*
+- **Blade follows source** shows whole percents.
+- New tooltips for the Source and Target fields, *Show unmatched / uncertain only*, the bone list's checkbox and source field, Rest stance, Root motion, Unmapped bones, Clip timing, Travel scale, Format, Rotations, Tracks, the export's Root motion, Replace existing, the fix menu and its Frames, and for **Use selected armature** (formerly *Use active armature*), **Use suggestion**, **Save bone map**, **Load bone map** and **Clear posed frames**.
+
+## Control rig panel
+
+- Before **Add control rig**, a short text says what it adds; the button has the Add icon.
+- When the armature is not in Pose Mode, as after opening a file again, the panel says that the controls are posed in Pose Mode and offers a **Pose Mode** button; while another object is active, it says to select the armature.
+- A line says what the IK sliders mean, *0 follows FK, 1 follows IK*, and a gap separates the limbs.
+- The main button of each step, Match, Bake, Export, Add control rig and **Apply fix**, is taller.
+
+## Fixes
+
+- The alert for a limb in FK reads *Left leg is not in IK on this frame. The fix moves its IK controls, so switch it to IK first.*, on lines of its own with **Switch to IK** below; before, it shared a row with the button and was cut to *Left leg is not…*.
+- The auto keying warning of **Adjust over frames** comes right under the hint, before you pose, instead of after **Use this pose**.
+- For **Weapon into sheath**, the default that an empty field uses is named under that field.
+- The hints, the status after **Use this pose** and the refusals say **Apply fix**, as the button reads, instead of *Apply*.
+
+## Checks
+
+- New Blender test `blender_panels.py`; see VERIFICATION.md.
+
 # 0.10.0 — retarget weapon grips and the second hand on the weapon, control rig swivel rings and fixes, app icon and desktop shortcut
 
 Install `SekiroRetargetAssistant-0.6.0.zip` over 0.5.0 for the retarget and control rig changes.

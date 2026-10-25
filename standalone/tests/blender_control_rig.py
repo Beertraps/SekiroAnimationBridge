@@ -189,6 +189,8 @@ class Layout:
     def __getattr__(self, name):
         if name in ('row', 'column', 'grid_flow'):
             return lambda *args, **kwargs: Layout(self.drawn)
+        if name == 'separator':
+            return lambda *args, **kwargs: None
         raise AttributeError(name)
 
     def label(self, text='', **kwargs):
@@ -353,7 +355,8 @@ def main():
     data = control_rig.layout(rig)
     left_arm = [limb['label'] for limb in data['limbs']].index('Left arm')
     drawn = []
-    sekiro_retarget.SKR_PT_control_rig.draw(SimpleNamespace(layout=Layout(drawn)), SimpleNamespace(object=rig, scene=scene))
+    context = SimpleNamespace(object=rig, scene=scene, region=SimpleNamespace(width=300))
+    sekiro_retarget.SKR_PT_control_rig.draw(SimpleNamespace(layout=Layout(drawn)), context)
     assert drawn.count('Elbow swivel') == 2 and drawn.count('Knee swivel') == 2, drawn
     # Each ring's turn is keyed on every frame from the start, so turning it on one frame changes that frame only and
     # Adjust over frames can spread it.

@@ -6,9 +6,10 @@ bl_info = {
 }
 
 import json
-import textwrap
 from collections import Counter
+from fnmatch import fnmatchcase
 from pathlib import Path
+import blf
 import bpy
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty,
                        PointerProperty, StringProperty)
@@ -61,8 +62,10 @@ class SKR_Preferences(AddonPreferences):
 
 class SKR_BoneMap(PropertyGroup):
     target: StringProperty(name='Target bone')
-    source: StringProperty(name='Source bone', update=source_changed)
-    enabled: BoolProperty(name='Use mapping', default=True)
+    source: StringProperty(name='Source bone', update=source_changed,
+        description='The source bone whose motion this target bone takes. A source bone drives one target bone only')
+    enabled: BoolProperty(name='Use mapping', default=True,
+        description='Bake this target bone from its source bone. Off: it does what Unmapped bones says')
     hidden: BoolProperty(name='Hide', default=False,
         description='Hide this weapon on every frame of the bake by scaling it to 0.1%, as FromSoftware clips hide '
                     'weapons; the bones below it hide with it')
@@ -72,18 +75,23 @@ class SKR_BoneMap(PropertyGroup):
 
 
 class SKR_Settings(PropertyGroup):
-    source: PointerProperty(name='Source rig', type=bpy.types.Object, poll=armature_poll, update=pair_changed)
-    target: PointerProperty(name='Target rig', type=bpy.types.Object, poll=armature_poll, update=pair_changed)
+    source: PointerProperty(name='Source rig', type=bpy.types.Object, poll=armature_poll, update=pair_changed,
+        description='The armature whose animation is copied, such as the donor of a two-character import')
+    target: PointerProperty(name='Target rig', type=bpy.types.Object, poll=armature_poll, update=pair_changed,
+        description='The armature that receives the animation: the character that the bridge imported into this scene')
     rows: CollectionProperty(type=SKR_BoneMap)
     active_row: IntProperty()
-    review_only: BoolProperty(name='Show unmatched / uncertain only', default=False)
-    tracked_only: BoolProperty(name='HKX animation bones only', default=True,
-        description='For bridge rigs, map original HKX tracks; extra model bones follow their parents')
-    rest_mode: EnumProperty(name='Rest stance', items=[
+    review_only: BoolProperty(name='Show unmatched / uncertain only', default=False,
+        description='List only the target bones without a source bone, switched off, or matched below 94%')
+    tracked_only: BoolProperty(name='Only bones the clip animates', default=True,
+        description='For rigs imported by the bridge, match only the bones that the HKX clip animates, its tracks; '
+                    'the other bones of the model follow their parents. Takes effect at the next match')
+    rest_mode: EnumProperty(name='Rest stance', description='How the target\'s limbs stand before the motion is applied', items=[
         ('ALIGN','Match source stance','Pose the target limbs like the source rest pose before applying motion, '
                  'so an A-pose target follows a T-pose source without lowered or raised arms'),
         ('REST','Keep target stance','Apply source rotations from the target rest pose; for rigs that share a rest stance')], default='ALIGN')
-    root_motion: EnumProperty(name='Root motion', items=[
+    root_motion: EnumProperty(name='Root motion', description='Where the clip\'s root motion, the travel that moves the '
+                                                              'character in the game, comes from', items=[
         ('AUTO','Automatic','The source root motion when the source has it; otherwise body travel becomes root motion '
                 'when the body moves far, and none when it stays in place'),
         ('SOURCE','From source root','Copy the source HKX_RootMotion object, scaled to the target'),
@@ -92,12 +100,13 @@ class SKR_Settings(PropertyGroup):
         ('NONE','None','Hold the root still; the body travels inside the animation')], default='AUTO')
     root_yaw: BoolProperty(name='Turn root with the body', default=False,
         description='When body travel becomes root motion, the root also follows the body\'s heading')
-    unmapped: EnumProperty(name='Unmapped bones', items=[
+    unmapped: EnumProperty(name='Unmapped bones', description='What target bones without a source bone do', items=[
         ('KEEP','Keep target animation','Unmapped bones, such as cloth, face or weapon bones, keep the target clip\'s animation'),
         ('REST','Rest pose','Unmapped bones hold their rest pose; for bridge rigs, the HKX reference pose')], default='KEEP')
     auto_scale: BoolProperty(name='Scale travel by leg length', default=True,
         description='Scale body travel and root motion by the ratio of hip heights; bone lengths remain the target\'s')
-    travel_scale: FloatProperty(name='Travel scale',default=1.0,min=.01,max=20.0)
+    travel_scale: FloatProperty(name='Travel scale',default=1.0,min=.01,max=20.0,
+        description='Scale of body travel and root motion while Scale travel by leg length is off')
     body_translation: BoolProperty(name='Move body with source hips', default=True,
         description='The bone above the target hips and spine follows the source hips, so legs and upper body move together')
     body_clearance: BoolProperty(name='Keep hands out of the body', default=True,
@@ -113,25 +122,26 @@ class SKR_Settings(PropertyGroup):
                'around it as there; the wrist turns so that the blade follows the source\'s'),
         ('SOURCE','Source\'s grip','The weapon sits in the hand where the source\'s weapon sits in the source\'s hand, '
                   'scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='OWN')
-    blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE',
+    blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE', precision=0,
         description='How far the wrist turns so that the blade points as the source\'s does: 100% keeps the source\'s '
                     'blade directions, 0% keeps the wrist as the source turns it. Where the two grips differ, turning '
                     'bends the wrist sideways')
     second_hand: BoolProperty(name='Second hand on the weapon', default=True,
         description='Where the source holds its weapon with both hands, the target\'s other hand goes onto the target\'s '
                     'weapon at the matching place, through the arm, easing on and off')
-    timing: EnumProperty(name='Clip timing', items=[
+    timing: EnumProperty(name='Clip timing', description='How long the baked clip runs', items=[
         ('SOURCE','Use source length','Update target metadata to the source duration'),
         ('TARGET','Fit target length','Resample source motion across the target clip length')], default='SOURCE')
     export_path: StringProperty(name='Output', subtype='FILE_PATH', description='HKX file to write; a .motion.json sidecar is written beside it')
-    export_format: EnumProperty(name='Format', items=[
+    export_format: EnumProperty(name='Format', description='How the HKX stores the frames', items=[
         ('interleaved','Interleaved','Every frame stored exactly; larger files'),
         ('spline','Spline','Compressed like the game\'s own clips; small differences within the tolerance')], default='interleaved')
-    export_quantization: EnumProperty(name='Rotations', items=[
-        ('threecomp40','40-bit','Default'),('threecomp48','48-bit','Finer'),('uncompressed','Full floats','Largest')], default='threecomp40')
+    export_quantization: EnumProperty(name='Rotations', description='How precisely spline compression stores rotations', items=[
+        ('threecomp40','40-bit','The default'),('threecomp48','48-bit','Finer rotations, a larger file'),
+        ('uncompressed','Full floats','Exact rotations, the largest file')], default='threecomp40')
     export_tolerance: FloatProperty(name='Tolerance', default=.001, min=1e-6, max=.1, precision=4,
         description='Largest position change, in metres, that spline compression may introduce')
-    export_tracks: EnumProperty(name='Tracks', items=[
+    export_tracks: EnumProperty(name='Tracks', description='Which bones get a track in the HKX', items=[
         ('original','Original clip tracks','Keep the track list of the clip the target was imported from; other bones stay under the game\'s control'),
         ('keyed','Original tracks + keyed bones','Also write tracks for bones keyed in the action'),
         ('all','Every skeleton bone','Write a track for each bone')], default='original')
@@ -144,12 +154,13 @@ class SKR_Settings(PropertyGroup):
         ('sekiro','Sekiro',''),('ds1','Dark Souls: Prepare to Die',''),('ds1r','Dark Souls Remastered',''),
         ('ds3','Dark Souls III',''),('er','Elden Ring','')], default='auto',
         description='Game of the target clip; choose it for scenes imported before the bridge recorded it')
-    export_root: EnumProperty(name='Root motion', items=[
+    export_root: EnumProperty(name='Root motion', description='The root motion that the HKX gets', items=[
         ('AUTO','As baked','The target\'s HKX_RootMotion object, when it has one'),
         ('NONE','None','Write no root motion')], default='AUTO')
     export_verify: BoolProperty(name='Read back and compare', default=True,
         description='Decode the written HKX again and report the largest difference')
-    export_replace: BoolProperty(name='Replace existing', default=False)
+    export_replace: BoolProperty(name='Replace existing', default=False,
+        description='Write over the output .hkx and its .motion.json sidecar if they exist')
     status: StringProperty(default='Open the receiving character first, then append a source.')
 
 
@@ -196,14 +207,16 @@ class SKR_FixPose(PropertyGroup):
 
 
 class SKR_Fix(PropertyGroup):
-    task: EnumProperty(name='Fix',items=fixes.TASKS,default='HAND',update=fix_task_changed)
+    task: EnumProperty(name='Fix',items=fixes.TASKS,default='HAND',update=fix_task_changed,
+        description='The cleanup that the fix makes with the control rig')
     limb: EnumProperty(name='Limb',items=fix_limb_items,update=fix_limb_changed,
         description='The arm or leg whose IK controls the fix keys')
     target: StringProperty(name='Follow',description='The bone to keep the hand or its weapon on; empty: the fix\'s default')
     held: StringProperty(name='Weapon',update=fix_held_changed,
         description='The weapon bone that the hand holds; empty: the weapon in that hand')
     span: EnumProperty(name='Frames',items=[('CLIP','Whole clip','Every frame of the scene range'),
-        ('RANGE','Frames','From the start frame to the end frame')],default='CLIP')
+        ('RANGE','Frames','From the start frame to the end frame')],default='CLIP',
+        description='The frames on which the fix holds')
     frame_start: IntProperty(name='Start',default=1,description='First frame on which the fix holds fully')
     frame_end: IntProperty(name='End',default=1,description='Last frame on which the fix holds fully')
     blend: FloatProperty(name='Blend',default=.2,min=0,soft_max=1,step=5,precision=2,unit='TIME_ABSOLUTE',
@@ -265,11 +278,13 @@ def build_mapping(settings):
 class SKR_OT_match(Operator):
     bl_idname='sekiro_retarget.match_bones'
     bl_label='Match bones automatically'
-    bl_description='Match by name, anatomical role and rest position, respecting left/right and avoiding duplicate source assignments'
+    bl_description=('Match by name, anatomical role and rest position, respecting left/right and avoiding duplicate source '
+                    'assignments. A new match replaces the bone list, changes included')
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
         try:
-            build_mapping(context.scene.sekiro_retarget)
+            settings=context.scene.sekiro_retarget
+            build_mapping(settings);self.report({'INFO'},settings.status)
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -277,7 +292,8 @@ class SKR_OT_match(Operator):
 
 class SKR_OT_use_active(Operator):
     bl_idname='sekiro_retarget.use_active'
-    bl_label='Use active armature'
+    bl_label='Use selected armature'
+    bl_description='Fill this field with the armature selected in the viewport or Outliner'
     bl_options={'REGISTER','UNDO'}
     role: EnumProperty(items=[('source','Source',''),('target','Target','')])
     def execute(self,context):
@@ -337,6 +353,7 @@ class SKR_OT_append(Operator,ImportHelper):
 class SKR_OT_suggestion(Operator):
     bl_idname='sekiro_retarget.accept_suggestion'
     bl_label='Use suggestion'
+    bl_description='Give this target bone the suggested source bone'
     bl_options={'REGISTER','UNDO'}
     index: IntProperty()
     def execute(self,context):
@@ -446,7 +463,7 @@ class SKR_OT_export_hkx(Operator):
         if event.type=='ESC':self.job.cancel()
         if event.type!='TIMER':return {'PASS_THROUGH'}
         if not self.job.done:
-            settings.status=f'{self.job.message} ({self.job.progress}%)'
+            settings.status=f'{self.job.message} ({self.job.progress}%). Esc cancels.'
         else:
             context.window_manager.event_timer_remove(self._timer)
             settings.status=export.summary(self.job)
@@ -460,6 +477,7 @@ class SKR_OT_export_hkx(Operator):
 class SKR_OT_save_map(Operator,ExportHelper):
     bl_idname='sekiro_retarget.save_map'
     bl_label='Save bone map'
+    bl_description='Save the bone list to a .json file, to load it for other clips of the same two characters'
     filename_ext='.json'
     filter_glob: StringProperty(default='*.json',options={'HIDDEN'})
     def execute(self,context):
@@ -468,6 +486,7 @@ class SKR_OT_save_map(Operator,ExportHelper):
             document=dict(format='sekiro-retarget-map',version=1,
                           mappings=[dict(target=r.target,source=r.source,enabled=r.enabled,hidden=r.hidden) for r in rows])
             Path(self.filepath).write_text(json.dumps(document,indent=2),encoding='utf-8')
+            self.report({'INFO'},f'Saved {len(rows)} bones to {Path(self.filepath).name}.')
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -476,6 +495,7 @@ class SKR_OT_save_map(Operator,ExportHelper):
 class SKR_OT_load_map(Operator,ImportHelper):
     bl_idname='sekiro_retarget.load_map'
     bl_label='Load bone map'
+    bl_description='Match bones, then give the target bones of a saved bone map the source bones it names'
     bl_options={'REGISTER','UNDO'}
     filename_ext='.json'
     filter_glob: StringProperty(default='*.json',options={'HIDDEN'})
@@ -493,6 +513,10 @@ class SKR_OT_load_map(Operator,ImportHelper):
                 row.source=item['source'] if item['source'] in settings.source.data.bones else ''
                 row.enabled=bool(row.source and item.get('enabled',True));row.reason='Loaded bone map'
                 row.hidden=bool(item.get('hidden',False))
+            count=sum(bool(row.source and row.enabled) for row in settings.rows)
+            settings.status=(f'Loaded {Path(self.filepath).name}: {count} / {len(settings.rows)} target bones matched. '
+                             'Review the rest before baking.')
+            self.report({'INFO'},settings.status)
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -593,7 +617,7 @@ class SKR_OT_fix_pose(Operator):
             for name,(matrix,basis) in pose.items():
                 item=fix.poses.add();item.frame=frame;item.bone=name
                 item.matrix=[value for row in matrix for value in row];item.basis=[value for row in basis for value in row]
-            fix.status=f'Posed frame {retarget.spans(sorted({item.frame for item in fix.poses}))}. Pose another frame, or Apply.'
+            fix.status=f'Posed frame {retarget.spans(sorted({item.frame for item in fix.poses}))}. Pose another frame, or click Apply fix.'
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -602,6 +626,7 @@ class SKR_OT_fix_pose(Operator):
 class SKR_OT_fix_clear(Operator):
     bl_idname='sekiro_retarget.fix_clear'
     bl_label='Clear posed frames'
+    bl_description='Forget the frames posed with Use this pose'
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
         fix=context.scene.sekiro_fix
@@ -629,20 +654,74 @@ class SKR_OT_fix_apply(Operator):
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 
+REVIEW=.94  # Matches below this strength are listed for review.
+
+
+def needs_review(row):
+    return not row.source or not row.enabled or row.confidence<REVIEW
+
+
+def pair_blocked(settings):
+    """Why bones cannot be matched yet, or ''."""
+    if not settings.target:return 'Choose the target first.' if settings.source else 'Choose the target and the source first.'
+    if not settings.source:return 'Choose the source, or append it, first.'
+    return 'Choose two different armatures.' if settings.source==settings.target else ''
+
+
+def bake_blocked(settings):
+    """Why Bake cannot run now, or ''."""
+    if pair_blocked(settings) or not settings.rows:return pair_blocked(settings) or 'Match bones first.'
+    if control_rig.present(settings.target):
+        return 'The target has a control rig. Remove it under Control rig before baking; you can add it again afterwards.'
+    return ''
+
+
+def bridge_target(settings):
+    return bool(settings.target and settings.target.get('sekiro_animation_bridge'))
+
+
+def wrap(context,message,margin):
+    """The words of message in lines that fit the region less margin pixels, measured in the interface font."""
+    preferences=bpy.context.preferences;scale=preferences.system.ui_scale or 1
+    blf.size(0,preferences.ui_styles[0].widget.points*scale)
+    room=context.region.width-margin*scale;lines=[]
+    for word in message.split():
+        line=lines[-1]+' '+word if lines else word
+        if lines and blf.dimensions(0,line)[0]<=room:lines[-1]=line
+        else:lines.append(word)
+    return lines
+
+
+def text(layout,context,message,icon='NONE',boxed=False):
+    """A message on as many label rows as it needs, the rows after an icon indented to its text; boxed: in a box."""
+    column=layout.column(align=True)
+    for index,line in enumerate(wrap(context,message,(74 if boxed else 58)+(28 if icon!='NONE' else 0))):
+        column.label(text=line,icon=icon if not index else 'BLANK1' if icon!='NONE' else 'NONE')
+    return column
+
+
+def menu(layout,data,name):
+    """A menu with its name on the row above, since the sidebar is too narrow for both on one row."""
+    column=layout.column(align=True)
+    column.label(text=data.bl_rna.properties[name].name);column.prop(data,name,text='')
+
+
 class SKR_UL_bones(UIList):
     def filter_items(self,context,data,property):
-        rows=getattr(data,property)
-        return [self.bitflag_filter_item if not data.review_only or not row.source or not row.enabled or row.confidence<.94 else 0 for row in rows],[]
+        rows=getattr(data,property);pattern='*'+self.filter_name.lower()+'*'
+        flags=[self.bitflag_filter_item if (not data.review_only or needs_review(row)) and
+               (fnmatchcase(row.target.lower(),pattern) or fnmatchcase(row.source.lower(),pattern)) else 0 for row in rows]
+        return flags,bpy.types.UI_UL_list.sort_items_by_name(rows,'target') if self.use_filter_sort_alpha else []
     def draw_item(self,context,layout,data,item,icon,active_data,active_property,index):
         column=layout.column(align=True)
         row=column.row(align=True)
         row.prop(item,'enabled',text='')
         row.label(text=item.target,icon='BONE_DATA')
-        row.label(text=f'{round(item.confidence*100)}%' if item.source else '—',icon='CHECKMARK' if item.source else 'QUESTION')
+        row.label(text=f'{round(item.confidence*100)}%' if item.source else '—',icon='QUESTION' if needs_review(item) else 'CHECKMARK')
         if mapping.weapon_part(item.target) or item.hidden:
             row.prop(item,'hidden',text='',icon='HIDE_ON' if item.hidden else 'HIDE_OFF',emboss=False)
         if data.source:column.prop_search(item,'source',data.source.data,'bones',text='From')
-        else:column.label(text='Select source')
+        else:column.label(text='Choose a source rig')
 
 
 class SKR_PT_panel(Panel):
@@ -650,61 +729,146 @@ class SKR_PT_panel(Panel):
     bl_idname='SKR_PT_retarget'
     bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Retarget'
     def draw(self,context):
+        pass  # The steps are its sub-panels.
+
+
+class SidebarPanel:
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Retarget';bl_parent_id='SKR_PT_retarget'
+
+
+class SKR_PT_rigs(SidebarPanel,Panel):
+    bl_label='1. Choose rigs'
+    bl_idname='SKR_PT_retarget_rigs'
+    def draw(self,context):
         layout=self.layout;settings=context.scene.sekiro_retarget
-        layout.label(text='1. Source → receiving character',icon='ARMATURE_DATA')
-        for role in ('source','target'):
-            layout.label(text='Source (animated)' if role=='source' else 'Target (receiving)')
-            row=layout.row(align=True);row.prop(settings,role,text='')
-            operator=row.operator('sekiro_retarget.use_active',text='',icon='EYEDROPPER');operator.role=role
+        for role,title in (('target','Target (receives the motion)'),('source','Source (gives the motion)')):
+            column=layout.column(align=True);column.label(text=title)
+            row=column.row(align=True);row.prop(settings,role,text='')
+            row.operator('sekiro_retarget.use_active',text='',icon='RESTRICT_SELECT_OFF').role=role
         layout.operator('sekiro_retarget.append_source',icon='APPEND_BLEND')
-        layout.separator();layout.label(text='2. Match and review',icon='BONE_DATA')
+        if settings.source and settings.source==settings.target:
+            text(layout,context,'Source and target are the same armature. Choose two different ones.',icon='ERROR').alert=True
+
+
+class SKR_PT_bones(SidebarPanel,Panel):
+    bl_label='2. Match bones'
+    bl_idname='SKR_PT_retarget_bones'
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget;rows=settings.rows;blocked=pair_blocked(settings)
         layout.prop(settings,'tracked_only')
-        row=layout.row();row.enabled=bool(settings.source and settings.target and settings.source!=settings.target)
-        row.operator('sekiro_retarget.match_bones',icon='CONSTRAINT_BONE')
-        if settings.rows:
-            count=sum(bool(r.enabled and r.source) for r in settings.rows)
-            layout.label(text=f'{count} / {len(settings.rows)} target bones assigned')
+        row=layout.row();row.enabled=not blocked;row.scale_y=1.3
+        row.operator('sekiro_retarget.match_bones',text='Match bones again' if rows else 'Match bones automatically',icon='CONSTRAINT_BONE')
+        if blocked:
+            text(layout,context,blocked,icon='INFO');return
+        if rows:
+            count=sum(bool(row.enabled and row.source) for row in rows);review=sum(needs_review(row) for row in rows)
+            text(layout,context,f'{count} of {len(rows)} bones matched'+(f', {review} to review.' if review else '.'))
             layout.prop(settings,'review_only')
             layout.template_list('SKR_UL_bones','',settings,'rows',settings,'active_row',rows=5)
-            if settings.active_row<len(settings.rows):
-                item=settings.rows[settings.active_row]
-                box=layout.box();box.label(text=item.reason or 'Unassigned')
+            if settings.active_row<len(rows):
+                item=rows[settings.active_row]
+                box=layout.box();text(box,context,item.target+': '+(item.reason or 'Unassigned'),boxed=True)
                 if not item.source and item.suggestion:
                     box.label(text='Suggestion: '+item.suggestion)
                     box.operator('sekiro_retarget.accept_suggestion').index=settings.active_row
-            if any(not r.source and r.suggestion for r in settings.rows):
+            if any(not row.source and row.suggestion for row in rows):
                 layout.operator('sekiro_retarget.accept_all_suggestions',icon='CHECKMARK')
             row=layout.row(align=True)
             row.operator('sekiro_retarget.mirror_mappings',text='Mirror L → R',icon='MOD_MIRROR').side='L'
-            row.operator('sekiro_retarget.mirror_mappings',text='Mirror R → L').side='R'
-            row=layout.row(align=True);row.operator('sekiro_retarget.save_map',text='Save map');row.operator('sekiro_retarget.load_map',text='Load map')
-        layout.separator();layout.label(text='3. Bake a new action',icon='ACTION')
-        layout.prop(settings,'rest_mode');layout.prop(settings,'root_motion')
+            row.operator('sekiro_retarget.mirror_mappings',text='Mirror R → L',icon='MOD_MIRROR').side='R'
+        row=layout.row(align=True)
+        save=row.row(align=True);save.enabled=bool(rows);save.operator('sekiro_retarget.save_map',text='Save map',icon='FILE_TICK')
+        row.operator('sekiro_retarget.load_map',text='Load map',icon='FILE_FOLDER')
+
+
+class SKR_PT_bake(SidebarPanel,Panel):
+    bl_label='3. Bake motion'
+    bl_idname='SKR_PT_retarget_bake'
+    def draw(self,context):
+        layout=self.layout;blocked=bake_blocked(context.scene.sekiro_retarget)
+        row=layout.row();row.enabled=not blocked;row.scale_y=1.3;row.operator('sekiro_retarget.bake',icon='ACTION')
+        if blocked:text(layout,context,blocked,icon='INFO')
+
+
+class BakeOptions(SidebarPanel):
+    bl_parent_id='SKR_PT_retarget_bake';bl_options={'DEFAULT_CLOSED'}
+
+
+class SKR_PT_bake_pose(BakeOptions,Panel):
+    bl_label='Pose and timing'
+    bl_idname='SKR_PT_retarget_bake_pose'
+    def draw(self,context):
+        for name in ('rest_mode','unmapped','timing'):menu(self.layout,context.scene.sekiro_retarget,name)
+
+
+class SKR_PT_bake_travel(BakeOptions,Panel):
+    bl_label='Body travel'
+    bl_idname='SKR_PT_retarget_bake_travel'
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget
+        layout.prop(settings,'body_translation');layout.prop(settings,'auto_scale')
+        if not settings.auto_scale:layout.prop(settings,'travel_scale')
+        menu(layout,settings,'root_motion')
         if settings.root_motion in ('AUTO','EXTRACT'):layout.prop(settings,'root_yaw')
-        layout.prop(settings,'unmapped');layout.prop(settings,'timing')
-        layout.prop(settings,'body_translation');layout.prop(settings,'body_clearance');layout.prop(settings,'arm_gap')
-        layout.prop(settings,'weapon_grip')
+
+
+class SKR_PT_bake_arms(BakeOptions,Panel):
+    bl_label='Arms and hands'
+    bl_idname='SKR_PT_retarget_bake_arms'
+    def draw(self,context):
+        settings=context.scene.sekiro_retarget
+        self.layout.prop(settings,'body_clearance');self.layout.prop(settings,'arm_gap')
+
+
+class SKR_PT_bake_weapons(BakeOptions,Panel):
+    bl_label='Weapons'
+    bl_idname='SKR_PT_retarget_bake_weapons'
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget
+        menu(layout,settings,'weapon_grip')
         if settings.weapon_grip=='OWN':layout.prop(settings,'blade_follow',slider=True)
         layout.prop(settings,'second_hand')
-        layout.prop(settings,'auto_scale')
-        if not settings.auto_scale:layout.prop(settings,'travel_scale')
-        row=layout.row();row.enabled=bool(settings.rows)
-        row.operator('sekiro_retarget.bake',icon='ACTION')
-        layout.separator();layout.label(text='4. Export HKX',icon='EXPORT')
-        if settings.target and settings.target.get('sekiro_animation_bridge'):
-            layout.prop(settings,'export_path')
-            layout.prop(settings,'export_game');layout.prop(settings,'export_format')
-            if settings.export_format=='spline':
-                row=layout.row(align=True);row.prop(settings,'export_quantization',text='');row.prop(settings,'export_tolerance')
-            layout.prop(settings,'export_tracks');layout.prop(settings,'export_frames');layout.prop(settings,'export_root')
-            row=layout.row();row.prop(settings,'export_verify');row.prop(settings,'export_replace')
-            row=layout.row();row.enabled=bool(settings.export_path)
-            row.operator('sekiro_retarget.export_hkx',icon='EXPORT')
-            layout.operator('sekiro_retarget.set_export_target',icon='FILE_BLEND')
-        else:
-            layout.label(text='Export needs a target imported by the bridge.',icon='INFO')
-        box=layout.box()
-        for line in textwrap.wrap(settings.status,width=max(28,int(context.region.width/7))):box.label(text=line)
+
+
+class SKR_PT_export(SidebarPanel,Panel):
+    bl_label='4. Export HKX'
+    bl_idname='SKR_PT_retarget_export'
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget
+        if not bridge_target(settings):
+            text(layout,context,'Export needs a target imported by the bridge.',icon='INFO');return
+        layout.prop(settings,'export_path');layout.prop(settings,'export_replace')
+        row=layout.row();row.enabled=bool(settings.export_path);row.scale_y=1.3
+        row.operator('sekiro_retarget.export_hkx',icon='EXPORT')
+        if not settings.export_path:text(layout,context,'Choose the Output file first.',icon='INFO')
+        layout.operator('sekiro_retarget.set_export_target',icon='FILE_BLEND')
+
+
+class SKR_PT_export_settings(SidebarPanel,Panel):
+    bl_label='Export settings'
+    bl_idname='SKR_PT_retarget_export_settings'
+    bl_parent_id='SKR_PT_retarget_export';bl_options={'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls,context):
+        return bridge_target(context.scene.sekiro_retarget)
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget
+        menu(layout,settings,'export_game');menu(layout,settings,'export_format')
+        if settings.export_format=='spline':
+            menu(layout,settings,'export_quantization');layout.prop(settings,'export_tolerance')
+        for name in ('export_tracks','export_frames','export_root'):menu(layout,settings,name)
+        layout.prop(settings,'export_verify')
+
+
+class SKR_PT_status(SidebarPanel,Panel):
+    bl_label='Status'
+    bl_idname='SKR_PT_retarget_status'
+    bl_options={'HIDE_HEADER'}
+    @classmethod
+    def poll(cls,context):
+        return bool(context.scene.sekiro_retarget.status)
+    def draw(self,context):
+        text(self.layout.box(),context,context.scene.sekiro_retarget.status,boxed=True)
 
 
 class SKR_PT_control_rig(Panel):
@@ -714,14 +878,23 @@ class SKR_PT_control_rig(Panel):
     def draw(self,context):
         layout=self.layout;rig=control_rig.target(context)
         if not rig:
-            layout.label(text='Select an armature.',icon='INFO');return
+            text(layout,context,'Select the armature to pose, such as the target after a bake.',icon='INFO');return
         layout.label(text=rig.name,icon='ARMATURE_DATA')
         if not control_rig.present(rig):
-            layout.operator('sekiro_retarget.add_control_rig',icon='BONE_DATA');return
+            text(layout,context,'Adds controls to pose the arms and legs, in FK or with IK that keeps hands and feet in '
+                                'place. The game bones follow the controls, so export works as before.')
+            row=layout.row();row.scale_y=1.3;row.operator('sekiro_retarget.add_control_rig',icon='ADD');return
         data=control_rig.layout(rig)
+        if rig.mode!='POSE':
+            if context.object==rig:
+                text(layout,context,'The controls are posed in Pose Mode.',icon='INFO')
+                layout.operator('object.mode_set',text='Pose Mode',icon='POSE_HLT').mode='POSE'
+            else:text(layout,context,'Select the armature to pose its controls in Pose Mode.',icon='INFO')
+        if data['limbs']:text(layout,context,'IK slider: 0 follows FK, 1 follows IK.')
         for index,limb in enumerate(data['limbs']):
             bone=rig.pose.bones.get(limb['control'])
             if not bone:continue
+            layout.separator()
             column=layout.column(align=True)
             column.prop(bone,f'["{control_rig.SWITCH}"]',text=limb['label']+' IK',slider=True)
             swivel=rig.pose.bones.get(limb.get('swivel',''))
@@ -731,7 +904,7 @@ class SKR_PT_control_rig(Panel):
             row=column.row(align=True)
             for mode in ('IK','FK'):
                 operator=row.operator('sekiro_retarget.control_rig_switch',text='Switch to '+mode);operator.limb=index;operator.mode=mode
-        if not data['limbs']:layout.label(text='No arms or legs were recognised for IK.',icon='INFO')
+        if not data['limbs']:text(layout,context,'No arms or legs were recognised for IK.',icon='INFO')
         layout.label(text='Show')
         grid=layout.grid_flow(columns=2,align=True)
         for (title,visible),name in zip(control_rig.COLLECTIONS,data['collections']):
@@ -750,23 +923,25 @@ class SKR_PT_fixes(Panel):
         return control_rig.present(control_rig.target(context))
     def draw(self,context):
         layout=self.layout;scene=context.scene;fix=scene.sekiro_fix;rig=control_rig.target(context)
-        width=max(28,int(context.region.width/7))
         layout.prop(fix,'task',text='')
-        column=layout.column(align=True)
-        for line in textwrap.wrap(fixes.HINTS[fix.task],width=width):column.label(text=line)
+        text(layout,context,fixes.HINTS[fix.task])
+        if fix.task=='ADJUST' and scene.tool_settings.use_keyframe_insert_auto:
+            text(layout,context,'Auto keying is on. Turn it off before you pose: Adjust compares your pose with the '
+                                'animation.',icon='ERROR').alert=True
         layout.prop(fix,'limb')
         limb=fix_limb(rig,fix)
         if limb is not None:
             entry=control_rig.layout(rig)['limbs'][limb];bone=rig.pose.bones.get(entry['control'])
             if bone and bone.get(control_rig.SWITCH,0.0)<.999:
-                row=layout.row();row.alert=True;row.label(text=entry['label']+' is not in IK here.',icon='ERROR')
-                operator=row.operator('sekiro_retarget.control_rig_switch',text='Switch to IK');operator.limb=limb;operator.mode='IK'
+                text(layout,context,entry['label']+' is not in IK on this frame. The fix moves its IK controls, so switch '
+                                    'it to IK first.',icon='ERROR').alert=True
+                operator=layout.operator('sekiro_retarget.control_rig_switch',text='Switch to IK');operator.limb=limb;operator.mode='IK'
             if fix.task in ('HAND','SHEATH'):
                 values=fixes.defaults(rig,fix.task,limb)
-                layout.prop_search(fix,'target',rig.data,'bones',text='Follow' if fix.task=='HAND' else 'Sheath')
-                if fix.task=='SHEATH':layout.prop_search(fix,'held',rig.data,'bones',text='Weapon')
-                for name in ('target','held') if fix.task=='SHEATH' else ('target',):
-                    if values[name] and not getattr(fix,name):layout.label(text='Uses '+values[name],icon='INFO')
+                fields=[('target','Follow' if fix.task=='HAND' else 'Sheath')]+([('held','Weapon')] if fix.task=='SHEATH' else [])
+                for name,title in fields:
+                    column=layout.column(align=True);column.prop_search(fix,name,rig.data,'bones',text=title)
+                    if values[name] and not getattr(fix,name):column.label(text='Uses '+values[name],icon='INFO')
         layout.row().prop(fix,'span',expand=True)
         if fix.span=='RANGE':
             row=layout.row(align=True)
@@ -778,20 +953,17 @@ class SKR_PT_fixes(Panel):
         if posed:
             row.operator('sekiro_retarget.fix_clear',text='',icon='X')
             layout.label(text='Posed frames: '+retarget.spans(posed))
-        if fix.task=='ADJUST' and scene.tool_settings.use_keyframe_insert_auto:
-            box=layout.box()
-            for line in textwrap.wrap('Auto keying is on. Turn it off before you pose: Adjust compares your pose with '
-                                      'the animation.',width=width):box.label(text=line)
-        layout.operator('sekiro_retarget.fix_apply',icon='CHECKMARK')
-        if fix.status:
-            box=layout.box()
-            for line in textwrap.wrap(fix.status,width=width):box.label(text=line)
+        row=layout.row();row.scale_y=1.3;row.operator('sekiro_retarget.fix_apply',icon='CHECKMARK')
+        if fix.status:text(layout.box(),context,fix.status,boxed=True)
 
 
 CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,
     SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_save_map,
     SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
     SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
+# The steps of the retarget panel, after it and in the order they are shown.
+CLASSES+=(SKR_PT_rigs,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_arms,SKR_PT_bake_weapons,
+          SKR_PT_export,SKR_PT_export_settings,SKR_PT_status)
 
 
 def register():
