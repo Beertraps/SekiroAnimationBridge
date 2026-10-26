@@ -792,3 +792,202 @@ def foot_targets(bones):
             parent = parents[parent]
         targets[bone.name] = (foot, chain)
     return targets
+
+
+def characterize(bones):
+    """The body of a rig for the full-body bake, whatever its bones are called; None without hips, two legs and rest
+    positions.
+
+    Gives the hips, the spine from the hips up, the neck and the head, and per side an arm, a leg and the fingers. An
+    arm's chain runs from its clavicle, where it has one, or its upper arm to its hand, and a leg's from its thigh to
+    its foot, twist bones in series included. A finger lists its bones from the first one after any metacarpal.
+    Names decide where the matcher is sure, the skeleton's shape elsewhere (see Rig.infer_body), with one check that
+    matching does without: a clavicle found by shape must start nearer the middle of the body than the hip joint on
+    its side, since an upper arm followed by a twist bone in series looks like a clavicle followed by an upper arm. An
+    elbow or knee that names do not place on its limb is the bone nearest the middle of the limb. shape lists the
+    parts that came from the skeleton's shape: hips, spine, neck, head, fingers, and limb parts such as L.forearm.
+    """
+    rig = Rig(bones)
+    heads = {name: info.head for name, info in rig.bones.items()}
+    hips = rig.roles.get(('', 'hips'))
+    if not hips or None in heads.values():
+        return None
+    dropped = set()  # Clavicles that the shape check turned back into upper arms.
+
+    def path(top, bottom):
+        """The bones from top down to bottom, or [] where bottom does not hang below top."""
+        if top not in rig.bones or bottom not in rig.bones:
+            return []
+        result = [bottom]
+        while result[-1] != top:
+            if not rig.bones[result[-1]].parent:
+                return []
+            result.append(rig.bones[result[-1]].parent)
+        return result[::-1]
+
+    def joint(chain, named):
+        """A limb's middle joint: the named one where it lies on the limb, else the bone nearest the limb's middle."""
+        if named in chain[1:-1]:
+            return named
+        middle = [(a + b) / 2 for a, b in zip(heads[chain[0]], heads[chain[-1]])]
+        return min(chain[1:-1], key=lambda name: distance(heads[name], middle))
+
+    legs = {}
+    for side in 'LR':
+        chain = path(rig.roles.get((side, 'thigh')), rig.roles.get((side, 'foot')))
+        if len(chain) >= 3:
+            toe = rig.roles.get((side, 'toe'))
+            legs[side] = dict(thigh=chain[0], calf=joint(chain, rig.roles.get((side, 'calf'))), foot=chain[-1],
+                              toe=toe if toe and chain[-1] in rig.ancestors(toe) else None, chain=chain)
+    if len(legs) < 2:
+        return None
+    arms = {}
+    for side in 'LR':
+        clavicle, upper, hand = (rig.roles.get((side, role)) for role in ('clavicle', 'upperarm', 'hand'))
+        forearm = rig.roles.get((side, 'forearm'))
+        if clavicle and (side, 'clavicle') in rig.inferred and rig.body:
+            centre, left = rig.body['centre'], rig.body['left']
+            if abs(dot(sub(heads[clavicle], centre), left)) >= abs(dot(sub(heads[legs[side]['thigh']], centre), left)):
+                clavicle, upper, forearm = None, clavicle, None
+                dropped.add(side + '.clavicle')
+        chain = path(upper, hand)
+        if len(chain) < 3:
+            continue
+        if clavicle and clavicle not in rig.ancestors(upper):
+            clavicle = None
+        arms[side] = dict(clavicle=clavicle, upperarm=upper, forearm=joint(chain, forearm), hand=hand,
+                          chain=path(clavicle, hand) if clavicle else chain)
+    spine, neck, head = rig.chain('spine'), rig.chain('neck'), rig.roles.get(('', 'head'))
+    spine = path(spine[0], spine[-1]) or spine if spine else []
+    if neck and head:
+        neck = path(neck[0], head)[:-1] or neck
+    fingers, metacarpals = {}, {}
+    for name, (number, segment) in rig.fingers.items():
+        side = rig.bones[name].side
+        if side in arms and arms[side]['hand'] in rig.ancestors(name):
+            if segment == 0:
+                metacarpals.setdefault(side, {})[number] = name
+            else:
+                fingers.setdefault(side, {}).setdefault(number, []).append(name)
+    for digits in fingers.values():
+        for names in digits.values():
+            names.sort(key=lambda name: rig.bones[name].depth)
+    found = {'.'.join(filter(None, key)) if isinstance(key, tuple) else key for key in rig.inferred} - dropped
+    return dict(hips=hips, spine=spine, neck=neck, head=head, arms=arms, legs=legs, fingers=fingers,
+                metacarpals=metacarpals, shape=sorted(found))
+
+
+def body_pairs(source, target):
+    """Where each bone of the target's body takes its motion from on the source's body; None when either rig has no
+    body (see characterize).
+
+    Chains pair up between the joints that both rigs have: the spine from its first bone through the chest to the
+    neck, the neck to the head, an arm through its shoulder (and clavicle, where both rigs have one) and elbow to the
+    wrist, a leg through its knee to the ankle, a finger from its first bone to its last. Between two joints the bone
+    counts may differ: a target bone takes the source's chain at the same share of the way, by length, the motion of
+    the two source bones there blended, and its segment follows the source chain over the same share. Where both rigs
+    have as many bones between two joints, the bones pair one to one. The hips, head, hands, feet, toes, metacarpals
+    and the last bone of each finger pair directly.
+
+    Returns dict(source=, target= the two characterizations, direct={target bone: source bone}, chains={target bone:
+    dict(end=the target bone whose head ends its segment, blend=, start=, stop=)}, unpaired=[target body bones without
+    a counterpart, such as a clavicle where the source has none]). blend names the two source bones whose motions mix
+    and the second one's part; start and stop are the ends of the source segment, each as (source bone, source bone,
+    part of the way from the first one's head to the second's).
+    """
+    source, target = list(source), list(target)
+    src, dst = characterize(source), characterize(target)
+    if not src or not dst:
+        return None
+    source_heads = {bone.name: tuple(bone.head) for bone in source}
+    target_heads = {bone.name: tuple(bone.head) for bone in target}
+    direct, chains, unpaired = {dst['hips']: src['hips']}, {}, []
+
+    def shares(points, heads):
+        """Each point's share of the way along a chain, by length."""
+        lengths = [0.0]
+        for a, b in zip(points, points[1:]):
+            lengths.append(lengths[-1] + distance(heads[a], heads[b]))
+        return [length / lengths[-1] if lengths[-1] > 1e-9 else index / (len(points) - 1) for index, length in enumerate(lengths)]
+
+    def chain(mine, theirs, joints):
+        """Pair a target chain with a source chain, each listed with the bone that ends it; joints are the (target
+        index, source index) of the joints they share, in order from the first bones to the end."""
+        for (a, c), (b, d) in zip(joints, joints[1:]):
+            part, other = mine[a:b + 1], theirs[c:d + 1]
+            if len(part) < 2 or len(other) < 2:
+                continue
+            if len(part) == len(other):
+                for k, name in enumerate(part[:-1]):
+                    chains[name] = dict(end=part[k + 1], blend=(other[k], other[k], 0.0), start=(other[k], other[k], 0.0),
+                                        stop=(other[k + 1], other[k + 1], 0.0))
+                continue
+            along, scale = shares(part, target_heads), shares(other, source_heads)
+
+            def at(share):
+                k = next((k for k in range(len(other) - 1) if share <= scale[k + 1] + 1e-9), len(other) - 2)
+                span = scale[k + 1] - scale[k]
+                return other[k], other[k + 1], min(1.0, max(0.0, (share - scale[k]) / span)) if span > 1e-9 else 0.0
+            for k, name in enumerate(part[:-1]):
+                chains[name] = dict(end=part[k + 1], blend=at(along[k]), start=at(along[k]), stop=at(along[k + 1]))
+
+    tops = [(body['neck'] or [body['head']])[0] for body in (dst, src)]
+    if dst['spine'] and src['spine']:
+        mine, theirs = dst['spine'] + tops[:1], src['spine'] + tops[1:]
+        if not all(tops):
+            # Nothing above the chest: the chests pair directly and the chains end at them.
+            mine, theirs = dst['spine'], src['spine']
+            direct[mine[-1]] = theirs[-1]
+        joints = [(0, 0)]
+        if all(tops) and len(dst['spine']) > 1 and len(src['spine']) > 1:
+            joints.append((len(dst['spine']) - 1, len(src['spine']) - 1))  # The chests, which carry arms and neck.
+        chain(mine, theirs, joints + [(len(mine) - 1, len(theirs) - 1)])
+    else:
+        unpaired += dst['spine']
+    if dst['neck'] and src['neck'] and dst['head'] and src['head']:
+        chain(dst['neck'] + [dst['head']], src['neck'] + [src['head']], [(0, 0), (len(dst['neck']), len(src['neck']))])
+    else:
+        unpaired += dst['neck']
+    if dst['head'] and src['head']:
+        direct[dst['head']] = src['head']
+    elif dst['head']:
+        unpaired.append(dst['head'])
+    for side in 'LR':
+        mine, theirs = dst['legs'][side], src['legs'][side]
+        a, b = mine['chain'], theirs['chain']
+        chain(a, b, [(0, 0), (a.index(mine['calf']), b.index(theirs['calf'])), (len(a) - 1, len(b) - 1)])
+        direct[mine['foot']] = theirs['foot']
+        if mine['toe'] and theirs['toe']:
+            direct[mine['toe']] = theirs['toe']
+        elif mine['toe']:
+            unpaired.append(mine['toe'])
+        mine, theirs = dst['arms'].get(side), src['arms'].get(side)
+        if not mine or not theirs:
+            unpaired += mine['chain'] if mine else []
+            continue
+        a, b = mine['chain'], theirs['chain']
+        roles = ('upperarm', 'forearm')
+        if mine['clavicle'] and theirs['clavicle']:
+            roles = ('clavicle',) + roles
+        else:
+            unpaired += a[:a.index(mine['upperarm'])]
+            a, b = a[a.index(mine['upperarm']):], b[b.index(theirs['upperarm']):]
+        chain(a, b, [(a.index(mine[role]), b.index(theirs[role])) for role in roles] + [(len(a) - 1, len(b) - 1)])
+        direct[mine['hand']] = theirs['hand']
+        digits, others = dst['fingers'].get(side, {}), src['fingers'].get(side, {})
+        for number, a in digits.items():
+            b = others.get(number)
+            if not b:
+                unpaired += a
+            elif len(a) > 1 and len(b) > 1:
+                chain(a, b, [(0, 0), (len(a) - 1, len(b) - 1)])
+                direct[a[-1]] = b[-1]
+            else:
+                direct[a[0]] = b[0]
+                unpaired += a[1:]
+        for number, name in dst['metacarpals'].get(side, {}).items():
+            if number in src['metacarpals'].get(side, {}):
+                direct[name] = src['metacarpals'][side][number]
+            else:
+                unpaired.append(name)
+    return dict(source=src, target=dst, direct=direct, chains=chains, unpaired=unpaired)

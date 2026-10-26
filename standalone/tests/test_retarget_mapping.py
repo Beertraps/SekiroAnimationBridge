@@ -196,5 +196,88 @@ class MatchConventions(unittest.TestCase):
         self.assertEqual(mapping.foot_targets(lone), {})
 
 
+SPECIAL = dict(
+    # No clavicles, a twist bone in series in each limb part, a two-bone spine and short legs with long thighs.
+    twisted=humanoids.proportioned(2, clavicles=False, twists=True, legs=.85, thighs=.6, arms=(.9, 1.25), arm_angle=40),
+    # A four-bone spine and long legs with short thighs, the hip joints closer together.
+    tall=humanoids.proportioned(4, legs=1.2, thighs=.42, arms=(1.1, .85), hips=.6))
+
+
+class BodyTemplate(unittest.TestCase):
+    def test_characterize_finds_the_body_by_name_and_by_shape(self):
+        everything = rigs()
+        for name, rig in SPECIAL.items():
+            everything[name] = rig
+            everything['unnamed_' + name] = humanoids.scrambled(rig, 13, 'Part')
+        roles = ('clavicle', 'upperarm', 'forearm', 'hand')
+        for name, rig in everything.items():
+            with self.subTest(rig=name):
+                body, truth = mapping.characterize(bones(rig)), labels(rig)
+                present = set(truth.values())
+                self.assertEqual((truth[body['hips']], truth[body['head']], truth[body['neck'][0]]), ('hips', 'head', 'neck'))
+                self.assertEqual((truth[body['spine'][0]], truth[body['spine'][-1]]), ('spine.first', 'spine.last'))
+                for side in 'LR':
+                    arm, leg = body['arms'][side], body['legs'][side]
+                    self.assertEqual({role: truth.get(arm[role]) for role in roles},
+                                     {role: f'{side}.{role}' if f'{side}.{role}' in present else None for role in roles})
+                    self.assertEqual([truth[leg[role]] for role in ('thigh', 'calf', 'foot', 'toe')],
+                                     [f'{side}.{role}' for role in ('thigh', 'calf', 'foot', 'toe')])
+                    self.assertEqual({number: [truth[bone] for bone in digit] for number, digit in body['fingers'][side].items()},
+                                     {number: [f'{side}.{finger}.{segment}' for segment in (1, 2, 3)]
+                                      for number, finger in enumerate(humanoids.FINGERS)})
+                self.assertEqual(bool(body['shape']), name.startswith('unnamed'))
+
+    def test_an_upper_arm_with_a_twist_bone_in_series_is_no_clavicle(self):
+        rig = humanoids.scrambled(SPECIAL['twisted'], 13, 'Part')
+        truth = labels(rig)
+        # Matching alone takes the upper arm and its twist bone for a clavicle and an upper arm.
+        self.assertEqual(truth[mapping.Rig(bones(rig)).roles[('L', 'clavicle')]], 'L.upperarm')
+        body = mapping.characterize(bones(rig))
+        for side in 'LR':
+            self.assertIsNone(body['arms'][side]['clavicle'])
+            self.assertEqual(truth[body['arms'][side]['upperarm']], f'{side}.upperarm')
+            self.assertNotIn(f'{side}.clavicle', body['shape'])
+
+    def test_chains_pair_across_bone_counts(self):
+        pairs = mapping.body_pairs(bones(humanoids.mixamo()), bones(SPECIAL['twisted']))
+        chains = pairs['chains']
+        # A two-bone spine: the lower bone spans the source's lower two, the chest pairs with the chest.
+        self.assertEqual(chains['Spine']['start'], ('mixamorig:Spine', 'mixamorig:Spine1', 0.0))
+        self.assertEqual(chains['Spine']['stop'], ('mixamorig:Spine1', 'mixamorig:Spine2', 1.0))
+        self.assertEqual(chains['Spine1']['blend'], ('mixamorig:Spine2', 'mixamorig:Spine2', 0.0))
+        # A twist bone in series takes the source's motion 40% of the way down the upper arm.
+        first, second, part = chains['L_UpperArmTwist']['blend']
+        self.assertEqual((first, second), ('mixamorig:LeftArm', 'mixamorig:LeftForeArm'))
+        self.assertAlmostEqual(part, .4, places=2)
+        self.assertEqual(chains['L_Forearm']['blend'], ('mixamorig:LeftForeArm', 'mixamorig:LeftHand', 0.0))
+        # The source's clavicles have no partner in a target without clavicles.
+        self.assertNotIn('mixamorig:LeftShoulder', {bone for spec in chains.values() for bone in spec['blend'][:2]})
+        self.assertEqual((pairs['direct']['L_Hand'], pairs['direct']['R_Toe']), ('mixamorig:LeftHand', 'mixamorig:RightToeBase'))
+        self.assertEqual(pairs['unpaired'], [])
+        # The other way round: the target's clavicles have no partner, and its spine spreads over the source's two bones.
+        back = mapping.body_pairs(bones(SPECIAL['twisted']), bones(humanoids.mixamo()))
+        self.assertEqual(sorted(back['unpaired']), ['mixamorig:LeftShoulder', 'mixamorig:RightShoulder'])
+        self.assertEqual(back['chains']['mixamorig:LeftArm']['stop'], ('L_UpperArmTwist', 'L_Forearm', 1.0))
+        first, second, part = back['chains']['mixamorig:Spine1']['blend']
+        self.assertEqual((first, second), ('Spine', 'Spine1'))
+        self.assertAlmostEqual(part, .5, places=2)
+
+    def test_same_bone_counts_pair_one_to_one(self):
+        pairs = mapping.body_pairs(bones(humanoids.mixamo()), bones(humanoids.fromsoftware(45, 'elden')))
+        self.assertTrue(all(spec['blend'][0] == spec['blend'][1] and spec['blend'][2] == 0 for spec in pairs['chains'].values()))
+        self.assertEqual(pairs['chains']['Spine1']['blend'][0], 'mixamorig:Spine1')
+        self.assertEqual(pairs['chains']['L_Clavicle']['stop'][0], 'mixamorig:LeftArm')
+        self.assertEqual(pairs['chains']['L_Forearm']['stop'][0], 'mixamorig:LeftHand')
+        self.assertEqual(pairs['direct']['Pelvis'], 'mixamorig:Hips')
+        # Helpers beside the limbs are not part of the body.
+        body = set(pairs['direct']) | set(pairs['chains']) | set(pairs['unpaired'])
+        self.assertFalse(body & {'L_Shoulder', 'L_UpArmTwist', 'L_Knee', 'L_Hip', 'L_Weapon', 'Face_Root'})
+
+    def test_a_rig_without_legs_has_no_body(self):
+        arm = [mapping.Bone('Root', '', (0, 0, 1)), mapping.Bone('Upper', 'Root', (.2, 0, 1)), mapping.Bone('Lower', 'Upper', (.5, 0, 1))]
+        self.assertIsNone(mapping.characterize(arm))
+        self.assertIsNone(mapping.body_pairs(bones(humanoids.mixamo()), arm))
+
+
 if __name__ == '__main__':
     unittest.main()

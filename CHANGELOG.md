@@ -1,3 +1,13 @@
+# Unreleased — full-body bake, experimental
+
+## Retarget: Bake method
+
+- **Bake method** in step 3 chooses how the target takes the source's motion. *Bone by bone*, the default, bakes as before. *Full body (experimental)* finds the body in both rigs by itself, by bone names where they are clear and by the skeleton's shape otherwise, so it needs no bone list for the hips, spine, neck, head, arms, legs, hands, feet and fingers. Bones outside the body, such as weapons, take their source bones from the bone list, or from automatic matching when there is no list.
+- Chains of other bone counts take the source's motion spread over their own bones: a two-bone spine takes a three-bone spine's bend, twist bones along an arm or leg take their share of its turn, and a target without clavicles works.
+- Feet stay where the source's feet stand, scaled by leg length, and the pelvis lowers where a leg cannot reach. Where the source's hands come together, the target's hands come as close, scaled by arm length; a hand that holds a weapon stays, and the free hand moves. On test rigs of other proportions, planted feet slid 29 cm over the clip bone by bone and not at all with the full body, and the hands missed each other by up to 5.2 cm against 0.0 cm.
+- The price: to keep those contacts, the legs and arms point up to 16° away from the source's, the source's stance width carries over, and where spine bone counts differ, a bend within one target spine bone is lost. Weapon grips, Second hand, body clearance, arm distance, foot targets and root motion work as with the bone-by-bone bake.
+- On two FromSoftware pairs, Owl and Isshin onto Wolf, both methods give nearly the same result. Bone by bone stays the recommended method for those; try the full body for rigs from other sources.
+
 # Unreleased — the mirrored katana strikes with its edge
 
 ## Retarget: Mirror animation

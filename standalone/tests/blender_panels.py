@@ -420,6 +420,16 @@ def states():
     yield 'Every option shown'
 
     settings.auto_scale, settings.root_motion, settings.export_format = True, 'AUTO', 'interleaved'
+    settings.method = 'BODY'
+    settings.rows.clear()
+    yield 'Full body without a bone list'
+
+    assert bpy.ops.sekiro_retarget.bake() == {'FINISHED'}, settings.status
+    yield 'Full body baked'
+
+    settings.method = 'BONES'
+    assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
+    assert bpy.ops.sekiro_retarget.bake() == {'FINISHED'}, settings.status
     activate(target)
     assert bpy.ops.sekiro_retarget.add_control_rig() == {'FINISHED'}
     yield 'Control rig on'
@@ -470,6 +480,12 @@ EXPECTED = {
     'Baked': (['Baked 24 frames from 55 mapped bones'], []),
     'Every option shown': (['Travel scale: [1]', '[ ] Turn root with the body', 'Rotations', 'Tolerance: [0.001]'],
                            ['(Export HKX) (greyed out)']),
+    'Full body without a bone list': (['Bake method', '[Full body (experimental) v]',
+                                       "Experimental: finds the body in both rigs and keeps the feet on the source's footprint.",
+                                       '(Bake motion onto target)'],
+                                      ['(Bake motion onto target) (greyed out)', 'Match bones first.', '{list']),
+    'Full body baked': (["Baked 24 frames from the full body", "Full body (experimental): 52 body bones follow the source's body chains",
+                         'R_Weapon sits in R_Hand'], ['foot kept on the source']),
     'Control rig on': (['The target has a control rig. Remove it under Control rig before baking',
                         'IK slider: 0 follows FK, 1 follows IK.', '(Remove control rig)', 'v Fixes'],
                        ['(Add control rig)', '(Pose Mode)']),

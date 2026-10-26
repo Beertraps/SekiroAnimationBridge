@@ -1,3 +1,82 @@
+# Unreleased — full-body bake, experimental (retarget add-on)
+
+- State: committed on branch `auto-retarget`, not released; no version change. **Bake method** in step 3 offers *Full body (experimental)* beside *Bone by bone*, which stays the default and bakes as before.
+- The user asked: "An additional question to how we even calculate retargeting, originally I had asked about biped, people told me about it and that it doesn't really require mapping bones. Can you think of a method where mapping bones is not necessary? I have heard the term Full Body IK."
+
+## The idea
+
+Biped needs no bone map between two Bipeds because every Biped is built from the same template and its motion is stored per template part. Full-body retargeting systems such as HumanIK work the same way for other skeletons: each skeleton is characterized once, which assigns its bones to the template's parts, the motion moves from template to template, and a full-body IK pass restores the contacts that other proportions break. The full-body bake does both steps itself. The characterization comes from the matcher's reading of names and anatomy, so in most cases nobody maps anything.
+
+## Method
+
+1. Characterization, `mapping.characterize(bones)`. The matcher's `Rig` finds the hips, spine, neck, head, clavicles, upper arms, forearms, hands, thighs, calves, feet, toes and fingers, by name where it is sure and by the skeleton's shape otherwise. One check was added: a clavicle found by shape must sit nearer the middle of the body than the hip joint on its side. Without it, an upper arm with a twist bone in series in a rig without clavicles read as clavicle and upper arm. The result lists which parts came from the shape, and the bake names them in its notes.
+2. Pairing by the template, `mapping.body_pairs(source, target)`. The hips, head, hands, feet, toes, metacarpals and the last bone of each finger pair directly. Chains run between joints that both rigs have: the spine from its first bone through the chest to the neck, the neck to the head, an arm through its shoulder (and clavicle, where both rigs have one) and elbow to the wrist, a leg through its knee to the ankle, a finger from its first bone to its last. Between two such joints, bones pair one to one where both rigs have the same number. Otherwise a target bone takes the source's motion at the same share of the way along the chain, by length: the lower bone of a two-bone spine spans the first two bones of a three-bone spine, and a twist bone 40% down a forearm takes 40% of the way from the forearm's turn to the hand's, which spreads the wrist's twist. Target bones without a counterpart, such as clavicles the source does not have, do what **Unmapped bones** says.
+3. Chain transfer, `fullbody.turns`. Each chain bone takes the two source bones' turns at its spot, blended by its share, which carries the twist; then it swings so that its segment lies along the source chain over the same share of the way. Bones outside the chains (hips, head, hands, feet, toes, last finger bones) take their source bone's turn, as in the bone-by-bone bake.
+4. Contacts, `fullbody.keep_contacts`, after the chain transfer and before the weapons go into their grips.
+   - Feet. Each foot's goal is the source's foot measured from the source's hips, scaled by the bake's travel scale (the ratio of hip heights above the feet) and measured from the target's hips. A source foot that stands still gives a goal that stands still, so a planted foot does not slide. The pelvis first drops by the least amount that lets both legs reach 99.99% of their length, at most a quarter of the shorter leg, eased over 0.1 s. Each leg then reaches by two-bone IK: the knee keeps the side it bends to, or bends toward the body's front where the leg is straight, and the foot keeps its rotation.
+   - Hands. Where the source's wrists come within 0.6 of its forearm's length of each other, the target's wrists move to the source's distance and direction apart, scaled by arm length. Each wrist moves half the way; where only one hand holds a weapon, the free hand moves all the way, so the weapon stays where the bake put it. The weight fades out by one forearm length and is averaged over 0.05 s.
+   - Hips and head keep the source's rotations. Elbows and knees keep pointing where the chain transfer turned them, which is where the source's point: the IK keeps each limb's bend side.
+5. Reused unchanged: travel scale and the bone that carries body travel, root motion, weapons in the hand, weapon grips, Second hand (it still puts the free hand on the grip), body clearance, arm distance and the FromSoftware foot target chains, which stand on the final feet. `retarget.move_hand` gained an optional pole. Bones outside the body, such as weapons and helpers, take their source bones from the bone list, or from automatic matching where the list is empty.
+
+## Solver: closed form, not iTaSC
+
+Blender's iTaSC solver was checked in background Blender 4.5.14 with scratch scripts outside the repository. Pole targets work with iTaSC as with the standard solver, and no frame depended on earlier frames in the modes tried. iTaSC was not chosen because:
+
+- The bake computes its own armature-space pose matrices per frame and refuses targets with constraints. iTaSC would need IK constraints on the target, a depsgraph evaluation per frame to read the result back, and their removal afterwards.
+- Every limb is a two-joint chain. Two-bone IK is exact in closed form, and `move_hand` already solves it for Second hand and the fixes.
+- The one coupling between goals, the pelvis drop shared by both legs, also has a closed-form answer: the least drop with which both legs reach.
+- Closed form takes no iterations or tolerances, does not depend on the order of frames, and gives the same result every time, which the tests check to 0.01 mm.
+
+What iTaSC would add is many weighted goals solved at once, such as the spine bending to help a hand reach. None of the contacts here needs that.
+
+## What a rig needs
+
+- Hips and two legs with knees. Without them the bake stops with, for example, "The full-body bake finds no body in the target: it needs hips and two legs with knees. Bake bone by bone instead."
+- A spine, and arms with hands for the hand contact. Clavicles, twist bones in series and fingers are optional; spines of two, three and four bones were tested. Names are optional: a target with scrambled bone names bakes the same pose as the named one.
+- Matched rest stances (**Rest stance** > *Match source stance*) align the arms, legs and fingers to the source's rest pose, as in the bone-by-bone bake. The spine and neck keep the target's own stance.
+
+## Where it beats the bone-by-bone bake
+
+Measured on owned synthetic rigs by `blender_full_body.py` (numbers in VERIFICATION.md):
+
+- Planted feet slide 29.0 and 29.2 cm over the clip bone by bone on the two targets and 0.00 cm with the full body, and float or sink by up to 1.85 cm against 0.01 cm.
+- Hands that the source brings together miss the scaled contact by up to 5.2 cm bone by bone and by 0.00 cm with the full body.
+- The spine's chord points within 0.00° of the source's; bone by bone it is 2.35° off on a two-bone spine.
+- It needs no bone list for the body, and it spreads chains over other bone counts. The bone-by-bone bake maps such chains end to end, so the bend of the source's middle spine bone is missing from the target's spine (the 2.35° above).
+
+## Where it loses
+
+- Limb directions. To keep the contacts, the legs point up to 12.8° away from the source's on the synthetic rigs and up to 16.1° on Owl→Wolf; arms up to 3.2° at a contact. Bone by bone, they point exactly as the source's.
+- The source's stance. The feet follow the source's footprint scaled by hip height, so the source's stance width and lunge carry over: on Owl→Wolf, Wolf takes the Owl's wide lunge and lowers his pelvis by up to 2.0 cm to reach it.
+- The source's spine curve. Where the bone counts differ, each target segment lies along a chord of the source's spine, so a bend within that span is lost: a two-bone spine cannot show a three-bone S-curve.
+- Wrist twist. A twist bone in series takes its share of the turn between forearm and hand, which the bone-by-bone bake does not do. But a source's twist helpers beside the limb are no part of the chains: they reach the target only through the bone list or automatic matching, and a target without twist bones takes the source forearm's own turn.
+- Animated bone offsets. The swing that lays a segment along the source chain turns an animated translation of the next source joint into a rotation: on Owl→Wolf, the Owl's head offset tilts Wolf's neck by up to 4.1°.
+- Not handled: toes and the ground (the foot keeps its rotation and the toes follow it), a hand reaching for anything but the other hand, and the weapon-hiding eyes of the bone list when there is no list.
+
+## Decisions made here
+
+- Bone by bone stays the default; the full-body bake is labelled experimental in the menu, the panel, the status and the report.
+- The spine and neck keep the target's own stance. Aligning them to the source's rest pose hunched Wolf by about 49° at the neck on Owl→Wolf, because the Owl's rest neck leans 51° forward. The bone-by-bone bake aligns only arms, legs and fingers, for the same reason.
+- At a hand contact, a hand that holds a weapon stays and the free hand moves. Moving both moved the katana in Wolf's hand by up to 3.7 cm on Isshin→Wolf, and Second hand then moved the free hand onto the grip anyway.
+- A foot that the contact pass moved by less than 0.5 mm gets no note.
+
+## Trials on real pairs
+
+Read-only, in background Blender; the scenes were not saved, and the renders were kept outside the repository.
+
+- Owl→Wolf, a000_003041, 52 frames, travel scale 0.668, no hand contact in the clip. On the frames where a source foot stands (it moves less than 2 mm from one frame to the next), the full body slides 1.41 cm in all, which is the Owl's own 2.11 cm scaled, against 1.48 cm bone by bone. The legs differ by up to 16.1° and the pelvis drops by up to 2.0 cm. Spine and head are as bone by bone, the neck within 4.1°.
+- Isshin→Wolf, c5400 a000_003024, 106 frames, a 199-bone source, travel scale 0.767. Second hand puts Wolf's left hand on the katana on frames 25–78 in both bakes. On the two frames where the source's wrists come within 0.6 forearm of each other, the hands end 2.44 cm from the scaled source contact against 2.56 cm bone by bone; feet slide 1.32 against 1.33 cm, and the legs differ by up to 6.4°.
+
+Recommendation: keep it experimental. On these two FromSoftware pairs, whose skeletons match bone for bone, it changes little and bends the legs; it pays off on rigs of other bone counts and proportions and without usable names, as the synthetic rigs show. Before it becomes more than experimental, it needs a trial on a source from outside FromSoftware games, such as a Mixamo clip on Wolf, foot goals that keep the target's own stance width while a foot is planted, toe and ground contact, and game playback.
+
+## Files
+
+- `blender_addon/sekiro_retarget/mapping.py`: `characterize()`, `body_pairs()`.
+- `blender_addon/sekiro_retarget/fullbody.py` (new): plan, stance, chain turns, contacts.
+- `blender_addon/sekiro_retarget/retarget.py`: the bake takes the method; `move_hand()` takes a pole; notes and report.
+- `blender_addon/sekiro_retarget/__init__.py`: **Bake method**; `tools/package_addon.py` packs `fullbody.py`.
+- Tests: `standalone/tests/test_retarget_mapping.py` (`BodyTemplate`), `standalone/tests/blender_full_body.py` (new), `standalone/tests/blender_panels.py` (two states), `standalone/tests/humanoids.py` (`proportioned()`).
+
 # Unreleased — the mirrored katana strikes with its edge (retarget add-on)
 
 - State: committed on branch `mirror-sword-edge`, not released; no version change.

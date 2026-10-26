@@ -1,3 +1,30 @@
+# Unreleased — full-body bake, experimental — 2026-10-26
+
+- The 121 unit tests pass; 5 are new in `BodyTemplate` in `test_retarget_mapping.py`:
+  - `characterize()` finds the hips, head, neck, both spine ends, both arms and legs and every finger segment on the 15 rig conventions, the 6 scrambled rigs and two new rigs of other proportions with and without names. Its list of parts found by shape is empty exactly for the named rigs.
+  - In a rig without clavicles, with a twist bone in series in each upper arm and scrambled names, the upper arm stays an upper arm. The matcher alone takes it for a clavicle.
+  - `body_pairs()` spreads a three-bone spine over two bones (the lower one spans Spine and Spine1, chest pairs with chest), puts a twist bone 40% down the upper arm at 0.40 between upper arm and forearm, leaves the source's clavicles unpaired, pairs Mixamo with the Elden-style rig one to one, and finds no body in a rig without legs.
+- Blender 4.5.14 with `--factory-startup` passes all eighteen scripts, `blender_full_body.py` new. `blender_weapon_locations.py` needs an output folder after `--`, like `blender_weapons.py` and `blender_part_animations.py`. `node --check` passes on `app.js` and `preview.js`.
+- `blender_full_body.py`, new. A Mixamo-style source under an FBX transform squats 18 cm with both feet planted, bends its spine 20°, brings its hands together in front of the chest (5 cm apart on frames 9–27) and steps 25 cm forward with its left foot, over 40 frames. Two owned targets take it, both with matched rest stances and no root motion: *twisted* has a two-bone spine, no clavicles, twist bones in series in arms and legs, legs 0.85 as long with long thighs, long forearms and a 40° A-pose; *tall* has a four-bone spine, legs 1.2 as long with short thighs, hip joints closer together and short forearms. Each is baked bone by bone from the matched list and with the full body. Feet and hands in cm, directions in degrees, each on its worst frame:
+
+  | target | method | slide | worst frame | float | hands | spine | arms | legs | elbows | knees |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | twisted | bone by bone | 29.00 | 1.47 | 1.85 | 5.18 | 2.35 | 0.00 | 0.00 | 0.00 | 0.00 |
+  | twisted | full body | 0.00 | 0.00 | 0.01 | 0.00 | 0.00 | 3.18 | 12.81 | 3.60 | 1.63 |
+  | tall | bone by bone | 29.23 | 1.46 | 1.83 | 2.73 | 0.78 | 0.00 | 0.00 | 0.00 | 0.00 |
+  | tall | full body | 0.00 | 0.00 | 0.01 | 0.00 | 0.00 | 1.94 | 9.01 | 1.94 | 4.57 |
+
+  - slide: how far the target's feet move in all on the frames where the source's foot stands still; worst frame: the most on one frame; float: how far a planted foot rises or sinks from its rest height; hands: how far the wrists are from the source's contact scaled by arm length, where the source's are within 0.6 forearm; spine: the chord from the first spine bone to the neck against the source's; arms and legs: each limb bone's direction against the source's; elbows and knees: the plane each limb bends in, where the source's bends by 10° or more.
+  - The full body's 0.01 cm float is a constant offset, not motion: the synthetic feet sit 2 cm forward of the hips whatever the leg length, so the travel scale, measured from the hips to the feet, differs from the ratio of heights by 0.01%.
+  - The pelvis drops by up to 0.12 cm on *tall*, whose hip joints are closer together than the source's, and not on *twisted*.
+  - A copy of *twisted* with scrambled bone names and no bone list bakes the same pose as the named one, within 1e-5 m and 0.01°, and the status lists hips, spine, neck, head, arms, legs and fingers as found by shape.
+- `blender_panels.py` draws 14 states, two of them new: with *Full body (experimental)* and no bone list, **Bake motion onto target** is available and the experimental note shows; after the bake, the status reads "Baked 24 frames from the full body" with the weapon in Wolf's hand placed as before.
+- Read-only trials in background Blender, with the scenes not saved. A source foot counts as standing where it moves less than 2 mm from one frame to the next; renders of both bakes next to the source were kept outside the repository.
+  - Owl onto Wolf, a000_003041, 52 frames, travel scale 0.668, no hand contact in the clip. Slide on the source's standing frames: 1.48 cm bone by bone, 1.41 cm full body, which is the Owl's own 2.11 cm scaled. Full body: legs up to 16.1° from the bone-by-bone result, knee planes up to 6.3° from the source's, pelvis lowered by up to 2.0 cm on frames 2–12, feet moved by up to 8.6 cm from the chain transfer. Spine and head match the bone-by-bone bake; the neck is within 4.1°. Before the spine and neck kept the target's own stance, Wolf's neck was turned by about 49° and his head 50°.
+  - Isshin onto Wolf, c5400 a000_003024, 106 frames, a 199-bone source, travel scale 0.767. Second hand puts the left hand on the katana on frames 25–78 in both bakes. Hands, on the two frames where the source's wrists are within 0.6 forearm: 2.56 cm bone by bone, 2.44 cm full body, with the free left hand moved by up to 7.4 cm on frames 20–85. Slide 1.33 against 1.32 cm (source 1.73 cm), legs up to 6.4° apart, feet moved by up to 2.2 cm. Before the weapon hand was left in place, the full body's hands were 3.19 cm off.
+- iTaSC, checked with scratch scripts in background Blender 4.5.14: pole targets steer the knee with iTaSC as with the standard solver, and no result depended on earlier frames in the modes tried. The full-body bake uses its own closed-form solver; PROJECT_CONTEXT.md says why.
+- Not checked: game playback of a full-body clip, a real source from outside FromSoftware games, such as a Mixamo FBX, on a game character, and the panel in a live Blender window.
+
 # Unreleased — the mirrored katana strikes with its edge — 2026-10-25
 
 - The 116 unit tests pass. Blender 4.5.14 with `--factory-startup` passes all seventeen scripts, `blender_preview_lighting.py` among them. `blender_fixes.py`, flagged by the batch script for its expected refusal messages, passes on its own.
