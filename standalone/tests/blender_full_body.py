@@ -6,10 +6,13 @@ planted. Two targets of other proportions and bone counts take the clip, with ma
 motion: one with a two-bone spine, no clavicles, twist bones in its arms and legs, short legs with long thighs,
 long forearms and an A-pose; one with a four-bone spine, long legs with short thighs, hip joints closer together
 and short forearms. Each is baked bone by bone from the matched bone list and with the full-body method, and the
-two bakes are compared by numbers: how far a planted foot slides and floats or sinks, how far the hands are from
-the source's contact scaled by arm length, and how far the spine, limbs, elbows and knees point from the source's.
-The full-body bake also runs on the first target with scrambled bone names and no bone list, and has to find the
-same body and give the same pose.
+two bakes are compared by numbers: how far a planted foot slides and floats or sinks, how far the planted feet stand
+from the target's own hip width plus the source's spread, scaled, how far the hands are from the source's contact
+scaled by arm length, and how far the spine, limbs, elbows and knees point from the source's. The full-body bake
+also runs on the first target with scrambled bone names and no bone list, and has to find the same body and give
+the same pose; and on the second target from the same clip carried by a root-motion object that moves and turns
+under the rig, where the body has to land where the game puts it just where it lands without root motion. Last, the
+sideways move that sets the hip width has to hold still where a foot stands and turn with a swinging pelvis between.
 """
 import json
 import math
@@ -23,7 +26,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[1] / 'blender_addon'))
 import humanoids
 import sekiro_retarget
-from sekiro_retarget import fullbody
+from sekiro_retarget import fullbody, retarget
 
 COUNT, RATE = 40, 30
 TARGETS = dict(
@@ -84,11 +87,13 @@ def reach(root, rest, goal, pole, before):
     return first, second
 
 
-def clip(rig, bones):
+def clip(rig, bones, root=None):
     """Key the source clip: the hips drop 18 cm and come back up by 12 cm, the spine bends forward by 20 degrees,
     the hands meet in front of the chest from frame 9 to 27, and the left foot steps 25 cm forward on frames 17 to
     29 while the hips follow half way and turn by up to 9 degrees. Each foot stands still while it is not
-    stepping; the legs and arms reach their goals by two-bone IK."""
+    stepping; the legs and arms reach their goals by two-bone IK. With a root-motion object, root carries the hips'
+    travel forward and turns by 30 degrees over the clip, and the rig keys the rest, so that root and rig together
+    put every bone where the clip without it does, as the game places a bone by both."""
     parent_of = {name: parent for name, parent, head, label in bones}
     label_of = {name: label for name, parent, head, label in bones}
     name_of = {label: name for name, parent, head, label in bones if label}
@@ -132,6 +137,14 @@ def clip(rig, bones):
                 turns[name] = Quaternion()
             else:
                 turns[name] = before
+        if root is not None:
+            carry, spin = Vector((0, -.125 * step, 0)), math.radians(30) * ramp(f, 0, 39)
+            back = Quaternion((0, 0, 1), -spin)
+            heads = {name: back @ (head - carry) for name, head in heads.items()}
+            turns = {name: back @ value for name, value in turns.items()}
+            root.location, root.rotation_euler = carry, (0, 0, spin)
+            root.keyframe_insert('location', frame=f + 1)
+            root.keyframe_insert('rotation_euler', frame=f + 1)
         for bone in rig.data.bones:
             pose = Matrix.LocRotScale(to_rig @ heads[bone.name], turn.inverted() @ turns[bone.name] @ turn @ rest_matrices[bone.name].to_quaternion(), None)
             keywords = {}
@@ -157,6 +170,26 @@ def track(rig):
     return result
 
 
+def placed(rig, root):
+    """Where the game puts a rig's bones on every frame: its world matrices moved and turned by its root-motion object."""
+    result = []
+    for frame in range(1, COUNT + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        carry = Matrix.Translation(root.location) @ Matrix.Rotation(root.rotation_euler.z, 4, 'Z')
+        result.append({bone.name: carry @ rig.matrix_world @ bone.matrix for bone in rig.pose.bones})
+    return result
+
+
+def apart(frames, other):
+    """How far two takes of the same bones lie apart on their worst frame: (metres, degrees)."""
+    def degrees(a, b):
+        turn = a.to_quaternion().rotation_difference(b.to_quaternion())
+        return math.degrees(2 * math.atan2(Vector(turn[1:]).length, abs(turn[0])))
+    pairs = [(frame[name], other_frame[name]) for frame, other_frame in zip(frames, other) for name in frame]
+    return max((a.translation - b.translation).length for a, b in pairs), max(degrees(a, b) for a, b in pairs)
+
+
 def at(frames, name):
     return [frame[name].translation for frame in frames]
 
@@ -177,18 +210,25 @@ def bake(method):
     return json.loads(scene['sekiro_retarget_report'])
 
 
-def measure(src, tgt, names, rest):
-    """The comparison's numbers for one bake: target frames against the source's."""
+def measure(src, tgt, names, rest, scale):
+    """The comparison's numbers for one bake: target frames against the source's. scale is the bake's travel scale."""
     s, t = source_names, names
-    result = dict(slide=0.0, worst=0.0, float=0.0, hands=0.0, spine=0.0, arms=0.0, legs=0.0, elbows=0.0, knees=0.0)
+    result = dict(slide=0.0, worst=0.0, float=0.0, width=0.0, hands=0.0, spine=0.0, arms=0.0, legs=0.0, elbows=0.0, knees=0.0)
+    standing = {}
     for side in 'LR':
         source_foot, target_foot = at(src, s[f'{side}.foot']), at(tgt, t[f'{side}.foot'])
-        for i in range(1, COUNT):
-            if (source_foot[i] - source_foot[i - 1]).length < 1e-5:
-                moved = (target_foot[i] - target_foot[i - 1]).length
-                result['slide'] += moved
-                result['worst'] = max(result['worst'], moved)
-                result['float'] = max(result['float'], abs(target_foot[i].z - rest[t[f'{side}.foot']].z))
+        standing[side] = {i for i in range(1, COUNT) if (source_foot[i] - source_foot[i - 1]).length < 1e-5}
+        for i in sorted(standing[side]):
+            moved = (target_foot[i] - target_foot[i - 1]).length
+            result['slide'] += moved
+            result['worst'] = max(result['worst'], moved)
+            result['float'] = max(result['float'], abs(target_foot[i].z - rest[t[f'{side}.foot']].z))
+    # Where both feet stand, they should be the target's own hip joints apart plus the source's spread beyond its hip
+    # joints, scaled; sideways is X, which the clip's steps keep square to.
+    hip_joints = [rig_rest[n['L.thigh']].x - rig_rest[n['R.thigh']].x for rig_rest, n in ((source_rest, s), (rest, t))]
+    for i in standing['L'] & standing['R']:
+        apart = [frames[i][n['L.foot']].translation.x - frames[i][n['R.foot']].translation.x for frames, n in ((src, s), (tgt, t))]
+        result['width'] = max(result['width'], abs(apart[1] - (hip_joints[1] + scale * (apart[0] - hip_joints[0]))))
     apart = [(frame[s['R.hand']].translation - frame[s['L.hand']].translation) for frame in src]
     close = [vector.length < .6 * source_forearm for vector in apart]
     for i in range(COUNT):
@@ -209,7 +249,7 @@ def measure(src, tgt, names, rest):
                 bent = bend_plane(frame_s, [s[f'{side}.{part}'] for part in chain])
                 if bent.length > math.sin(math.radians(10)):  # A straighter limb points nowhere in particular.
                     result[key] = max(result[key], angle(bent, bend_plane(frame_t, [t[f'{side}.{part}'] for part in chain])))
-    for key in ('slide', 'worst', 'float', 'hands'):
+    for key in ('slide', 'worst', 'float', 'width', 'hands'):
         result[key] *= 100
     return result
 
@@ -253,7 +293,7 @@ for label, target_bones in TARGETS.items():
         report = bake(method)
         assert report['bake_method'] == method, report
         frames = track(target)
-        results[label, method] = dict(measure(src, frames, names, rest), report=report, frames=frames)
+        results[label, method] = dict(measure(src, frames, names, rest, report['scale']), report=report, frames=frames)
         rows.append((label, method.lower(), results[label, method]))
     body = results[label, 'BODY']['report']['body']
     assert body['unpaired'] == [] and body['target_shape'] == [] and body['source_shape'] == [], body
@@ -274,11 +314,45 @@ turned = max(frames[i][alias[name]].to_quaternion().rotation_difference(referenc
              for i in range(COUNT) for name in alias)
 assert differ < 1e-5 and math.degrees(turned) < .01, (differ, math.degrees(turned))
 
+# With root motion: the same clip on a root that moves and turns under the rig. Baked with the source's root motion,
+# the tall target's bones land where the game puts them just where they land without it, at its own hip width and
+# without sliding, so the feet are measured where the game puts them.
+carried = armature('Carried source', source_bones, source.matrix_world, roll=.4)
+root = bpy.data.objects.new('Carried root', None)
+scene.collection.objects.link(root)
+carried['sekiro_root_motion_data'] = root
+clip(carried, source_bones, root)
+assert max(apart(placed(carried, root), src)) < 1e-4, apart(placed(carried, root), src)
+target = armature('Target_carried', TARGETS['tall'])
+settings.source, settings.target, settings.root_motion = carried, target, 'SOURCE'
+report = bake('BODY')
+assert report['root_motion'] == 'SOURCE', report['root_motion']
+# The Root bone above the hips keeps its rest pose in the rig, so the root motion carries it away; the body does not.
+body_bones = {bone.name for bone in target.data.bones if 'Hips' in [bone.name] + [parent.name for parent in bone.parent_recursive]}
+along = apart([{name: frame[name] for name in body_bones} for frame in placed(target, retarget.root_object(target))],
+              results['tall', 'BODY']['frames'])
+assert along[0] < 1e-4 and along[1] < .01, along
+
+# The sideways move that sets the hip width holds still where a foot stands and turns with the pelvis while it steps,
+# however far the pelvis swings: here it turns 8 degrees over the first stand, swings 80 degrees one way and 160 back
+# while the foot steps, and turns 8 more over the second stand.
+up = Vector((0, 0, 1))
+yaws = list(range(9)) + [8 - 10 * i for i in range(1, 9)] + [-72 + 16 * i for i in range(1, 11)] + [88 + i for i in range(9)]
+stands = [True] * 9 + [False] * 18 + [True] * 9
+sides = fullbody.held([Quaternion(up, math.radians(yaw)) @ Vector((1, 0, 0)) for yaw in yaws], stands, up)
+turns = [math.degrees(math.atan2(side.y, side.x)) for side in sides]
+assert max(abs(turn - 4) for turn in turns[:9]) < 1e-4 and max(abs(turn - 92) for turn in turns[-9:]) < 1e-4, turns
+# Off the pelvis by no more than it is off at the ends of the stands, and no step larger than the pelvis's own.
+swing = max(abs(turn - yaw) for turn, yaw in zip(turns, yaws))
+steps = max(abs(b - a) for a, b in zip(turns, turns[1:]))
+assert swing < 4 + 1e-4 and steps < max(abs(b - a) for a, b in zip(yaws, yaws[1:])) + 1, (swing, steps, turns)
+
 # slide: how far the planted feet move in all, worst: on one frame, float: how far a planted foot rises or sinks
-# from its rest height, hands: how far the hands are from the source's contact scaled by arm length, spine: the
+# from its rest height, width: how far the planted feet's distance apart is from the target's own hip width plus the
+# source's spread, scaled, hands: how far the hands are from the source's contact scaled by arm length, spine: the
 # chord from the first spine bone to the neck, arms and legs: each limb bone's direction, elbows and knees: the
 # plane each limb bends in, where the source's bends by 10 degrees or more.
-KEYS = ('slide', 'worst', 'float', 'hands', 'spine', 'arms', 'legs', 'elbows', 'knees')
+KEYS = ('slide', 'worst', 'float', 'width', 'hands', 'spine', 'arms', 'legs', 'elbows', 'knees')
 print(f'Full body against bone by bone, {COUNT} frames; feet and hands in cm, directions in degrees, each on its worst frame:')
 print(f'{"target":8} {"method":6} ' + ' '.join(f'{key:>6}' for key in KEYS))
 for label, method, numbers in rows:
@@ -290,11 +364,16 @@ for label in TARGETS:
     # and the hands miss each other.
     assert bones['arms'] < .01 and bones['legs'] < .01 and bones['elbows'] < .01 and bones['knees'] < .01, (label, bones)
     assert bones['slide'] > 10 and bones['float'] > 1 and bones['hands'] > 1, (label, bones)
-    # Full body, the feet stand where the source's stand, scaled, the hands meet as the source's do and the spine's
-    # chord points like the source's. The limbs give up some of their direction for that, hardly where they bend to.
-    assert body['slide'] < .01 and body['float'] < .05 and body['hands'] < .05 and body['spine'] < min(.05, bones['spine']), (label, body)
-    assert body['arms'] < 10 and body['legs'] < 20 and body['elbows'] < 10 and body['knees'] < 10, (label, body)
+    # Full body, the feet stand where the source's stand, scaled, at the target's own hip width, the hands meet as the
+    # source's do and the spine's chord points like the source's. The limbs give up some of their direction for that,
+    # hardly where they bend to.
+    assert body['slide'] < .01 and body['float'] < .05 and body['width'] < .05 and body['hands'] < .05 and \
+        body['spine'] < min(.05, bones['spine']), (label, body)
+    assert body['arms'] < 10 and body['legs'] < 15 and body['elbows'] < 10 and body['knees'] < 1, (label, body)
 print(f"Full-body check passed: planted feet slide up to {max(results[label, 'BONES']['slide'] for label in TARGETS):.1f} cm "
-      f"bone by bone and {max(results[label, 'BODY']['slide'] for label in TARGETS):.2f} cm full body, hands miss by up to "
+      f"bone by bone and {max(results[label, 'BODY']['slide'] for label in TARGETS):.2f} cm full body, at the target's own hip "
+      f"width within {max(results[label, 'BODY']['width'] for label in TARGETS):.2f} cm, hands miss by up to "
       f"{max(results[label, 'BONES']['hands'] for label in TARGETS):.1f} and {max(results[label, 'BODY']['hands'] for label in TARGETS):.2f} cm, "
-      'and the scrambled target bakes the same pose without names')
+      f"the scrambled target bakes the same pose without names, with root motion the body lands where it does without "
+      f"it within {along[0] * 1000:.3f} mm and {along[1]:.3f} degrees, and the hip-width move stays within {swing:.1f} "
+      f"degrees of a pelvis that swings 160 degrees between two stands")

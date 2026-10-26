@@ -1,5 +1,6 @@
 """Weapon matching, weapon alignment and body clearance of the retarget add-on on owned synthetic rigs and meshes.
-Run with Blender --background --factory-startup --python this_file.py.
+Run with Blender --background --factory-startup --python this_file.py, and again with -- BODY after it to check the
+same with the full-body bake.
 
 A FromSoftware-style source brings both hands together in front of its belly while its right hand holds a
 sword, skinned to R_Katana, and a gun that the clip hides by scaling it to zero. The target has the same
@@ -28,6 +29,7 @@ import sekiro_retarget
 from sekiro_retarget import retarget
 
 COUNT, RATE, SIZE = 72, 30, 1.25
+METHOD = sys.argv[sys.argv.index('--') + 1] if '--' in sys.argv else 'BONES'  # The bake method, BONES or BODY.
 # Wrists on one hilt with bent elbows, in armature space; the target torso's front lies 6 cm further forward.
 GOALS = {'R': Vector((-.05, -.18, 1.18)), 'L': Vector((.03, -.19, 1.22))}
 
@@ -239,6 +241,7 @@ constraint.target, constraint.subtarget = target, 'R_Weapon'
 sword = box('Sword', (-.12, -.006, -.015), (.9, .006, .015), 2, None, socket)  # Blade along the bone's X axis
 
 settings = scene.sekiro_retarget
+settings.method = METHOD
 settings.source, settings.target = source, target
 assert retarget.hidden_bones(source) == {'R_Gun'}, retarget.hidden_bones(source)
 assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
@@ -302,7 +305,7 @@ reported = max(item['kept'] for item in report['clearance'])
 assert abs(reported - max(frame['depth'] for frame in kept)) < .002, (reported, max(frame['depth'] for frame in kept))
 cleared = [f for f in range(1, COUNT + 1) if not own[f - 1] and kept[f - 1]['inside']]
 assert not cleared, f'clipping that the source does not have stays on frames {cleared}'
-print(f'Weapon and clearance checks passed: blades within {worst_blades:.3f} degrees; plain bake clipped on frames '
+print(f'Weapon and clearance checks passed{" with the full-body bake" if METHOD == "BODY" else ""}: blades within {worst_blades:.3f} degrees; plain bake clipped on frames '
       f'{contact[0]}-{contact[-1]}; hands moved by up to {largest * 100:.1f} cm, at most {steepest * 100:.2f} cm per frame; '
       f'{len(still)} frames unchanged; source clipping of {own[35] * 100:.1f} cm kept as {actual[6] * 100:.1f} cm on the '
       f'{SIZE} times larger target, within {max(abs(a - e) for a, e in zip(actual, expected)) * 1000:.1f} mm on frames 30-42 '

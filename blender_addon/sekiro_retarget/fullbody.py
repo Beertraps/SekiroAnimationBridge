@@ -6,10 +6,10 @@ skeleton's shape elsewhere. Each chain then takes the source chain's shape and t
 has (see mapping.body_pairs): a bone takes the source's motion at the same share of the way along its chain, and
 its segment lies along the source chain over the same share. A last pass keeps the contacts that other
 proportions break: each foot goes where the source's foot goes, measured from the hips and scaled by leg length,
-with the pelvis lowered where a leg could not reach otherwise, and where the source's hands are together, the
-target's hands come as close as the source's, scaled by arm length. Elbows and knees keep pointing where the chain
-transfer turns them, which is where the source's point; the hips, head, hands and feet keep the source's world
-rotations.
+set to the target's own hip width without sliding where it stands, with the pelvis lowered where a leg could not
+reach otherwise, and where the source's hands are together, the target's hands come as close as the source's,
+scaled by arm length. Elbows and knees keep pointing where the chain transfer turns them, which is where the
+source's point; the hips, head, hands and feet keep the source's world rotations.
 
 The solver is closed-form rather than iterative: the pelvis drop is the smallest one that lets both legs reach,
 and each limb is two-bone IK (retarget.move_hand), so the result is exact, takes no iterations and does not depend
@@ -27,6 +27,8 @@ REACH = .9999
 # The pelvis drops at most this part of the shorter leg; a foot farther away than that is a matter of the motion,
 # not of proportions, and its leg stops short.
 DROP = .25
+# A foot stands where it moves slower than this many leg lengths per second, measured where the game puts it.
+STAND = .25
 
 
 def plan(source, target, rows, tracked_only):
@@ -159,13 +161,53 @@ def turns(chains, source_poses, source_rest, target_rest, stance, rotation):
     return result
 
 
-def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, rotation, carried, holds, placed, armed, forward):
+def level(vector, up):
+    """vector without its part along up, of length 1; None where it points nearly along up."""
+    flat = vector - up * vector.dot(up)
+    return flat.normalized() if flat.length > .1 * vector.length > 0 else None
+
+
+def held(sides, flags, up):
+    """Per frame, a sideways direction that holds still over each stretch of frames where flags is true, at the mean
+    of sides over it. Elsewhere it turns with sides, off them by an angle about up that eases from the one at the end
+    of the stretch before to the one at the start of the stretch after, so that it joins each stretch without a jump;
+    before the first stretch and after the last it keeps the angle there. Without any stretch, sides as they are."""
+    stretches = retarget.runs(flags)
+    if not stretches:
+        return list(sides)
+
+    def off(side, mean):
+        """The turn about up from side to mean, in radians."""
+        return math.atan2(up.dot(side.cross(mean)), side.dot(mean))
+    means = [(start, end, level(sum(sides[start:end], Vector()), up) or sides[start]) for start, end in stretches]
+    first, last = off(sides[means[0][0]], means[0][2]), off(sides[means[-1][1] - 1], means[-1][2])
+    result = [Quaternion(up, first) @ side for side in sides[:means[0][0]]]
+    for (start, end, mean), following in zip(means, means[1:] + [None]):
+        result += [mean] * (end - start)
+        if following is None:
+            result += [Quaternion(up, last) @ side for side in sides[end:]]
+            continue
+        leaving, joining, gap = off(sides[end - 1], mean), off(sides[following[0]], following[2]), following[0] - end + 1
+        for t in range(end, following[0]):
+            x = (t - end + 1) / gap
+            result.append(Quaternion(up, leaving + (joining - leaving) * x * x * (3 - 2 * x)) @ sides[t])
+    return result
+
+
+def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, rotation, carried, holds, placed, armed, forward,
+                  ground=None):
     """Keep the feet on the source's footprint and the hands together where the source's are; returns what moved.
 
     Each foot's goal is where the source's foot is, measured from the source's hips, scaled by travel and measured
-    from the target's hips, so a foot that stands still in the source stands still in the target. The pelvis first
-    drops by the least that lets both legs reach their goals, at most DROP of the shorter leg, eased in and out over
-    0.1 s. Each leg then reaches its goal by two-bone IK: the knee keeps the side it bends to, or bends forward
+    from the target's hips, so a foot that stands still in the source stands still in the target. The goal then moves
+    sideways by how much farther from the middle the target's hip joint sits than the source's, scaled, so that the
+    feet stand the target's own hip width apart and each leg leans out as far as the source's. That move points
+    sideways from the pelvis, but holds still over each stretch of frames where the foot stands, moving slower than
+    STAND leg lengths per second, so that it adds no sliding; while the foot steps, it turns with the pelvis again.
+    ground gives per frame the move and the turn about up that root motion adds, in armature units, where the target
+    takes the source's root motion, so that standing is measured where the game puts the feet. The pelvis then drops
+    by the least that lets both legs reach their goals, at most DROP of the shorter leg, eased in and out over 0.1 s.
+    Each leg then reaches its goal by two-bone IK: the knee keeps the side it bends to, or bends forward
     where the leg is straight, and the foot keeps its rotation. Where the source's wrists come within 0.6 of its
     forearm's length of each other, the target's wrists move to the source's distance and direction apart, scaled
     by arm length, each by half; where only one hand holds a weapon, the other hand moves all the way, so that the
@@ -195,6 +237,28 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
             for side, leg in sorted(body['legs'].items())]
     goals = [[poses[hips].translation + rotation @ (sample[leg['source']] - sample[direct[hips]]) * travel for leg in legs]
              for poses, sample in zip(pose_frames, samples)]
+    across = level(bones[legs[0]['chain'][0]].head_local - bones[legs[-1]['chain'][0]].head_local, up)  # Toward the left.
+    if across is not None:
+        heads, sources = {bone.name: bone.head_local for bone in source.data.bones}, layout['source']['legs']
+
+        def turn_of(t):
+            """The turn about up that root motion adds on frame t."""
+            return Quaternion(up, ground[t][1]) if ground else Quaternion()
+        sides, last = [], across  # The pelvis's sideways direction per frame, where the game turns it.
+        for t, poses in enumerate(pose_frames):
+            last = level(turn_of(t) @ poses[hips].to_quaternion() @ rest_hips @ across, up) or last
+            sides.append(last)
+        for i, leg in enumerate(legs):
+            own = bones[leg['chain'][0]].head_local - bones[hips].head_local
+            theirs = rotation @ (heads[sources[leg['side']]['thigh']] - heads[direct[hips]]) * travel
+            leg['width'] = (own - theirs).dot(across)
+            places = [turn_of(t) @ aims[i] + (ground[t][0] if ground else Vector()) for t, aims in enumerate(goals)]
+            limit, end = STAND * leg['length'] / rate, len(places) - 1
+            stands = [(places[min(end, t + 1)] - places[max(0, t - 1)]).length <= limit * (min(end, t + 1) - max(0, t - 1))
+                      for t in range(len(places))]
+            leg['stands'] = len(retarget.runs(stands))
+            for t, side in enumerate(held(sides, stands, up)):
+                goals[t][i] += turn_of(t).inverted() @ side * leg['width']
     drops, shortest = [], min(leg['length'] for leg in legs)
     for poses, aims in zip(pose_frames, goals):
         need = 0.0
@@ -248,6 +312,7 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
     scale = retarget.uniform_scale(target)
     return dict(drop=max(drops, default=0.0) * scale, dropped=[t + 1 for t, drop in enumerate(drops) if drop * scale > 1e-4],
                 feet=[dict(side=leg['side'], foot=leg['chain'][2], moved=leg['moved'] * scale, short=leg['short'],
-                           gap=leg['gap'] * scale) for leg in legs],
+                           gap=leg['gap'] * scale, stands=leg.get('stands', 0),
+                           outward=leg.get('width', 0.0) * (1 if leg['side'] == 'L' else -1) * scale) for leg in legs],
                 hands=[dict(side=arm['side'], hand=arm['chain'][2], frames=arm['frames'], moved=arm['moved'] * scale)
                        for arm in arms if arm['frames']])

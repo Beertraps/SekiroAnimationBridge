@@ -1732,9 +1732,16 @@ def bake(scene, settings):
                         poses[bone.name] = Matrix.LocRotScale(location, orientation, Vector((HIDDEN, HIDDEN, HIDDEN)))
             pose_frames.append(poses)
         # The full-body bake keeps the feet on the source's footprint and the hands together where the source's are,
-        # before the weapons go into their grips and the hands are kept clear of the body.
+        # before the weapons go into their grips and the hands are kept clear of the body. Where the target takes the
+        # source's root motion (see below), its feet stand where that motion puts them.
+        ground = None
+        if body and settings.root_motion in ('AUTO', 'SOURCE') and source_root_samples:
+            to_rig = target.matrix_world.to_3x3().inverted()
+            start_location, start_rotation = source_root_samples[0]
+            ground = [(to_rig @ ((location - start_location) * factor), euler.z - start_rotation.z) for location, euler in source_root_samples]
         contacts = fullbody.keep_contacts(source, target, body, pose_frames, body_samples, travel, rate, rotation, carried, holds,
-                                          placed, {hand for name, hand, placed_in in in_hand}, target_body.get('forward')) if body else None
+                                          placed, {hand for name, hand, placed_in in in_hand}, target_body.get('forward'),
+                                          ground) if body else None
         # The second hands keep their baked turns relative to the weapons, which are the source's.
         baked = [{name: poses[name].to_quaternion() for pair in pairs for name in (pair['weapon'], pair['chain'][2])}
                  for poses in pose_frames]
@@ -1965,6 +1972,11 @@ def bake(scene, settings):
             if contacts['dropped']:
                 notes.append(f"Pelvis lowered by up to {contacts['drop'] * 100:.1f} cm on frames {spans(contacts['dropped'])}, so that "
                              "the legs reach the source's footprint.")
+            widths = [item for item in contacts['feet'] if abs(item['outward']) >= .0005]
+            if widths:
+                notes.append(f"The source's footprint is set to {target.name}'s own hip width: " + ', '.join(
+                    f"{'left' if item['side'] == 'L' else 'right'} foot {abs(item['outward']) * 100:.1f} cm "
+                    f"{'out' if item['outward'] > 0 else 'in'}" for item in widths) + '.')
             for item in contacts['feet']:
                 foot = 'Left' if item['side'] == 'L' else 'Right'
                 if item['moved'] >= .0005:  # Where the chain transfer already puts the foot there, there is nothing to tell.
