@@ -247,6 +247,78 @@ def fromsoftware(arm_angle=45.0, layout='elden'):
     return build(joints, names, parents, extra)
 
 
+def proportioned(spine=3, clavicles=True, twists=False, legs=1.0, thighs=None, arms=(1.0, 1.0), hips=1.0, arm_angle=0.0):
+    """A humanoid of other proportions and bone counts than base(), for the full-body bake.
+
+    spine bones run between the hips and the neck, with or without clavicles, and twists adds a twist bone in series
+    to each upper arm and forearm, 40% of the way down, and to each thigh and calf, half way. The legs are scaled by
+    legs and the upper body rides on them; thighs is the thigh's share of the leg (base(): 0.49), arms scales the
+    upper arm and the forearm, and hips the distance between the hip joints. Spine bones between the first and the
+    last, and twist bones, carry no label.
+    """
+    lift = legs - 1.0
+    bones = [('Root', '', (0, 0, 0), None), ('Hips', 'Root', (0, 0, legs), 'hips')]
+    parent = 'Hips'
+    for index in range(spine):
+        name = 'Spine' + (str(index) if index else '')
+        height = 1.1 + .3 * index / (spine - 1) if spine > 1 else 1.25
+        bones.append((name, parent, (0, .01 if index < spine - 1 else 0, height + lift),
+                      'spine.first' if index == 0 else 'spine.last' if index == spine - 1 else None))
+        parent = name
+    chest = parent
+    bones += [('Neck', chest, (0, -.01, 1.55 + lift), 'neck'), ('Head', 'Neck', (0, -.02, 1.65 + lift), 'head'),
+              ('HeadTop', 'Head', (0, -.02, 1.85 + lift), 'head.end')]
+    share = (.95 - .52) / (.95 - .08) if thighs is None else thighs
+    for side, s in (('L', 1), ('R', -1)):
+        shoulder = (s * .17, 0, 1.5 + lift)
+        angle = math.radians(arm_angle) * s
+
+        def arm_point(dx, dy, dz):
+            """A point of the arm in a T-pose, given from the shoulder, lowered by arm_angle like base()."""
+            return (shoulder[0] + dx * math.cos(angle) + dz * math.sin(angle), shoulder[1] + dy,
+                    shoulder[2] - dx * math.sin(angle) + dz * math.cos(angle))
+        upper, fore = .28 * arms[0], .25 * arms[1]
+        elbow, wrist = (s * upper, .01, 0), (s * (upper + fore), 0, 0)
+        above = chest
+        if clavicles:
+            bones.append((f'{side}_Clavicle', chest, (s * .04, -.02, 1.5 + lift), f'{side}.clavicle'))
+            above = f'{side}_Clavicle'
+        bones.append((f'{side}_UpperArm', above, shoulder, f'{side}.upperarm'))
+        above = f'{side}_UpperArm'
+        if twists:
+            bones.append((f'{side}_UpperArmTwist', above, arm_point(*(.4 * v for v in elbow)), None))
+            above = f'{side}_UpperArmTwist'
+        bones.append((f'{side}_Forearm', above, arm_point(*elbow), f'{side}.forearm'))
+        above = f'{side}_Forearm'
+        if twists:
+            bones.append((f'{side}_ForearmTwist', above, arm_point(*(a + .4 * (b - a) for a, b in zip(elbow, wrist))), None))
+            above = f'{side}_ForearmTwist'
+        bones.append((f'{side}_Hand', above, arm_point(*wrist), f'{side}.hand'))
+        starts = dict(thumb=(.02, -.035, -.01), index=(.09, -.025, 0), middle=(.095, -.005, 0), ring=(.09, .015, 0),
+                      pinky=(.08, .032, 0))
+        steps = dict(thumb=(.025, -.02, -.005), index=(.03, 0, 0), middle=(.033, 0, 0), ring=(.03, 0, 0), pinky=(.025, 0, 0))
+        for finger in FINGERS:
+            above = f'{side}_Hand'
+            for segment in (1, 2, 3):
+                x, y, z = (start + (segment - 1) * step for start, step in zip(starts[finger], steps[finger]))
+                name = f'{side}_{finger.title()}{segment}'
+                bones.append((name, above, arm_point(wrist[0] + s * x, y, z), f'{side}.{finger}.{segment}'))
+                above = name
+        x = s * .1 * hips
+        knee = .95 * legs - share * .87 * legs
+        joints = [('Thigh', (x, 0, .95 * legs), 'thigh'), ('Calf', (x, -.01, knee), 'calf'), ('Foot', (x, .02, .08 * legs), 'foot')]
+        above = 'Hips'
+        for index, (part, head, label) in enumerate(joints):
+            bones.append((f'{side}_{part}', above, head, f'{side}.{label}'))
+            above = f'{side}_{part}'
+            if twists and index < 2:
+                below = joints[index + 1][1]
+                bones.append((f'{side}_{part}Twist', above, tuple((a + b) / 2 for a, b in zip(head, below)), None))
+                above = f'{side}_{part}Twist'
+        bones.append((f'{side}_Toe', f'{side}_Foot', (x, -.12, .02 * legs), f'{side}.toe'))
+    return bones
+
+
 def with_foot_targets(bones):
     """A FromSoftware-style rig with its foot target chains, as every Sekiro and Dark Souls III rig has them: from
     Master straight down, L_Foot_Target2 at hip height, L_Foot_Target1 at knee height and L_Foot_Target on the foot."""

@@ -86,6 +86,13 @@ class SKR_Settings(PropertyGroup):
     tracked_only: BoolProperty(name='Only bones the clip animates', default=True,
         description='For rigs imported by the bridge, match only the bones that the HKX clip animates, its tracks; '
                     'the other bones of the model follow their parents. Takes effect at the next match')
+    method: EnumProperty(name='Bake method', description='How the target takes the source\'s motion', items=[
+        ('BONES','Bone by bone','Each target bone takes the motion of the source bone that the bone list gives it'),
+        ('BODY','Full body (experimental)','Finds the body in both rigs without a bone list: each chain, such as the '
+                'spine or an arm, takes the source chain\'s shape over its own bones, the feet stay on the source\'s '
+                'footprint, scaled to the legs, and the hands come together where the source\'s do. Bones outside the '
+                'body, such as weapons, take their source bones from the bone list, or from automatic matching')],
+        default='BONES')
     rest_mode: EnumProperty(name='Rest stance', description='How the target\'s limbs stand before the motion is applied', items=[
         ('ALIGN','Match source stance','Pose the target limbs like the source rest pose before applying motion, '
                  'so an A-pose target follows a T-pose source without lowered or raised arms'),
@@ -412,13 +419,15 @@ class SKR_OT_mirror(Operator):
 class SKR_OT_bake(Operator):
     bl_idname='sekiro_retarget.bake'
     bl_label='Bake motion onto target'
-    bl_description='Create a new target action from the reviewed map; the original action is kept'
+    bl_description=('Create a new target action from the reviewed map, or with the full-body method from the bodies of '
+                    'both rigs; the original action is kept')
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
         settings=context.scene.sekiro_retarget
         try:
             result=retarget.bake(context.scene,settings)
-            settings.status=(f"Baked {result['frames']} frames from {result['mapped']} mapped bones; travel scale {result['scale']:.3f}; "
+            source=('the full body' if result['bake_method']=='BODY' else f"{result['mapped']} mapped bones")
+            settings.status=(f"Baked {result['frames']} frames from {source}; travel scale {result['scale']:.3f}; "
                              f"root motion {result['root_motion'].lower()}."+''.join(' '+line for line in result['notes']+result['warnings']))
             if not settings.export_path and bpy.data.filepath:
                 clip=(retarget.read_motion(settings.target) or {}).get('clip','')
@@ -690,7 +699,7 @@ def pair_blocked(settings):
 
 def bake_blocked(settings):
     """Why Bake cannot run now, or ''."""
-    if pair_blocked(settings) or not settings.rows:return pair_blocked(settings) or 'Match bones first.'
+    if pair_blocked(settings) or (not settings.rows and settings.method!='BODY'):return pair_blocked(settings) or 'Match bones first.'
     if control_rig.present(settings.target):
         return 'The target has a control rig. Remove it under Control rig before baking; you can add it again afterwards.'
     return ''
@@ -805,7 +814,12 @@ class SKR_PT_bake(SidebarPanel,Panel):
     bl_label='3. Bake motion'
     bl_idname='SKR_PT_retarget_bake'
     def draw(self,context):
-        layout=self.layout;blocked=bake_blocked(context.scene.sekiro_retarget)
+        layout=self.layout;settings=context.scene.sekiro_retarget;blocked=bake_blocked(settings)
+        menu(layout,settings,'method')
+        if settings.method=='BODY':
+            text(layout,context,'Experimental: finds the body in both rigs and keeps the feet on the source\'s footprint. '
+                 'Bones outside the body, such as weapons, follow the bone list, or automatic matching without one.',
+                 icon='EXPERIMENTAL')
         row=layout.row();row.enabled=not blocked;row.scale_y=1.3;row.operator('sekiro_retarget.bake',icon='ACTION')
         if blocked:text(layout,context,blocked,icon='INFO')
 

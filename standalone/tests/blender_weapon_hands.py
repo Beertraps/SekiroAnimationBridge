@@ -1,5 +1,6 @@
 """Weapons that change hands, weapon bones that rest away from the hand, and weapons that the map hides, on owned
-synthetic rigs. Run with Blender --background --factory-startup --python this_file.py.
+synthetic rigs. Run with Blender --background --factory-startup --python this_file.py, and again with -- BODY after
+it to check the same with the full-body bake.
 
 A Godfrey-like source holds an axe in its left hand and nothing in its right. Its clip hides the axe on the
 first two frames, then slides it along the hand and tilts it, while the right hand goes into the belly. The
@@ -31,6 +32,7 @@ import sekiro_retarget
 from sekiro_retarget import retarget
 
 COUNT, RATE, SIZE = 60, 30, 1.2
+METHOD = sys.argv[sys.argv.index('--') + 1] if '--' in sys.argv else 'BONES'  # The bake method, BONES or BODY.
 # The right wrist on frames 25-45, in armature space: 4 cm inside the target torso's front.
 GOAL = Vector((-.08, -.2, 1.15))
 
@@ -263,6 +265,7 @@ spear = box('Spear', (-.5, -.012, -.012), (1.5, .012, .012), 2, lambda co: 'L_Ya
             target.data.bones['L_Yari'].matrix_local)
 
 settings = scene.sekiro_retarget
+settings.method = METHOD
 settings.source, settings.target = source, target
 assert retarget.hidden_bones(target) == {'L_Yari', 'L_Gun'} and not retarget.hidden_bones(source), retarget.hidden_bones(target)
 assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
@@ -354,7 +357,7 @@ rows = {row.target: row for row in settings.rows}  # The match and the load made
 assert {name for name, row in rows.items() if row.hidden} == {'R_Katana', 'L_Yari'}
 assert (rows['L_Yari'].source, rows['R_Katana'].source) == ('L_Axe', ''), (rows['L_Yari'].source, rows['R_Katana'].source)
 assert set(bake(body_clearance=False)['hidden']) == {'R_Katana', 'L_Yari'}
-print(f"Weapon hand checks passed: the katana took the axe from the other hand and followed it within "
+print(f"Weapon hand checks passed{' with the full-body bake' if METHOD == 'BODY' else ''}: the katana took the axe from the other hand and followed it within "
       f"{switch_error * 1000:.3f} mm, hidden at {retarget.HIDDEN} on frames 1-2 with its scabbard in place; the right "
       f"hand was moved out on frames {pushed['R']['frames'][0]}-{pushed['R']['frames'][-1]} by up to {moved * 100:.1f} cm "
       f"without moving the katana; the spear took the axe within {spear_error * 1000:.3f} mm and turned "

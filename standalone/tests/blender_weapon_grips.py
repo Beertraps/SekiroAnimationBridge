@@ -1,5 +1,5 @@
 """Weapon grips and the second hand on a weapon, on owned synthetic rigs. Run with Blender --background
---factory-startup --python this_file.py.
+--factory-startup --python this_file.py, and again with -- BODY after it to check the same with the full-body bake.
 
 An Isshin-like source holds a katana in its right hand, moved and turned in the fist away from its rest place, as
 FromSoftware's clips hold weapons, with its fingers curled. On frames 20-41 it brings the right hand in front of its
@@ -35,6 +35,7 @@ import humanoids
 import sekiro_retarget
 
 COUNT, RATE, SIZE = 60, 30, 1.1
+METHOD = sys.argv[sys.argv.index('--') + 1] if '--' in sys.argv else 'BONES'  # The bake method, BONES or BODY.
 # Where the source's right wrist goes on the two-handed frames, in front of its belly, and where its left hand's
 # knuckles hold the hilt: this far behind the right hand's knuckles along the blade, and this far off its axis.
 RIGHT_GOAL, BEHIND, OFF_AXIS = Vector((-.02, -.3, 1.22)), .09, .015
@@ -312,6 +313,7 @@ fingers = sorted(own_fingers)
 right_fingers = [name for name in fingers if name.startswith('R_')]
 
 settings = scene.sekiro_retarget
+settings.method = METHOD
 settings.source, settings.target = source, target
 settings.body_clearance = settings.arm_gap = False
 assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
@@ -487,7 +489,7 @@ laid_spot = max(((palm(t, 'R').inverted() @ t['R_Weapon'].translation) - SIZE * 
                 for t, s in zip(laid_frames, curved_frames))
 assert laid_spot < 1e-4, f"the weapon should sit where the source's sits in its palm, scaled to the hand: {laid_spot * 1000:.3f} mm off"
 
-print(f"Weapon grip checks passed: own grip kept within {full_grip[0] * 1000:.4f} mm / {full_grip[1]:.4f} deg with the "
+print(f"Weapon grip checks passed{' with the full-body bake' if METHOD == 'BODY' else ''}: own grip kept within {full_grip[0] * 1000:.4f} mm / {full_grip[1]:.4f} deg with the "
       f"wrist turned up to {full['grips']['R_Weapon']['turn']:.0f} deg, blade parallel within {parallel:.4f} deg, fingers "
       f"within {finger_error:.4f} deg; without blade follow the blade is up to {off_line:.0f} deg off and the wrist "
       f"matches the source grip's within {same_wrist:.1e}; halfway within {halved:.1e}; source grip in the palm within "

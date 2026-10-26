@@ -49,6 +49,7 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 from . import mapping as matching
+from . import fullbody
 
 BONE_CURVE = re.compile(r'pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 # The scale of a hidden weapon. Isshin's clips shrink his spear and scabbard to 0.1%; unlike 0, this leaves the
@@ -826,10 +827,11 @@ def ease(values, reach):
     return widened
 
 
-def move_hand(poses, chain, held, upper_part, fore_part, shift):
+def move_hand(poses, chain, held, upper_part, fore_part, shift, pole=None):
     """Move a hand by shift through two-bone IK: the elbow stays in its plane and the hand keeps its rotation.
 
-    A goal beyond the arm's reach leaves the arm straight, pointing at it.
+    A goal beyond the arm's reach leaves the arm straight, pointing at it. With a pole, the elbow keeps the side
+    it bends to from its own shoulder-to-wrist line, and bends toward the pole where the arm is straight.
     """
     upper, fore, hand = chain
     shoulder, elbow, wrist = poses[upper].translation, poses[fore].translation, poses[hand].translation
@@ -839,6 +841,11 @@ def move_hand(poses, chain, held, upper_part, fore_part, shift):
     d = min(max(reach.length, abs(a - b) + 1e-6), a + b - 1e-6)
     u = reach.normalized()
     bend = (elbow - shoulder) - u * (elbow - shoulder).dot(u)
+    if pole is not None:
+        line = (wrist - shoulder).normalized()
+        side = (elbow - shoulder) - line * (elbow - shoulder).dot(line)
+        side = side if side.length >= 1e-3 * a else pole
+        bend = side - u * side.dot(u)
     bend = bend.normalized() if bend.length > 1e-6 * a else u.orthogonal().normalized()
     cosine = max(-1.0, min(1.0, (a * a + d * d - b * b) / (2 * a * d)))
     new_elbow = shoulder + (u * cosine + bend * math.sqrt(1 - cosine * cosine)) * a
@@ -1415,14 +1422,19 @@ def bake(scene, settings):
         raise ValueError('The source rig has no active animation action.')
     if target.animation_data and any(not track.mute for track in target.animation_data.nla_tracks):
         raise ValueError('Mute target NLA tracks before baking so the new action can play without additional mixing.')
-    bone_map = {row.target: row.source for row in settings.rows if row.enabled and row.source}
-    if not bone_map:
+    rows = {row.target: row.source for row in settings.rows if row.enabled and row.source}
+    whole = settings.method == 'BODY'
+    if not rows and not whole:
         raise ValueError('Run Match bones, then select or assign at least one source bone.')
-    if len(set(bone_map.values())) != len(bone_map):
+    if len(set(rows.values())) != len(rows):
         raise ValueError('A source bone is assigned more than once. Review the bone list first.')
-    for t, s in bone_map.items():
+    for t, s in rows.items():
         if t not in target.data.bones or s not in source.data.bones:
             raise ValueError('The bone list is stale. Run Match bones again.')
+    # The full-body bake pairs the body itself and takes only the other bones from the list (see fullbody).
+    body = fullbody.plan(source, target, rows, settings.tracked_only) if whole else None
+    bone_map = body['bone_map'] if body else rows
+    chains = body['chains'] if body else {}
     for rig in (source, target):
         scale = rig.matrix_world.to_scale()
         if min(scale) <= 0 or max(scale) - min(scale) > 1e-4:
@@ -1449,6 +1461,8 @@ def bake(scene, settings):
     warnings = []
     target_body = matching.anatomy(rig_bones(target))
     source_body = matching.anatomy(rig_bones(source))
+    if body:
+        target_body, source_body = fullbody.anatomy(target_body, body['target']), fullbody.anatomy(source_body, body['source'])
     hips, carrier = body_carrier(target, target_body)
     if hips not in bone_map:
         hips = carrier = None
@@ -1473,7 +1487,7 @@ def bake(scene, settings):
         connectors.update(parent.name for parent in bones[carrier].parent_recursive if parent.name not in bone_map)
     targets = matching.foot_targets(rig_bones(target))
     columns = set(targets) | {link for foot, chain in targets.values() for link in chain}
-    computed = set(bone_map) | connectors | ({carrier} if carrier else set()) | columns
+    computed = set(bone_map) | connectors | ({carrier} if carrier else set()) | columns | set(chains)
     for name in computed:
         if any(not c.mute and c.influence > 0 for c in target.pose.bones[name].constraints):
             raise ValueError('Disable existing constraints on target bone ' + name + ' before baking.')
@@ -1485,7 +1499,11 @@ def bake(scene, settings):
     # Source armature units to target armature units for travel.
     travel = factor * uniform_scale(source) / uniform_scale(target)
     align = settings.rest_mode == 'ALIGN'
-    stance = stance_alignment(source, target, bone_map, matching.limb_links(rig_bones(target)), rotation) if align else {}
+    if body:
+        torso = set(body['target']['spine']) | set(body['target']['neck'])
+        stance = fullbody.stance(source, target, bone_map, chains, rotation, torso) if align else {}
+    else:
+        stance = stance_alignment(source, target, bone_map, matching.limb_links(rig_bones(target)), rotation) if align else {}
     ordered = sorted(bones, key=lambda b: len(b.parent_recursive))
     source_rest = {b.name: b.matrix_local.copy() for b in source.data.bones}
     source_rest_rotation = {name: matrix.to_quaternion() for name, matrix in source_rest.items()}
@@ -1618,7 +1636,12 @@ def bake(scene, settings):
         # The source bones that grips and second hands read, per frame.
         sampled = {bone for item in grips for bone in (item['source'], item['source_hand'], *item['source_fingers'])}
         sampled |= {bone for pair in pairs for bone in (pair['source'], *pair['source_off_fingers'], *pair['source_main_fingers'])}
-        grip_samples, source_frames = [], []
+        footprint = set()  # The source's hips, feet and hands, whose places the full-body bake keeps.
+        if body:
+            layout = body['target']
+            ends = [layout['hips']] + [leg['foot'] for leg in layout['legs'].values()] + [arm['hand'] for arm in layout['arms'].values()]
+            footprint = {body['direct'][name] for name in ends if name in body['direct']}
+        grip_samples, source_frames, body_samples = [], [], []
         # Sample both rigs before assigning a new action; the original target clip
         # supplies animation for bones that deliberately remain unmapped.
         for i in range(count):
@@ -1631,6 +1654,8 @@ def bake(scene, settings):
                 source_frames.append(source_poses)
             if sampled:
                 grip_samples.append({bone: source_poses[bone] for bone in sampled})
+            if footprint:
+                body_samples.append({bone: source_poses[bone].translation.copy() for bone in footprint})
             if src_root:
                 source_root_samples.append((src_root.location.copy(), src_root.rotation_euler.copy()))
             scene.frame_set(i + 1)
@@ -1644,14 +1669,18 @@ def bake(scene, settings):
                 """Source bone's rotation change from rest, in target armature space."""
                 delta = source_poses[name].to_quaternion() @ source_rest_rotation[name].inverted()
                 return rotation @ delta @ rotation_inverse
+            # The full-body bake's chain bones take the source chain's shape over their own bones.
+            shaped = fullbody.turns(chains, source_poses, source_rest, target_rest, stance, rotation) if chains else {}
 
             def pose_of(bone):
                 """A bone's armature-space pose, from its parent's pose in poses."""
                 name = bone.name
                 parent_pose = poses[bone.parent.name] if bone.parent else None
                 keywords = dict(parent_matrix=parent_pose, parent_matrix_local=target_rest[bone.parent.name]) if bone.parent else {}
-                if name in bone_map or name == carrier:
-                    if name in bone_map:
+                if name in bone_map or name == carrier or name in shaped:
+                    if name in shaped:
+                        orientation = shaped[name]
+                    elif name in bone_map:
                         orientation = (turn(bone_map[name]) @ stance.get(name, Quaternion()) @ target_rest[name].to_quaternion() @
                                        weapons.get(name, Quaternion()))
                     else:
@@ -1702,6 +1731,17 @@ def bake(scene, settings):
                         location, orientation, unused = poses[bone.name].decompose()
                         poses[bone.name] = Matrix.LocRotScale(location, orientation, Vector((HIDDEN, HIDDEN, HIDDEN)))
             pose_frames.append(poses)
+        # The full-body bake keeps the feet on the source's footprint and the hands together where the source's are,
+        # before the weapons go into their grips and the hands are kept clear of the body. Where the target takes the
+        # source's root motion (see below), its feet stand where that motion puts them.
+        ground = None
+        if body and settings.root_motion in ('AUTO', 'SOURCE') and source_root_samples:
+            to_rig = target.matrix_world.to_3x3().inverted()
+            start_location, start_rotation = source_root_samples[0]
+            ground = [(to_rig @ ((location - start_location) * factor), euler.z - start_rotation.z) for location, euler in source_root_samples]
+        contacts = fullbody.keep_contacts(source, target, body, pose_frames, body_samples, travel, rate, rotation, carried, holds,
+                                          placed, {hand for name, hand, placed_in in in_hand}, target_body.get('forward'),
+                                          ground) if body else None
         # The second hands keep their baked turns relative to the weapons, which are the source's.
         baked = [{name: poses[name].to_quaternion() for pair in pairs for name in (pair['weapon'], pair['chain'][2])}
                  for poses in pose_frames]
@@ -1917,6 +1957,38 @@ def bake(scene, settings):
         if targets:
             notes.append(f"{' and '.join(sorted(targets))} follow the feet, with the bones above them standing upright "
                          "over the feet, as in the game's clips.")
+        if body:
+            shaped_bones, others = len(body['direct']) + len(chains), body['others']
+            origin = 'the bone list' if body['listed'] else 'automatic matching'
+            notes.insert(0, f"Full body (experimental): {shaped_bones} body bones follow the source's body chains; " +
+                            (f'1 other bone takes its source bone from {origin}.' if others == 1 else
+                             f'{others} other bones take their source bones from {origin}.'))
+            for rig, layout in ((target, body['target']), (source, body['source'])):
+                if layout['shape']:
+                    notes.append(f"Found by the skeleton's shape, not by name, in {rig.name}: {', '.join(fullbody.parts(layout['shape']))}.")
+            if body['unpaired']:
+                notes.append(f"{', '.join(body['unpaired'])} {'has' if len(body['unpaired']) == 1 else 'have'} no counterpart in the "
+                             "source and do" + ('es' if len(body['unpaired']) == 1 else '') + " what Unmapped bones says.")
+            if contacts['dropped']:
+                notes.append(f"Pelvis lowered by up to {contacts['drop'] * 100:.1f} cm on frames {spans(contacts['dropped'])}, so that "
+                             "the legs reach the source's footprint.")
+            widths = [item for item in contacts['feet'] if abs(item['outward']) >= .0005]
+            if widths:
+                notes.append(f"The source's footprint is set to {target.name}'s own hip width: " + ', '.join(
+                    f"{'left' if item['side'] == 'L' else 'right'} foot {abs(item['outward']) * 100:.1f} cm "
+                    f"{'out' if item['outward'] > 0 else 'in'}" for item in widths) + '.')
+            for item in contacts['feet']:
+                foot = 'Left' if item['side'] == 'L' else 'Right'
+                if item['moved'] >= .0005:  # Where the chain transfer already puts the foot there, there is nothing to tell.
+                    notes.append(f"{foot} foot kept on the source's footprint, scaled by leg length, up to {item['moved'] * 100:.1f} cm "
+                                 "from where the chain transfer puts it.")
+                if item['short']:
+                    warnings.append(f"{foot} foot stops up to {item['gap'] * 100:.1f} cm short of the source's footprint on frames "
+                                    f"{spans(item['short'])}: the leg does not reach.")
+            for item in contacts['hands']:
+                hand = 'Left' if item['side'] == 'L' else 'Right'
+                notes.append(f"{hand} hand moved by up to {item['moved'] * 100:.1f} cm on frames {spans(item['frames'])}, where the "
+                             "source's hands are together, to keep them as far apart as the source's.")
         result = dict(source=source.name, target=target.name, mapped=len(bone_map), frames=count, scale=factor,
                       action=action.name, root_motion=mode, rest_mode=settings.rest_mode, carrier=carrier or '',
                       keyed=len(keyed), untracked=untracked, warnings=warnings, notes=notes, clearance=clearance,
@@ -1930,7 +2002,13 @@ def bake(scene, settings):
                       second_hands=seconds,
                       foot_targets={name: targets[name][0] for name in sorted(targets)},
                       method='World-space FK from the source rest pose' + (' with matched rest stances' if align else '') +
-                             '; target proportions retained')
+                             '; target proportions retained' if not body else
+                             'Full body: body chains transferred by share of their length' +
+                             (' with matched rest stances' if align else '') + '; feet on the scaled source footprint',
+                      bake_method='BODY' if body else 'BONES',
+                      body=dict(target_shape=body['target']['shape'], source_shape=body['source']['shape'],
+                                direct=len(body['direct']), chains=len(chains), others=body['others'], listed=body['listed'],
+                                unpaired=body['unpaired'], **contacts) if body else None)
         scene['sekiro_retarget_report'] = json.dumps(result)
         return result
     except Exception:
