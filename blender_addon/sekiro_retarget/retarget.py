@@ -17,8 +17,9 @@ hand that holds the source weapon: its line keeps the source weapon's offset
 from that hand, its grip stays in the hand, and it turns, shows and hides
 like the source weapon. A weapon that the map hides shrinks to 0.1% on every
 frame, as FromSoftware clips hide weapons.
-Each weapon in a hand then takes a grip: by default the source's, where the
-source's weapon sits in its palm, scaled to the hand; or the target's own,
+Each weapon in a hand then takes a grip: by default the source's, the part of
+the weapon that matches the part the source's fist holds lying where that
+part lies in the source's palm, scaled to the hand; or the target's own,
 read from the target's own clip with that hand's fingers, the wrist turned so
 that the blade points as far toward the source's as the blade follow says.
 With the second hand, where the source holds its weapon with both hands, the
@@ -56,6 +57,12 @@ BONE_CURVE = re.compile(r'pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 # The scale of a hidden weapon. Isshin's clips shrink his spear and scabbard to 0.1%; unlike 0, this leaves the
 # bones below a hidden weapon a parent they can be placed against.
 HIDDEN = 1e-3
+# Width profiles of weapons along their long axes: slices per profile, and the cost of stretching one slice of a
+# profile over another's, in widths relative to the widest slice, and how sharply a width must change per slice
+# to count as a feature, such as a guard or a head (see profile_map).
+PROFILE_SLICES, PROFILE_SLACK, PROFILE_EDGE = 100, .02, .05
+# Half the width of a fist along the weapon it holds, in lengths from the wrist to the knuckles.
+GRIP_REACH = .35
 
 
 def source_text(rig):
@@ -474,8 +481,9 @@ def weapon_turns(source, target, bone_map, stance, rotation, graph, holds=()):
     A mapped bone takes its source bone's rotation change from rest. Both weapon meshes are fixed to their
     bones, so turning the target bone by the difference of the two weapons at rest keeps them lying alike at
     every frame, also where a game authored the two weapon bones or models with different axes: the long axes
-    parallel and, where both blades have a flat side, the flat sides too (see weapon_match), so that the edge
-    faces where the source's does; otherwise only the long axes, by the smallest turn. A bone in holds takes the
+    parallel, head to head and butt to butt (see weapon_facing), and, where both blades have a flat side, the flat
+    sides too (see weapon_match), so that the edge faces where the source's does; otherwise only the long axes, by
+    the smallest turn. A bone in holds takes the
     source bone's own rotation, so its turn is the difference of the two weapons in the bones' own spaces.
     """
     turns = {}
@@ -488,6 +496,7 @@ def weapon_turns(source, target, bone_map, stance, rotation, graph, holds=()):
         target_axis, source_axis = weapon_axis(target, name, graph, target_local), weapon_axis(source, source_name, graph, source_local)
         if target_axis is None or source_axis is None:
             continue
+        target_axis = weapon_facing(source_local, source_axis, target_local, target_axis)
         # From the source bone's space to the target bone's, as the bake turns the bone.
         into = Quaternion() if name in holds else (
             target.data.bones[name].matrix_local.to_quaternion().inverted() @ stance.get(name, Quaternion()).inverted() @
@@ -524,16 +533,172 @@ def weapon_holds(source, target, bone_map):
     return holds
 
 
-def weapon_shape(rig, bone, graph):
+def weapon_shape(rig, bone, graph, local=None):
     """(axis, (back, front)): the long axis of the weapon a bone carries (see weapon_axis) and how far the weapon
     reaches along it behind the bone (negative, toward the pommel) and ahead of it; (None, None) for a weapon without
-    a clear axis."""
-    local = weapon_points(rig, bone, graph)
+    a clear axis. local: its vertices, when known."""
+    local = weapon_points(rig, bone, graph) if local is None else local
     axis = weapon_axis(rig, bone, graph, local)
     if axis is None:
         return None, None
     along = local @ np.array(axis)
     return axis, (float(along.min()), float(along.max()))
+
+
+def weapon_profile(local, axis, count=PROFILE_SLICES):
+    """How wide a weapon is along its long axis: (back, front, widths), the widths per slice of equal length from the
+    back end to the front end, each the farthest a vertex of the slice lies from the slice's middle, square to axis,
+    relative to the widest slice. A slice without vertices takes the width between its neighbours'."""
+    along = local @ np.array(axis)
+    back, front = float(along.min()), float(along.max())
+    slot = np.minimum(((along - back) / max(front - back, 1e-9) * count).astype(int), count - 1)
+    across = local - np.outer(along, np.array(axis))
+    widths = np.full(count, np.nan)
+    for index in np.unique(slot):
+        part = across[slot == index]
+        widths[index] = np.sqrt(((part - part.mean(0)) ** 2).sum(1)).max()
+    known = np.flatnonzero(~np.isnan(widths))
+    widths = np.interp(np.arange(count), known, widths[known])
+    # The median of each three slices, so that a wrapped hilt's ridges do not count as features.
+    padded = np.pad(widths, 1, mode='edge')
+    widths = np.median(np.stack((padded[:-2], padded[1:-1], padded[2:])), axis=0)
+    return back, front, widths / max(widths.max(), 1e-12)
+
+
+def profile_map(source, target, slack=PROFILE_SLACK):
+    """Per slice of the source's width profile, the place in slices along the target's that matches it: the warp that
+    lines up the two profiles' features, a guard with a guard, a head with a head, from end to end (dynamic time
+    warping), and between them maps in proportion. Each slice that one profile stretches over more of the other's
+    costs slack. The warp itself could stretch a plain stretch, such as a hilt, at any one place for the same cost,
+    so only its pairs of slices where both profiles widen or narrow sharply the same way, and the ends, are kept as
+    anchors, with the places between them in proportion."""
+    cost, matched = profile_warp(source, target, slack)
+    n = len(source)
+    source_slope, target_slope = np.gradient(source), np.gradient(target)
+    anchors = [(0, float(np.mean(matched[0])))]
+    for i in range(1, n - 1):
+        places = [j for j in matched[i] if abs(source_slope[i]) > PROFILE_EDGE and abs(target_slope[j]) > PROFILE_EDGE and
+                  source_slope[i] * target_slope[j] > 0]
+        if places:
+            anchors.append((i, float(np.mean(places))))
+    anchors.append((n - 1, float(np.mean(matched[n - 1]))))
+    return np.interp(np.arange(n), *zip(*anchors))
+
+
+def profile_warp(source, target, slack=PROFILE_SLACK):
+    """The dynamic time warp of two width profiles (see profile_map): (its cost, per source slice the target slices
+    that it pairs with)."""
+    n, m = len(source), len(target)
+    cost = np.abs(source[:, None] - target[None, :])
+    total = np.full((n + 1, m + 1), np.inf)
+    total[0, 0] = 0.0
+    step = np.zeros((n + 1, m + 1), dtype=np.int8)
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            options = (total[i - 1, j - 1], total[i - 1, j] + slack, total[i, j - 1] + slack)
+            best = int(np.argmin(options))
+            total[i, j], step[i, j] = options[best] + cost[i - 1, j - 1], best
+    matched = [[] for _ in range(n)]
+    i, j = n, m
+    while i > 0 and j > 0:
+        matched[i - 1].append(j - 1)
+        i, j = (i - 1, j - 1) if step[i, j] == 0 else (i - 1, j) if step[i, j] == 1 else (i, j - 1)
+    return float(total[n, m]), matched
+
+
+def weapon_facing(source_local, source_axis, target_local, target_axis):
+    """target_axis, or the reverse where the target weapon's width profile matches the source's much better that way
+    round. weapon_axis points each weapon from its bone toward its far end, and a bone near the middle of a weapon,
+    as a spear's can be, may lie nearer to the head on one model and to the butt on the other."""
+    source_widths = weapon_profile(source_local, source_axis)[2]
+    ahead = profile_warp(source_widths, weapon_profile(target_local, target_axis)[2])[0]
+    behind = profile_warp(source_widths, weapon_profile(target_local, -target_axis)[2])[0]
+    # Much better: by more than stretching every slice once would cost, so that a weapon alike from both ends, such
+    # as a plain staff, keeps its axis.
+    return -target_axis if behind < .8 * ahead and ahead - behind > PROFILE_SLACK * len(source_widths) else target_axis
+
+
+def grip_line(local, axis, at, low, high):
+    """The line along the part of a weapon from low to high along its axis from at (low below 0, high above), in the
+    bone's space: (its point across from at, its direction, pointing along axis). It runs through the middles of
+    eight slices of that part, so that a hilt as thick as a fist is wide still gives its own direction, and a curved
+    blade's hilt keeps the hilt's; axis where the middles do not line up clearly. The slices are cut square to the
+    line found so far, three times over, so that a handle whose weapon's long axis leans toward a head, as an axe's
+    does, is cut straight across. The part grows where fewer than three slices have vertices, as on a weapon
+    modelled from few long faces."""
+    along = local @ np.array(axis)
+    longest_reach = np.ptp(along)
+    part = local[(along >= at + low) & (along <= at + high)]
+    while len(part) < 4 and high - low < longest_reach:
+        low, high = 2 * low, 2 * high
+        part = local[(along >= at + low) & (along <= at + high)]
+    if len(part) < 1:
+        return None
+    middle = Vector(part.mean(0))
+    point, direction, straight = middle + axis * (at - middle.dot(axis)), axis, False
+    for _ in range(3):
+        offsets = (local - np.array(point)) @ np.array(direction)
+        while True:
+            inside = (offsets >= low) & (offsets <= high)
+            slots = np.minimum(((offsets[inside] - low) / ((high - low) / 8)).astype(int), 7)
+            if len(np.unique(slots)) >= 3 or high - low >= longest_reach:
+                break
+            low, high = 2 * low, 2 * high
+        middles = np.array([local[inside][slots == slot].mean(0) for slot in np.unique(slots)])
+        middle, found, straight = Vector(middles.mean(0)), axis, False
+        if len(middles) >= 3:
+            centred = middles - middles.mean(0)
+            values, vectors = np.linalg.eigh(centred.T @ centred)
+            longest = Vector(vectors[:, 2])
+            longest = longest if longest.dot(axis) > 0 else -longest
+            if longest.dot(axis) > .9:
+                # Slices cut askew split the rings of vertices around a handle, which bends the line of middles; the
+                # next round cuts them square to it.
+                found, straight = longest, values[2] >= 25 * max(values[1], 1e-12)
+        point, direction = middle + found * ((at - middle.dot(axis)) / found.dot(axis)), found
+    if not straight:
+        point, direction = middle + axis * (at - middle.dot(axis)), axis
+    return point, direction
+
+
+def plain_part(profile, at, least):
+    """Where the plain part of a weapon around at along its axis begins and ends, as offsets from at: the slices of
+    its width profile (back, front, widths; see weapon_profile) on either side that widen or narrow no more sharply
+    than a feature does, less one slice at each end, so a hilt runs from its pommel to its guard and a shaft from its
+    butt to its head, but no farther than twice least to either side of at, so that a blade without a guard, whose
+    plain part curves on to its tip, gives the line of its hilt. Where that part is shorter than twice least, least
+    to either side of at."""
+    back, front, widths = profile
+    count, size = len(widths), (front - back) / len(widths)
+    slope = np.abs(np.gradient(widths))
+    first = last = min(max(int((at - back) / max(size, 1e-12)), 0), count - 1)
+    while first > 0 and slope[first - 1] <= PROFILE_EDGE:
+        first -= 1
+    while last < count - 1 and slope[last + 1] <= PROFILE_EDGE:
+        last += 1
+    low, high = max(back + (first + 1) * size - at, -2 * least), min(back + last * size - at, 2 * least)
+    return (low, high) if high - low >= 2 * least else (-least, least)
+
+
+def grip_lines(source_local, source_axis, target_local, target_axis, at, reaches):
+    """Where a source weapon is held at at along its axis, the line through the gripped part, and the line through the
+    part of the target weapon that matches it by the two weapons' width profiles (see profile_map): ((point,
+    direction) in the source bone's space, (point, direction) in the target bone's, the two places along the axes),
+    or None. Each line runs along the plain part of its weapon around the grip (see plain_part), at least a fist's
+    width to either side. reaches: half the width of each fist along its weapon."""
+    source_profile, target_profile = weapon_profile(source_local, source_axis), weapon_profile(target_local, target_axis)
+    (source_back, source_front, source_widths), (target_back, target_front, target_widths) = source_profile, target_profile
+    warp = profile_map(source_widths, target_widths)
+    count = len(source_widths)
+    at = min(max(at, source_back), source_front)
+    slot = (at - source_back) / max(source_front - source_back, 1e-9) * count - .5
+    matched = float(np.interp(slot, np.arange(count), warp))
+    target_at = target_back + (matched + .5) / len(target_widths) * (target_front - target_back)
+    source_line = grip_line(source_local, source_axis, at, *plain_part(source_profile, at, 2 * reaches[0]))
+    target_line = grip_line(target_local, target_axis, target_at, *plain_part(target_profile, target_at, 2 * reaches[1]))
+    if source_line is None or target_line is None:
+        return None
+    return source_line, target_line, (at, target_at)
 
 
 def hand_weapons(source, target, bone_map, holds, hidden, body):
@@ -1235,10 +1400,12 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
     around frames that hide it. The wrist turns, without a twist about the blade, the part follow of the way toward
     the bake's blade direction, which is the source's: at 1 the blade points as the source's does, at 0 the wrist
     turns as the source's does. With the source's grip (mode SOURCE), the weapon sits in the palm as the source's
-    weapon sits in the source's palm: its bone where the source's weapon bone sits, scaled by the size of the hands,
-    and turned as the source's weapon is turned in that palm, with the turn from the source's weapon to this one
-    (model, see weapon_turns), so that a palm that the bake turns otherwise than the source's still holds the hilt
-    the same way; the fingers stay the source's. Where the source hides its weapon, the grip where it last showed it
+    weapon sits in the source's palm: the part of it that matches the part the source's fist holds lies on the line
+    where that part lies in the source's palm, scaled by the size of the hands (see grip_lines; without both weapons'
+    meshes, the bone sits where the source's weapon bone sits, scaled so), and the weapon is turned as the source's
+    weapon is turned in that palm, with the turn from the source's weapon to this one (model, see weapon_turns), so
+    that a palm that the bake turns otherwise than the source's still holds the hilt the same way; the fingers stay
+    the source's. Where the source hides its weapon, the grip where it last showed it
     holds. Bones below a weapon move with it; weapons placed in a hand from elsewhere (placed) and the other hand
     stay. fingers names the target's finger bones; samples holds the source's bones per frame.
     """
@@ -1249,13 +1416,30 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
         item['below'] = sorted(subtree(bones, item['weapon']) - {item['weapon']} - placed, key=depth.get)
         if item['mode'] != 'SOURCE':
             continue
+        # The part of each weapon that the fist holds: by default the bones' origins, which a game may set anywhere on
+        # the weapon; with both meshes, the line through the part of the source weapon around the source's knuckles
+        # and through the part of the target weapon that matches it (see grip_lines).
+        item['line'], item['part'] = (Vector(), Vector()), None
+        if item.get('points') is not None:
+            shown = [frame for frame in samples if min(frame[item['source']].to_scale()) >= .5] or samples
+            at = statistics.median((rigid(frame[item['source']]).inverted() @ (sum(
+                (frame[name].translation for name in item['source_fingers']), Vector()) / len(item['source_fingers']))).dot(
+                item['source_axis']) for frame in shown)
+            lines = grip_lines(item['source_points'], item['source_axis'], item['points'], item['target_axis'], at, item['reach'])
+            if lines is not None:
+                (source_point, source_direction), (target_point, target_direction), item['part'] = lines
+                item['line'] = source_point, target_point
+                # The target's gripped part along the source's: the smallest turn, nearly none where both weapons'
+                # long axes run as their gripped parts do.
+                item['model'] = (item['model'] @ target_direction).rotation_difference(source_direction) @ item['model']
 
         def spot(frame, hidden):
-            """The source's weapon bone in the source's palm: its place, scaled to the target's hand, and its turn."""
+            """Where the source's weapon's gripped part sits in the source's palm, scaled to the target's hand, and how
+            the source's weapon bone turns there."""
             held, frame_palm = frame[item['source']], palm(frame, item['source_hand'], item['source_fingers'])
             if frame_palm is None or (min(held.to_scale()) < .5 and not hidden):
                 return None
-            return (frame_palm.inverted() @ held.translation) * item['ratio'], \
+            return (frame_palm.inverted() @ (rigid(held) @ item['line'][0])) * item['ratio'], \
                 frame_palm.to_quaternion().inverted() @ held.to_quaternion()
         spots = [spot(frame, False) for frame in samples]
         # A source that hides its weapon on every frame still keys where it holds it, as FromSoftware's clips do.
@@ -1307,7 +1491,8 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
                     if frame_palm is None or item['spots'][t] is None:
                         continue
                     place, turn = item['spots'][t]
-                    location, orientation = frame_palm @ place, frame_palm.to_quaternion() @ turn @ item['model']
+                    orientation = frame_palm.to_quaternion() @ turn @ item['model']
+                    location = frame_palm @ place - orientation @ item['line'][1]
                 old_location, old_orientation, scale = old.decompose()
                 delta = (Matrix.Translation(location) @ (orientation @ old_orientation.inverted()).to_matrix().to_4x4() @
                          Matrix.Translation(-old_location))
@@ -1560,9 +1745,11 @@ def bake(scene, settings):
                 if settings.body_clearance or settings.arm_gap else None
             # The source's own torso, arms and hands show the clipping and the arm gaps that its animation already has.
             source_geometry = body_geometry(source, source_body, graph) if geometry else None
-            # Each held weapon's long axis and how far it reaches along it, in both rigs.
-            shapes = {(rig.name, bone): weapon_shape(rig, bone, graph) for name, hand, placed_in in in_hand
-                      for rig, bone in ((target, name), (source, bone_map[name]))}
+            # Each held weapon's vertices, its long axis and how far it reaches along it, in both rigs.
+            held_points = {(rig.name, bone): weapon_points(rig, bone, graph) for name, hand, placed_in in in_hand
+                           for rig, bone in ((target, name), (source, bone_map[name]))}
+            shapes = {key: weapon_shape(source if key[0] == source.name else target, key[1], graph, local)
+                      for key, local in held_points.items()}
         grips, pairs, grip_notes = [], [], []
         for name, hand, placed_in in in_hand:
             source_name, source_hand = bone_map[name], bone_map[hand]
@@ -1600,8 +1787,15 @@ def bake(scene, settings):
                 # From the target weapon bone's space to the source's: the source's turn that the bake gives this bone.
                 model = (source_rest_rotation[source_name].inverted() @ rotation.inverted() @ stance.get(name, Quaternion()) @
                          target_rest[name].to_quaternion() @ weapons.get(name, Quaternion()))
-                item.update(mode='SOURCE', model=model, ratio=knuckles(target, hand, item['fingers']).length /
-                            knuckles(source, source_hand, item['source_fingers']).length)
+                sizes = knuckles(target, hand, item['fingers']).length, knuckles(source, source_hand, item['source_fingers']).length
+                item.update(mode='SOURCE', model=model, ratio=sizes[0] / sizes[1])
+                if shapes[target.name, name][0] is not None and source_axis is not None:
+                    # Both weapons have a long axis: the fist holds the matching part (see grip_lines).
+                    item.update(points=held_points[target.name, name],
+                                target_axis=weapon_facing(held_points[source.name, source_name], source_axis,
+                                                          held_points[target.name, name], shapes[target.name, name][0]),
+                                source_points=held_points[source.name, source_name], source_axis=source_axis,
+                                reach=(GRIP_REACH * sizes[1], GRIP_REACH * sizes[0]))
             else:
                 grip_notes.append(f'{name} keeps its place in {hand} from the rest pose: the hands have too few fingers to '
                                   'find a grip by.')
@@ -1921,7 +2115,10 @@ def bake(scene, settings):
                     warnings.append(f"The target's own clip hides {name} on every frame, so its place in {hand} comes from "
                                     'a hidden frame and can be off; check it, or bake with the source\'s grip.')
             else:
-                notes.append(f"{name} sits in {hand} where the source's {item['source']} sits in its hand, scaled to the hand, "
+                held = (f"by the part that matches where the source's fist holds {item['source']}, "
+                        f"{item['part'][1] * size * 100:.1f} cm along from {name}'s origin" if item['part'] else
+                        f"where the source's {item['source']} sits in its hand")
+                notes.append(f"{name} sits in {hand} {held}, scaled to the hand, "
                              f"up to {item['moved'] * size * 100:.1f} cm from where the rest pose puts it.")
                 if item['hidden_source']:
                     notes.append(f"The source hides {item['source']} on every frame; its place in the hand comes from there.")
@@ -1998,7 +2195,9 @@ def bake(scene, settings):
                       placed={name: holder for name, (holder, anchor) in holds.items()}, hidden=hiding,
                       weapon_grip=settings.weapon_grip, blade_follow=follow,
                       grips={item['weapon']: dict(hand=item['hand'], mode=item['mode'], frame=item.get('frame'),
-                                                  turn=round(item['turn'], 2), moved=round(item['moved'] * size, 5))
+                                                  turn=round(item['turn'], 2), moved=round(item['moved'] * size, 5),
+                                                  part=[round(value * size, 4) for value in item['part']]
+                                                  if item.get('part') else None)
                              for item in grips},
                       second_hands=seconds,
                       foot_targets={name: targets[name][0] for name in sorted(targets)},

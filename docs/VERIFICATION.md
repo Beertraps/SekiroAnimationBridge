@@ -1,3 +1,15 @@
+# Unreleased — the fist holds the weapon's matching part — 2026-10-26
+
+- `blender_weapon_grips.py`, with both bake methods:
+  - The plain box blades of the existing checks now lie on the source's grip line in the palm, scaled, within 0.0005 mm and 0.0000°, held where the source's fist holds in proportion to the two blades' lengths. The curved blade turned 130° lies in the palm as the source's within 0.0000° for the flat side and 0.02° for blade and curve (0.21° before).
+  - New: a sword with a guard, a spear with a head and an axe with a head on one side of its handle, each with its bone 1.2 cm off the handle and at another place along it than the source's, and other proportions. With the source's grip, the gripped part lies on the source's line in the palm within 0.002 mm and 0.0000°, and the fist holds within 0.6 cm of the place in proportion between the features: pommel and guard, butt and head, butt and axe head. The spear's bone lies nearer the butt on the source and nearer the head on the target; it comes out head to head.
+  - New: a target weapon without a long axis (a cube) keeps the bone's place, within 0.0003 mm of where the source's bone sits, scaled, with the former status text.
+- Isshin's c5400_a000_003024 on Wolf, from the user's scene in the background without saving, with the scene's options (source's grip, the raw defaults):
+  - Before: Wolf's hilt line 1.49 cm from Isshin's in the palm, scaled to Wolf's hand; the fist 8.9 cm from Wolf's guard.
+  - After: 0.17 to 0.25 cm and 0.82 to 0.86°, depending on how the probe fits a whole hilt's line (vertex average or slice middles); the fist 6.5 to 6.6 cm from Wolf's guard, against Isshin's 11.1 cm from his on a hilt 1.5 times longer. Close-up renders of the fist on frame 51 show the hilt through the fist where it lay over the fingers before.
+- The whole Blender suite, the add-on's unit tests (121) and `blender_weapon_clearance.py` and `blender_weapon_hands.py` with both bake methods pass. `blender_fixes.py` passes on its own and is flagged only when run in the batch, as before.
+- Not checked: Owl onto Isshin and other pairs; how the looser fist around a thinner hilt looks in the game.
+
 # Unreleased — raw bake by default — 2026-10-26
 
 - The 121 unit tests and `node --check` on `app.js` and `preview.js` pass. Blender 4.5.14 with `--factory-startup` and `--python-exit-code 7` passes all eighteen scripts and the three weapon scripts with `-- BODY`.

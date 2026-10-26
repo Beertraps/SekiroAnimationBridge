@@ -1,3 +1,13 @@
+# Unreleased — the fist holds the weapon's matching part
+
+## Retarget: Source's grip
+
+- With *Source's grip*, the target's weapon could sit beside the fingers instead of inside the fist, although its turn matched. The bake put the target's weapon bone where the source's weapon bone sits in the palm, and games place weapon bones at different spots on their models: Wolf's sits 22 cm from the end of his katana's hilt and 1.7 cm off its middle, Isshin's 35 cm from his and 1.0 cm off. On Isshin's c5400_a000_003024 on Wolf, Wolf's hilt ran 1.5 cm from where Isshin's runs in his fist, scaled to the hand, which put it into the fingers on one side.
+- Now the bake finds the part of the source's weapon that the source's fist holds and the matching part of the target's weapon. It measures how wide each weapon is along its length and lines up the two outlines: guard with guard, head with head, butt with butt, and in proportion between them. The center line of the target's matching part goes where the source's lies in the source's palm, scaled to the hand. On the same clip Wolf's hilt now runs within 0.2 to 0.25 cm and 0.8 to 0.9° of Isshin's, and his fist sits 6.5 to 6.6 cm from the guard, where Isshin's sits 11.1 cm from his, in proportion to the two hilts' lengths.
+- This works for swords, spears, axes and other weapons with a handle along their length. A weapon without a clear long axis, such as a shield, still sits by its bone. Where the target's handle is thinner than the source's, it sits in the middle of a slightly loose fist, as the fingers keep the source's curl.
+- The weapon turn of every bake now also lays the two weapons head to head and butt to butt where their outlines show which end is which. Before, a spear whose bone sits nearer its butt on one model and nearer its head on the other could come out back to front.
+- The status names the matching part: *R_Weapon sits in R_Hand by the part that matches where the source's fist holds R_Katana, 0.6 cm along from R_Weapon's origin, scaled to the hand, ...*
+
 # Unreleased — raw bake by default
 
 ## Retarget: bake options

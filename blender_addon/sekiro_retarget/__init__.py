@@ -128,7 +128,9 @@ class SKR_Settings(PropertyGroup):
         ('OWN','Target\'s own grip','The weapon sits in the hand as in the target\'s own clip, with the fingers closed '
                'around it as there; the wrist turns so that the blade follows the source\'s'),
         ('SOURCE','Source\'s grip','The weapon sits and turns in the hand as the source\'s weapon sits and turns in the '
-                  'source\'s hand, scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='SOURCE')
+                  'source\'s hand, scaled to the hand, with the source\'s fingers: the fist holds the part of the weapon '
+                  'that matches the part the source\'s fist holds, found from both weapons\' shapes; for a weapon made '
+                  'to fit the source\'s grip')], default='SOURCE')
     blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE', precision=0,
         description='How far the wrist turns so that the blade points as the source\'s does: 100% keeps the source\'s '
                     'blade directions, 0% keeps the wrist as the source turns it. Where the two grips differ, turning '
