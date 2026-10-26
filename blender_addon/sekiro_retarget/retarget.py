@@ -17,12 +17,13 @@ hand that holds the source weapon: its line keeps the source weapon's offset
 from that hand, its grip stays in the hand, and it turns, shows and hides
 like the source weapon. A weapon that the map hides shrinks to 0.1% on every
 frame, as FromSoftware clips hide weapons.
-Each weapon in a hand then takes a grip: by default the target's own, read
-from the target's own clip with that hand's fingers, the wrist turned so that
-the blade points as far toward the source's as the blade follow says; or the
-source's, where the source's weapon sits in its palm, scaled to the hand.
-Where the source holds its weapon with both hands, the other hand goes onto
-the target's weapon at the matching place once the hands are clear of the body.
+Each weapon in a hand then takes a grip: by default the source's, where the
+source's weapon sits in its palm, scaled to the hand; or the target's own,
+read from the target's own clip with that hand's fingers, the wrist turned so
+that the blade points as far toward the source's as the blade follow says.
+With the second hand, where the source holds its weapon with both hands, the
+other hand goes onto the target's weapon at the matching place once the hands
+are clear of the body.
 With body clearance, a hand that would go into the target's
 torso, with the weapon it holds, is moved out through its arm, easing in and
 out over neighbouring frames, because a thinner source can hold its hands

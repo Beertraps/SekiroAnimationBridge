@@ -1,3 +1,13 @@
+# Unreleased — raw bake by default (retarget add-on)
+
+- State: on main, not released; no version change.
+- While the full-body merge was running, the user asked: "While you are at it, I want the default options to me more of a "raw bake" that doesn't use the fixes. So it should use source grip, not adjust hands on blade, avoid clipping or keep arms close."
+- New defaults in `SKR_Settings` (`blender_addon/sekiro_retarget/__init__.py`): `weapon_grip` 'SOURCE' (was 'OWN'); `second_hand`, `body_clearance` and `arm_gap` False (were True). "Adjust hands on blade" was read as **Second hand on the weapon**, the only option that moves a hand onto the weapon. `blade_follow` stays at 100%; it acts only with the target's own grip, and the panel shows it only then.
+- Not changed, as they are not fixes: the bake method (*Bone by bone*), the body travel and root motion options, the weapon turn that lays the target's blade along the source's, placed weapons and the foot target chains. The full-body method's own contacts, planted feet and hands that meet, belong to that method and stay.
+- The open follow-up in the full-body section, that **Keep arms close to the body** also turns a held weapon, now applies only where that option is turned on.
+- Scenes where these options were never set bake raw from now on, since Blender stores an add-on option in the scene only once it is set, and nothing in the add-on writes them. Checked: a scene saved with the previous add-on, with only **Keep arms close to the body** set by hand, opens with the source's grip, the second hand and body clearance off, and the arm distance still on.
+- Tests: `blender_weapon_grips.py` took the own grip from the default and failed as expected. It now checks the defaults and that a default bake holds the weapon as the source's grip does, with no second hand, then sets the own grip and the second hand for its other checks. The other weapon and arm tests set the options they check per bake and pass unchanged.
+
 # Unreleased — full-body bake, experimental (retarget add-on)
 
 - State: committed on branch `auto-retarget` and merged into main as 060cb12, not released; no version change. The user asked: "Merge auto-retarget into main as an experimental bake method, run the full suite, commit and push without a release." **Bake method** in step 3 offers *Full body (experimental)* beside *Bone by bone*, which stays the default and bakes as before. A second round set the feet to the target's own hip width and checked weapon grips and parts with the full-body bake.

@@ -1,3 +1,11 @@
+# Unreleased — raw bake by default — 2026-10-26
+
+- The 121 unit tests and `node --check` on `app.js` and `preview.js` pass. Blender 4.5.14 with `--factory-startup` and `--python-exit-code 7` passes all eighteen scripts and the three weapon scripts with `-- BODY`.
+- The first run with the new defaults failed only `blender_weapon_grips.py`, with both methods, on `AssertionError: ('SOURCE', 1.0)`: it expected the target's own grip from the default. It now asserts a new scene's defaults (*Source's grip*, **Blade follows source** 100%, **Second hand on the weapon**, **Keep hands out of the body** and **Keep arms close to the body** off) and bakes once with them: no second hand, and `R_Hand` and `R_Weapon` posed as in the later bake with *Source's grip* chosen, within 5.1e-09 m (4.6e-09 m with the full body), turns counted as 1 mm per degree. With the own grip and the second hand set, its other numbers are as before the change with either method: own grip within 0.0004 mm and 0.0000°, left hand on the hilt on frames 15–46.
+- The other seventeen scripts passed unchanged.
+- A scene saved in background Blender with the previous add-on, with **Clip timing** and **Keep arms close to the body** set by hand, opened with the changed add-on: *Source's grip*, **Second hand on the weapon** and **Keep hands out of the body** off, **Keep arms close to the body** on, **Clip timing** kept. The scene was synthetic and saved outside the repository.
+- Not checked: the panels in a live Blender window.
+
 # Unreleased — full-body bake, experimental — 2026-10-26
 
 - The 121 unit tests pass; 5 are new in `BodyTemplate` in `test_retarget_mapping.py`:

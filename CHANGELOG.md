@@ -1,3 +1,10 @@
+# Unreleased — raw bake by default
+
+## Retarget: bake options
+
+- The bake options now start raw. **Weapon grip** is *Source's grip*: the weapon sits in the target's hand as the source's sits in the source's hand, scaled to the hand, with the source's fingers. **Keep hands out of the body**, **Keep arms close to the body** and **Second hand on the weapon** are off. Turn them on under **Arms and hands** and **Weapons** where a target needs them; *Target's own grip* keeps **Blade follows source** at 100%.
+- In scenes made with earlier versions, options you never changed take the new defaults too, since Blender stores an add-on option in the scene only once it is set. Options you changed keep their values.
+
 # Unreleased — full-body bake, experimental
 
 ## Retarget: Bake method

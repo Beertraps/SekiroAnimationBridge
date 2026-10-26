@@ -5,9 +5,10 @@ An Isshin-like source holds a katana in its right hand, moved and turned in the 
 FromSoftware's clips hold weapons, with its fingers curled. On frames 20-41 it brings the right hand in front of its
 belly and holds the hilt with its left hand too, behind the right one. The Wolf-like target is 1.1 times larger, its
 blade along its weapon bone's Z axis, as Wolf's R_Weapon has it, and its own clip holds the weapon with another grip
-and other finger curls. Checked: with the target's own grip, the default, the weapon sits in the hand as in the
-target's own clip, with that clip's fingers, on every frame; with the blade following fully, the blade stays parallel
-to the source's; with it off, the wrist turns as the source's does, as with the source's grip; halfway, the wrist
+and other finger curls. Checked: a new scene bakes raw, with the source's grip and without the second hand; with the
+target's own grip, the weapon sits in the hand as in the target's own clip, with that clip's fingers, on every frame;
+with the blade following fully, the blade stays parallel to the source's; with it off, the wrist turns as the
+source's does, as with the source's grip; halfway, the wrist
 turns half as far; the source's grip puts the weapon where the source's sits in its palm, scaled to the hand, with
 the source's blade direction and fingers; the left hand goes onto the hilt behind the right one on the frames where
 the source's does, as far off the blade's axis as the source's, scaled, and leaves the left arm as it is elsewhere;
@@ -313,15 +314,20 @@ fingers = sorted(own_fingers)
 right_fingers = [name for name in fingers if name.startswith('R_')]
 
 settings = scene.sekiro_retarget
+# A new scene bakes raw: the source's grip, and no second hand, body clearance or arm distance.
+defaults = (settings.weapon_grip, settings.blade_follow, settings.second_hand, settings.body_clearance, settings.arm_gap)
+assert defaults == ('SOURCE', 100.0, False, False, False), defaults
 settings.method = METHOD
 settings.source, settings.target = source, target
 settings.body_clearance = settings.arm_gap = False
 assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
 rows = {row.target: row for row in settings.rows}
 assert rows['R_Weapon'].source == 'R_Katana', (rows['R_Weapon'].source, rows['R_Weapon'].reason)
+raw, raw_frames = bake()
+assert raw['grips']['R_Weapon']['mode'] == 'SOURCE' and not raw['second_hands'], (raw['grips'], raw['second_hands'])
 
-# The target's own grip with the blade following fully, the default.
-full, full_frames = bake()
+# The target's own grip with the blade following fully, and the second hand.
+full, full_frames = bake(weapon_grip='OWN', second_hand=True)
 assert (full['weapon_grip'], full['blade_follow']) == ('OWN', 1.0), (full['weapon_grip'], full['blade_follow'])
 assert full['grips']['R_Weapon']['mode'] == 'OWN' and full['grips']['R_Weapon']['frame'] == 1, full['grips']
 assert any(note.startswith("R_Weapon sits in R_Hand as in the target's own clip on frame 1, with its fingers; the wrist "
@@ -358,6 +364,9 @@ assert abs(half['grips']['R_Weapon']['turn'] - .5 * full['grips']['R_Weapon']['t
 # The source's grip: the weapon sits where the source's sits in its palm, scaled to the hand, pointing as the source's,
 # and the fingers keep the source's curl.
 assert borrowed['grips']['R_Weapon']['mode'] == 'SOURCE', borrowed['grips']
+raw_grip = max((a[name].translation - b[name].translation).length + 1e-3 * angle(a[name], b[name])
+               for a, b in zip(raw_frames, borrowed_frames) for name in ('R_Hand', 'R_Weapon'))
+assert raw_grip < 1e-5, f"a new scene's bake should hold the weapon by the source's grip: off by {raw_grip}"
 assert any(note.startswith("R_Weapon sits in R_Hand where the source's R_Katana sits in its hand, scaled to the hand")
            for note in borrowed['notes']), borrowed['notes']
 spot = max(((palm(t, 'R').inverted() @ t['R_Weapon'].translation) - SIZE * (palm(s, 'R').inverted() @ s['R_Katana'].translation)).length
@@ -489,7 +498,8 @@ laid_spot = max(((palm(t, 'R').inverted() @ t['R_Weapon'].translation) - SIZE * 
                 for t, s in zip(laid_frames, curved_frames))
 assert laid_spot < 1e-4, f"the weapon should sit where the source's sits in its palm, scaled to the hand: {laid_spot * 1000:.3f} mm off"
 
-print(f"Weapon grip checks passed{' with the full-body bake' if METHOD == 'BODY' else ''}: own grip kept within {full_grip[0] * 1000:.4f} mm / {full_grip[1]:.4f} deg with the "
+print(f"Weapon grip checks passed{' with the full-body bake' if METHOD == 'BODY' else ''}: a new scene bakes with the source's grip "
+      f"within {raw_grip:.1e} and no second hand; own grip kept within {full_grip[0] * 1000:.4f} mm / {full_grip[1]:.4f} deg with the "
       f"wrist turned up to {full['grips']['R_Weapon']['turn']:.0f} deg, blade parallel within {parallel:.4f} deg, fingers "
       f"within {finger_error:.4f} deg; without blade follow the blade is up to {off_line:.0f} deg off and the wrist "
       f"matches the source grip's within {same_wrist:.1e}; halfway within {halved:.1e}; source grip in the palm within "

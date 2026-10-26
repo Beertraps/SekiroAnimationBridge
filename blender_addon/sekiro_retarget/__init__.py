@@ -116,11 +116,11 @@ class SKR_Settings(PropertyGroup):
         description='Scale of body travel and root motion while Scale travel by leg length is off')
     body_translation: BoolProperty(name='Move body with source hips', default=True,
         description='The bone above the target hips and spine follows the source hips, so legs and upper body move together')
-    body_clearance: BoolProperty(name='Keep hands out of the body', default=True,
+    body_clearance: BoolProperty(name='Keep hands out of the body', default=False,
         description='Where a hand, or what it holds, would go into the target torso deeper than the source\'s hand goes '
                     'into its own body, move it out through the arm, easing in and out; for a target with a thicker body '
                     'than the source')
-    arm_gap: BoolProperty(name='Keep arms close to the body', default=True,
+    arm_gap: BoolProperty(name='Keep arms close to the body', default=False,
         description='Where the source holds an arm close to its own body, turn the target\'s arm in at the shoulder until '
                     'it stands as close to the target\'s torso, at the target\'s size, easing in and out; for a source '
                     'with a wider body than the target. Needs body meshes on both rigs')
@@ -128,12 +128,12 @@ class SKR_Settings(PropertyGroup):
         ('OWN','Target\'s own grip','The weapon sits in the hand as in the target\'s own clip, with the fingers closed '
                'around it as there; the wrist turns so that the blade follows the source\'s'),
         ('SOURCE','Source\'s grip','The weapon sits and turns in the hand as the source\'s weapon sits and turns in the '
-                  'source\'s hand, scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='OWN')
+                  'source\'s hand, scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='SOURCE')
     blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE', precision=0,
         description='How far the wrist turns so that the blade points as the source\'s does: 100% keeps the source\'s '
                     'blade directions, 0% keeps the wrist as the source turns it. Where the two grips differ, turning '
                     'bends the wrist sideways')
-    second_hand: BoolProperty(name='Second hand on the weapon', default=True,
+    second_hand: BoolProperty(name='Second hand on the weapon', default=False,
         description='Where the source holds its weapon with both hands, the target\'s other hand goes onto the target\'s '
                     'weapon at the matching place, through the arm, easing on and off')
     timing: EnumProperty(name='Clip timing', description='How long the baked clip runs', items=[
