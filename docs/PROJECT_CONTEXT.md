@@ -1,6 +1,6 @@
 # Unreleased — full-body bake, experimental (retarget add-on)
 
-- State: committed on branch `auto-retarget`, not released; no version change. **Bake method** in step 3 offers *Full body (experimental)* beside *Bone by bone*, which stays the default and bakes as before. A second round set the feet to the target's own hip width and checked weapon grips and parts with the full-body bake.
+- State: committed on branch `auto-retarget` and merged into main as 060cb12, not released; no version change. The user asked: "Merge auto-retarget into main as an experimental bake method, run the full suite, commit and push without a release." **Bake method** in step 3 offers *Full body (experimental)* beside *Bone by bone*, which stays the default and bakes as before. A second round set the feet to the target's own hip width and checked weapon grips and parts with the full-body bake.
 - The user asked: "An additional question to how we even calculate retargeting, originally I had asked about biped, people told me about it and that it doesn't really require mapping bones. Can you think of a method where mapping bones is not necessary? I have heard the term Full Body IK."
 - Offered foot goals that keep the target's own stance width next, the user answered: "You can add that. While you are at it check if the hand grip and the weapon/parts orientation works correctly. This was an issue in the bone-by-bone method that were only discovered later."
 
