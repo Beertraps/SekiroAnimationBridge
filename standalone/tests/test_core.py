@@ -39,6 +39,7 @@ class Geometry(unittest.TestCase):
                 np.testing.assert_allclose(a['bone_weights'][0],[.75,.25,0,0])
                 np.testing.assert_allclose(a['uv_1'][2],[.5,.6])
                 self.assertEqual(a['faces'].tolist(),[[0,1,2]])
+                self.assertEqual(a['vertex_materials'].tolist(),[0,0,0])
     def test_model_mask_filters_meshes_and_material_indices_together(self):
         f=fixture()
         f.meshes=[S(**vars(f.meshes[0])),S(**vars(f.meshes[0]))]
@@ -50,6 +51,7 @@ class Geometry(unittest.TestCase):
             with np.load(target,allow_pickle=False) as a:
                 self.assertEqual(a['material_names'].tolist(),['#11# second skin'])
                 self.assertEqual(a['face_materials'].tolist(),[0])
+                self.assertEqual(a['vertex_materials'].tolist(),[0,0,0])
     def test_active_invalid_weight_is_rejected(self):
         f=fixture();f.meshes[0].vertex_arrays[1].array['bone_indices'][0,0]=255
         with self.assertRaises(ValueError): influences(f.meshes[0],4,3)

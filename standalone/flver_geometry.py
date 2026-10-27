@@ -52,7 +52,7 @@ def extract_model(flver, output_path: Path, label="FLVER", mesh_indices=None):
     if not mesh_indices:
         raise ValueError(f'{label}: no meshes remain in the chosen model masks.')
     chosen_meshes = [flver.meshes[index] for index in mesh_indices]
-    positions, weights, indices, faces, face_materials = [], [], [], [], []
+    positions, weights, indices, faces, face_materials, vertex_materials = [], [], [], [], [], []
     uv_fields = sorted({name for mesh in chosen_meshes for va in mesh.vertex_arrays
                         for name in va.array.dtype.names if name.startswith("uv_")}, key=lambda s: int(s[3:])) or ["uv_0"]
     uv_layers = {field: [] for field in uv_fields}
@@ -77,6 +77,7 @@ def extract_model(flver, output_path: Path, label="FLVER", mesh_indices=None):
         normals.append(np.asarray(n[:, :3], dtype=np.float32) if n is not None else np.zeros((count, 3), np.float32))
         faces.append(tri + offset)
         face_materials.append(np.full(len(tri), mesh_index, dtype=np.int32))
+        vertex_materials.append(np.full(count, mesh_index, dtype=np.int32))
         for field in uv_fields:
             uv = vertex_field(mesh, field)
             uv_layers[field].append(np.asarray(uv[:, :2], dtype=np.float32) if uv is not None else np.zeros((count, 2), np.float32))
@@ -85,6 +86,7 @@ def extract_model(flver, output_path: Path, label="FLVER", mesh_indices=None):
     arrays = {key: np.concatenate(value) for key, value in uv_layers.items()}
     np.savez_compressed(output_path, positions=np.concatenate(positions), bone_indices=np.concatenate(indices),
         bone_weights=np.concatenate(weights), faces=np.concatenate(faces), face_materials=np.concatenate(face_materials),
+        vertex_materials=np.concatenate(vertex_materials),
         normals=np.concatenate(normals), uvs=arrays[uv_fields[0]],
         bone_names=np.asarray([b.name for b in flver.bones], dtype="U"),
         bone_parents=np.asarray([b.parent_bone_index for b in flver.bones], dtype=np.int32),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path, PureWindowsPath
-from material_assets import sampler_kind
+from material_assets import mesh_mask, sampler_kind
 
 ROLES = {"fc": "Head", "am": "Arms / prosthetic", "bd": "Torso", "lg": "Legs", "wp": "Weapon", "hd": "Headwear", "hr": "Hair"}
 PRESETS = {
@@ -30,11 +30,6 @@ def preview_sampler_kind(info):
     if target == 'emissive' and 'simpleblend_stencil_nonmetal_sss' in semantic and info['texture'].lower().endswith('_n'):
         return ''
     return target
-
-
-def mesh_mask(name):
-    match = re.match(r'#(\d+)#', name or '')
-    return match[1] if match else ''
 
 
 def selected_mesh_indices(flver, masks=None):

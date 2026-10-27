@@ -679,7 +679,7 @@ const maskCache=new Map();let maskPath='',maskSequence=0;
 function renderModelMasks(){
  const box=$('model-masks'),model=parts.find(p=>p.selected&&/^c\d{4}$/i.test(p.id));
  const path=model?.path||'';
- if(path!==maskPath){maskPath=path;const seq=++maskSequence;
+ if(path!==maskPath){maskPath=path;box.open=false;const seq=++maskSequence;
   if(path&&!maskCache.has(path))api('model-masks',{path}).then(groups=>{if(seq===maskSequence){maskCache.set(path,groups);renderModelMasks();}})
    .catch(error=>{if(seq===maskSequence){maskCache.set(path,[]);toast('Could not read model mesh groups: '+error.message,true);renderModelMasks();}});
  }
@@ -687,7 +687,8 @@ function renderModelMasks(){
  box.hidden=!path||!groups.length;
  if(box.hidden){box.innerHTML='';return;}
  const chosen=config.modelMasks?.[path];
- box.innerHTML='<strong>Visible model meshes</strong><p class="note">This model contains alternate mesh groups. Choose the groups for the character or costume you want in this scene. Unnumbered meshes are always included.</p>'
+ const count=chosen?groups.filter(g=>chosen.includes(g.id)).length:groups.length;
+ box.innerHTML=`<summary>Visible model meshes <span class="chip">${count} of ${groups.length}</span></summary><p class="note">Choose the groups for the character or costume you want in this scene. Unnumbered meshes are always included. In Blender, each imported NPC group can be hidden separately in the Outliner.</p>`
   +'<div class="model-mask-options">'+groups.map(g=>`<label title="${escape(g.example)}"><input type="checkbox" data-mask="${escape(g.id)}" ${!chosen||chosen.includes(g.id)?'checked':''}><span>#${escape(g.id)} <small>${escape(g.example)} · ${g.count}</small></span></label>`).join('')+'</div>';
 }
 // Sekiro's names for its weapon models, from EquipParamWeapon and the weapon name text. Tools that share a model follow the first.

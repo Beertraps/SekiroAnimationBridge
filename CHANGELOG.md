@@ -2,6 +2,7 @@
 
 - Wolf outfit imports select Kusabimaru (`wp_a_0300`) when the part exists in the source. A missing weapon does not make the outfit incomplete.
 - The scene setup lists numbered mesh groups within a character model, so one animation can be imported with a chosen appearance. The selection is saved per model file; unnumbered meshes are always included.
+- **Visible model meshes** now starts collapsed and can be opened or closed with its heading. New NPC imports create separate Blender objects for the selected numbered groups and shared meshes, so each can be hidden in the Outliner while using the same character rig and bind adapter.
 - NPC scene setup now offers every character model in the source, so an animation such as `c5400` can use another model ID such as `c5410`. The matching model remains the default when it exists.
 - Sekiro stencil skin materials use the base skin albedo before their tiling detail maps and ignore a damage normal map stored in an emissive slot. This corrects Resurrection `c1070`'s body preview.
 - The scene checklist says **No animation compendium** when that field is empty, instead of **Self-contained types**.

@@ -1,10 +1,12 @@
 """Build the modular character inside Blender using only its bundled Python and NumPy."""
 from __future__ import annotations
 import json
+import re
 from pathlib import Path
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector, Euler, Quaternion
+from material_assets import mesh_mask
 
 LABELS = {'fc': 'Head', 'am': 'Arms', 'bd': 'Torso', 'lg': 'Legs', 'wp': 'Weapon', 'hd': 'Headwear'}
 
@@ -299,6 +301,21 @@ def key_visibility(obj, attachment):
     obj.hide_viewport = obj.hide_render = frames[0][1] < 0
 
 
+def model_mesh_groups(model, preview):
+    """NPC mesh masks as independent objects; retain every original vertex, including loose ones."""
+    vertices = np.arange(len(preview['positions']))
+    faces = np.arange(len(preview['faces']))
+    if model.get('attachment') or not re.fullmatch(r'c\d{4}', model['name'], re.I) or 'vertex_materials' not in preview:
+        return [(None, vertices, faces)]
+    masks = np.asarray([mesh_mask(spec['name']) for spec in model['materials']])
+    if not any(masks):
+        return [(None, vertices, faces)]
+    vertex_masks = masks[preview['vertex_materials']]
+    face_masks = masks[preview['face_materials']]
+    return [(mask, np.flatnonzero(vertex_masks == mask), np.flatnonzero(face_masks == mask))
+            for mask in sorted(set(vertex_masks), key=lambda value: (bool(value), int(value or 0)))]
+
+
 def import_character(manifest_path, rig):
     document = json.loads(Path(manifest_path).read_text(encoding='utf-8'))
     collection = bpy.data.collections.new('Sekiro | Character')
@@ -320,40 +337,52 @@ def import_character(manifest_path, rig):
             else:
                 ensure_model_bones(rig, preview, used)
                 skin_rig = skin_rig_for_part(rig, preview, used, collection, model['name'])
-            mesh = bpy.data.meshes.new(model['name'])
-            mesh.from_pydata(pos[:, [0, 2, 1]].tolist(), [], faces[:, [0, 2, 1]].tolist()); mesh.update()
             role = LABELS.get(model['name'].split('_')[0], 'Character')
-            obj = bpy.data.objects.new(f"{model['name'].upper()} | {role}", mesh)
-            collection.objects.link(obj); obj.parent = skin_rig if model.get('attachment') else rig
             uv_names = sorted([key for key in preview.files if key.startswith('uv_')], key=lambda k:int(k[3:]))
             if not uv_names: uv_names = ['uv_0']
-            loop_vertices = np.asarray([loop.vertex_index for loop in mesh.loops], dtype=np.int32)
-            for key in uv_names:
-                uv = (preview[key] if key in preview else preview['uvs'])[loop_vertices].copy()
-                uv[:, 1] = 1 - uv[:, 1]
-                layer = mesh.uv_layers.new(name=key); layer.data.foreach_set('uv', uv.ravel())
-            if 'normals' in preview and np.any(preview['normals']):
-                normals = preview['normals'][:, [0, 2, 1]].copy()
-                length = np.linalg.norm(normals, axis=1, keepdims=True)
-                normals = normals / np.maximum(length, 1e-8)
-                mesh.normals_split_custom_set_from_vertices(normals.tolist())
-            for spec in model['materials']:
-                mesh.materials.append(make_material(spec, uv_names, cache))
-            mesh.polygons.foreach_set('material_index', preview['face_materials'])
-            for polygon in mesh.polygons: polygon.use_smooth = True
-            for bone_index in sorted(used):
-                # Combine duplicate influences before writing each weight once.
-                values = np.sum(np.where(indices == bone_index, weights, 0), axis=1)
-                group = obj.vertex_groups.new(name=names[bone_index])
-                for vertex_index in np.flatnonzero(values > 1e-6):
-                    group.add([int(vertex_index)], float(values[vertex_index]), 'REPLACE')
-            modifier = obj.modifiers.new('Sekiro Animation Rig', 'ARMATURE'); modifier.object = skin_rig
-            obj['sekiro_flver_preview'] = True; obj['sekiro_source_model'] = model['source']
-            obj['sekiro_model_id'] = model['name']; objects.append(obj)
-            if model.get('attachment'):
-                obj['sekiro_weapon_preview']=True;obj['sekiro_weapon_attachment']=json.dumps(model['attachment'])
-                if model['attachment'].get('locations'): key_visibility(obj, model['attachment'])
-            print(f"Attached {obj.name}: {len(pos):,} vertices / {len(faces):,} faces", flush=True)
+            materials = [make_material(spec, uv_names, cache) for spec in model['materials']]
+            for mask, vertex_rows, face_rows in model_mesh_groups(model, preview):
+                remap = np.full(len(pos), -1, dtype=np.int32)
+                remap[vertex_rows] = np.arange(len(vertex_rows))
+                part_faces = remap[faces[face_rows]]
+                if np.any(part_faces < 0):
+                    raise ValueError(f"{model['name']}: mesh group has faces outside its vertex data. Regenerate the preview.")
+                mesh = bpy.data.meshes.new(model['name'])
+                mesh.from_pydata(pos[vertex_rows][:, [0, 2, 1]].tolist(), [], part_faces[:, [0, 2, 1]].tolist()); mesh.update()
+                label = role
+                if mask is not None:
+                    example = next(spec['name'] for spec in model['materials'] if mesh_mask(spec['name']) == mask)
+                    label = f"#{mask} {example.split('#', 2)[-1].strip(' _')}" if mask else 'Shared meshes'
+                obj = bpy.data.objects.new(f"{model['name'].upper()} | {label}", mesh)
+                collection.objects.link(obj); obj.parent = skin_rig if model.get('attachment') else rig
+                loop_vertices = vertex_rows[np.asarray([loop.vertex_index for loop in mesh.loops], dtype=np.int32)]
+                for key in uv_names:
+                    uv = (preview[key] if key in preview else preview['uvs'])[loop_vertices].copy()
+                    uv[:, 1] = 1 - uv[:, 1]
+                    layer = mesh.uv_layers.new(name=key); layer.data.foreach_set('uv', uv.ravel())
+                if 'normals' in preview and np.any(preview['normals'][vertex_rows]):
+                    normals = preview['normals'][vertex_rows][:, [0, 2, 1]].copy()
+                    length = np.linalg.norm(normals, axis=1, keepdims=True)
+                    normals = normals / np.maximum(length, 1e-8)
+                    mesh.normals_split_custom_set_from_vertices(normals.tolist())
+                for material in materials: mesh.materials.append(material)
+                mesh.polygons.foreach_set('material_index', preview['face_materials'][face_rows])
+                for polygon in mesh.polygons: polygon.use_smooth = True
+                part_indices, part_weights = indices[vertex_rows], weights[vertex_rows]
+                for bone_index in sorted(set(int(i) for i in part_indices[part_weights > 1e-6])):
+                    # Combine duplicate influences before writing each weight once.
+                    values = np.sum(np.where(part_indices == bone_index, part_weights, 0), axis=1)
+                    group = obj.vertex_groups.new(name=names[bone_index])
+                    for vertex_index in np.flatnonzero(values > 1e-6):
+                        group.add([int(vertex_index)], float(values[vertex_index]), 'REPLACE')
+                modifier = obj.modifiers.new('Sekiro Animation Rig', 'ARMATURE'); modifier.object = skin_rig
+                obj['sekiro_flver_preview'] = True; obj['sekiro_source_model'] = model['source']
+                obj['sekiro_model_id'] = model['name']; objects.append(obj)
+                if mask is not None: obj['sekiro_mesh_group'] = mask
+                if model.get('attachment'):
+                    obj['sekiro_weapon_preview']=True;obj['sekiro_weapon_attachment']=json.dumps(model['attachment'])
+                    if model['attachment'].get('locations'): key_visibility(obj, model['attachment'])
+                print(f"Attached {obj.name}: {len(vertex_rows):,} vertices / {len(face_rows):,} faces", flush=True)
     text = bpy.data.texts.new('Sekiro Character Report.json')
     # Keep diagnostics, not paths to temporary geometry and PNG files which will be removed.
     report = {k:v for k,v in document.items() if k != 'models'}

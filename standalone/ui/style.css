@@ -310,18 +310,17 @@ details.block[open]>summary{margin-bottom:14px}
 .model-row strong{display:block;font:600 12.5px var(--mono)}
 .model-row small{display:block;font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .model-masks{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface-2)}
-.model-masks>strong{display:block;font-size:12px;margin-bottom:4px}
-.model-masks .note{margin:0 0 9px}
+.model-masks .note{margin:9px 0}
 .model-mask-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:5px 12px}
 .model-mask-options label{display:flex;align-items:center;gap:7px;font-size:12px;cursor:pointer}
 .model-mask-options input{accent-color:var(--accent)}
 .model-mask-options small{color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .extras{margin-top:6px;border-top:1px dashed var(--line-2);padding-top:10px}
-.extras>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--ink-2)}
-.extras>summary::-webkit-details-marker{display:none}
-.extras>summary::after{content:'';width:6px;height:6px;margin-left:auto;border-right:1.6px solid var(--ink-3);border-bottom:1.6px solid var(--ink-3);transform:rotate(45deg)}
-.extras[open]>summary::after{transform:rotate(-135deg)}
-.extras>summary .chip{font-weight:500}
+.extras>summary,.model-masks>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.extras>summary::-webkit-details-marker,.model-masks>summary::-webkit-details-marker{display:none}
+.extras>summary::after,.model-masks>summary::after{content:'';width:6px;height:6px;margin-left:auto;border-right:1.6px solid var(--ink-3);border-bottom:1.6px solid var(--ink-3);transform:rotate(45deg)}
+.extras[open]>summary::after,.model-masks[open]>summary::after{transform:rotate(-135deg)}
+.extras>summary .chip,.model-masks>summary .chip{font-weight:500}
 .extras .note{margin:8px 0}
 .equip-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 0;border-bottom:1px solid var(--line)}
 .equip-row:last-child{border-bottom:0}

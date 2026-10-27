@@ -20,7 +20,7 @@ flowchart LR
 ## What it does
 
 - **Import from game archives.** Point the bridge at your unpacked game folder or a folder of `.dcx` archives, pick a character and an animation, and get a Blender scene with the rig, the skinned model, textures and materials. No manual unpacking of the archives. A skeleton preview plays the animation before the import, and weapons that animate their own parts, such as the Loaded Umbrella, play their clips with it.
-- **Choose the model and visible meshes.** An NPC animation can use a model with a different file ID; a character binder can also hold alternate appearances in numbered mesh groups. Choose both before creating the scene. Wolf includes Kusabimaru when its part is available.
+- **Choose the model and visible meshes.** An NPC animation can use a model with a different file ID; a character binder can also hold alternate appearances in numbered mesh groups. Choose both before creating the scene, then hide imported NPC groups individually in Blender's Outliner. Wolf includes Kusabimaru when its part is available.
 - **Keep several sources.** The bridge recognises the game's own folder structure, reads collected folders, and takes custom layouts for everything else. Save several sources and switch between them; each remembers your last selection.
 - **Edit in plain Blender.** The animation is a normal action on a normal armature. Constraints, drivers and NLA strips are baked on export.
 - **Export to the game's own format.** Writes the HKX version the game uses, interleaved (lossless) or spline-compressed, with options for frame range, frame rate, tracks and root motion, and reads the file back to check it.

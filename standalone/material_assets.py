@@ -3,6 +3,11 @@ from pathlib import Path, PureWindowsPath
 import re
 
 
+def mesh_mask(name):
+    match = re.match(r'#(\d+)#', name or '')
+    return match[1] if match else ''
+
+
 def definition_key(path):
     return PureWindowsPath(path).stem.lower()
 
