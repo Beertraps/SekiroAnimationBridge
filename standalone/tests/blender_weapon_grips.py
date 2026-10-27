@@ -411,8 +411,8 @@ source_curl = max(angle(t[name].to_quaternion() @ rest_turn[target][name].invert
 assert source_curl < .05, f"with the source's grip the fingers should turn as the source's: {source_curl:.3f} degrees off"
 
 # The rest-relative grip: the weapon bone stays at the target's own grip point, from its own clip, and turns in the
-# hand as the source's katana turns in the source's hand away from both rigs' rest poses; the fingers stay the
-# source's.
+# hand as the source's katana turns in the source's hand away from both rigs' rest poses. The fingers of both hands
+# turn so in their hands too, with Match source stance as here.
 rested, rested_frames = bake(weapon_grip='REST')
 assert rested['grips']['R_Weapon']['mode'] == 'REST', rested['grips']
 assert "R_Weapon sits in R_Hand at its own grip point, from the target's own clip on frame 1, and turns there as the " \
@@ -432,8 +432,15 @@ assert rest_angle < .05, f"the weapon should turn as the source's turns from the
 raw_grip = max((a[name].translation - b[name].translation).length + 1e-3 * angle(a[name], b[name])
                for a, b in zip(raw_frames, rested_frames) for name in ('R_Hand', 'R_Weapon'))
 assert raw_grip < 1e-5, f"a new scene's bake should hold the weapon by the rest-relative grip: off by {raw_grip}"
-rested_curl = max(angle(a[name], b[name]) for a, b in zip(rested_frames, borrowed_frames) for name in right_fingers)
-assert rested_curl < .05, f"the rest-relative grip should keep the source's fingers: {rested_curl:.3f} degrees off"
+assert settings.rest_mode == 'ALIGN', settings.rest_mode
+rested_curl = 0.0
+for t, s in zip(rested_frames, source_frames):
+    for name in fingers:
+        hand = name[:2] + 'Hand'
+        wanted = (rest_turn[target][hand].inverted() @ between @ rest_turn[source][hand] @ s[hand].to_quaternion().inverted() @
+                  s[name].to_quaternion() @ rest_turn[source][name].inverted() @ between.inverted() @ rest_turn[target][name])
+        rested_curl = max(rested_curl, angle(t[hand].to_quaternion().inverted() @ t[name].to_quaternion(), wanted))
+assert rested_curl < .05, f"both hands' fingers should turn as the source's turn from the rest pose: {rested_curl:.3f} degrees off"
 
 # The second hand: the left hand's knuckles go onto the hilt behind the right hand's on the source's two-handed frames,
 # as far off the blade's axis as the source's, scaled, and the arm stays as it is far from them.
@@ -738,7 +745,7 @@ print(f"Weapon grip checks passed{' with the full-body bake' if METHOD == 'BODY'
       f"within {finger_error:.4f} deg; without blade follow the blade is up to {off_line:.0f} deg off and the wrist "
       f"matches the source grip's within {same_wrist:.1e}; halfway within {halved:.1e}; source grip on the source's line "
       f"in the palm within {spot[0] * 1000:.4f} mm, blade within {borrowed_line:.4f} deg; rest-relative grip at the "
-      f"own grip point within {rest_place * 1000:.4f} mm, turned as the source from rest within {rest_angle:.4f} deg; left hand on the hilt on frames {held['frames'][0]}-"
+      f"own grip point within {rest_place * 1000:.4f} mm, turned as the source from rest within {rest_angle:.4f} deg, fingers within {rested_curl:.4f} deg; left hand on the hilt on frames {held['frames'][0]}-"
       f"{held['frames'][-1]}, off the axis as the source within {radial * 1000:.2f} mm (up to {alone * 100:.1f} cm without "
       f"the second hand), arm kept elsewhere within {kept:.1e}; fallback note and hidden-clip warning given; a weapon "
       f"resting away from the hand takes the own grip within {placed_grip[0] * 1000:.4f} mm, blade within "

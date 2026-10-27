@@ -148,8 +148,8 @@ class SKR_Settings(PropertyGroup):
     weapon_grip: EnumProperty(name='Weapon grip', items=[
         ('REST','Rest-relative grip','The weapon stays at the target\'s own grip point in the hand, from its own clip or '
                 'else its rest pose, and turns there as the source\'s weapon turns in the source\'s hand away from its rest '
-                'pose, with the source\'s fingers; needs no meshes. For rigs whose rest poses hold their weapons alike, as '
-                'FromSoftware\'s do'),
+                'pose, and each finger of both hands as the source\'s finger turns from its rest pose; needs no meshes. '
+                'For rigs whose rest poses hold their weapons alike, as FromSoftware\'s do'),
         ('SOURCE','Source\'s grip','The weapon sits and turns in the hand as the source\'s weapon sits and turns in the '
                   'source\'s hand, scaled to the hand, with the source\'s fingers: the fist holds the part of the weapon '
                   'that matches the part the source\'s fist holds, found from both weapons\' shapes; for a weapon made '

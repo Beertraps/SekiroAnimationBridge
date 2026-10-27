@@ -1518,7 +1518,7 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
     that a palm that the bake turns otherwise than the source's still holds the hilt the same way; the fingers stay
     the source's. With the rest-relative grip (mode REST), the weapon bone stays at the target's own grip point in the
     hand (at) and turns there as the source's weapon turns in the source's hand away from the two rigs' rest poses, as
-    Rokoko's retargeting turns every bone; the fingers stay the source's. Where the source hides its weapon, the grip
+    Rokoko's retargeting turns every bone; the fingers of both hands (hands) turn so too, whatever the rest stance. Where the source hides its weapon, the grip
     where it last showed it holds. Bones below a weapon move with it; weapons placed in a hand from elsewhere (placed) and the other hand
     stay. fingers names the target's finger bones; samples holds the source's bones per frame.
     """
@@ -1610,9 +1610,21 @@ def grip_weapons(rig, grips, pose_frames, samples, follow, rate, placed, fingers
                     held_at = poses[hand] @ item['grip']
                     location, orientation = held_at.translation, held_at.to_quaternion()
                 elif item['mode'] == 'REST':
+                    held = poses[hand].to_quaternion()
+                    for holder, source_holder, before, digits in item['hands']:
+                        source_held = samples[t][source_holder].to_quaternion().inverted()
+                        for name, source_name, after in digits:
+                            # Each finger from where its parent now is, by its rest offset there.
+                            bone, old = bones[name], poses[name]
+                            place = rigid(poses[bone.parent.name]) @ (bone.parent.matrix_local.inverted() @ bone.matrix_local)
+                            turn = poses[holder].to_quaternion() @ before @ source_held @ samples[t][source_name].to_quaternion() @ after
+                            poses[name] = Matrix.LocRotScale(place.translation, turn, old.to_scale())
+                            delta = poses[name] @ old.inverted()
+                            for below in subtree(bones, name) - {name} - {other for other, *rest in digits}:
+                                poses[below] = delta @ poses[below]
                     if item['spots'][t] is None:
                         continue
-                    orientation, location = poses[hand].to_quaternion() @ item['spots'][t], poses[hand] @ item['at']
+                    orientation, location = held @ item['spots'][t], poses[hand] @ item['at']
                 else:
                     frame_palm = palm(poses, hand, item['fingers'])
                     if frame_palm is None or item['spots'][t] is None:
@@ -2098,6 +2110,18 @@ def bake(scene, settings):
                 item.update(mode='REST', at=at, frame=frame,
                             before=target_rest[hand].to_quaternion().inverted() @ rotation @ source_rest_rotation[source_hand],
                             after=source_rest_rotation[source_name].inverted() @ rotation.inverted() @ target_rest[name].to_quaternion())
+                # Both hands' fingers turn the same way, each as its source finger turns in the source's hand away from
+                # the rest poses, so that they close on the weapon as the source's close on its own; with Match source
+                # stance, too, which would otherwise turn them toward the source's rest pose.
+                other = target_body.get(('L' if hand == target_body.get(('R', 'hand')) else 'R', 'hand'))
+                item['hands'] = []
+                for holder in [hand] + ([other] if other and bone_map.get(other) in source.data.bones else []):
+                    digits = sorted((bone for bone in subtree(bones, holder) - subtree(bones, name) if bone in models[target].fingers
+                                     and bone_map.get(bone) in source.data.bones), key=lambda bone: len(bones[bone].parent_recursive))
+                    item['hands'].append((holder, bone_map[holder], target_rest[holder].to_quaternion().inverted() @ rotation @
+                                          source_rest_rotation[bone_map[holder]],
+                                          [(bone, bone_map[bone], source_rest_rotation[bone_map[bone]].inverted() @ rotation.inverted() @
+                                            target_rest[bone].to_quaternion()) for bone in digits]))
                 if shapes[target.name, name][0] is not None:
                     # The weapon's shape, for bending the fingers onto it.
                     item.update(points=held_points[target.name, name], target_axis=shapes[target.name, name][0])
@@ -2161,7 +2185,9 @@ def bake(scene, settings):
             if off_fingers and None not in (source_axis, source_reach):
                 both.append((bone_map[name], source_axis, source_reach, off_fingers, knuckles(source, source_off, off_fingers).length))
         # The source bones that grips, second hands and the hands together read, per frame.
-        sampled = {bone for item in grips for bone in (item['source'], item['source_hand'], *item['source_fingers'])}
+        sampled = {bone for item in grips for bone in (item['source'], item['source_hand'], *item['source_fingers'],
+                                                       *(bone for holder, source_holder, before, digits in item.get('hands', ())
+                                                         for bone in (source_holder, *(source_bone for name, source_bone, after in digits))))}
         sampled |= {bone for pair in pairs for bone in (pair['source'], *pair['source_off_fingers'], *pair['source_main_fingers'])}
         sampled |= {bone for item in both for bone in (item[0], *item[3])}
         footprint = set()  # The source's hips, feet and hands, whose places the full-body bake keeps.
