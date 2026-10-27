@@ -1,6 +1,6 @@
-# Unreleased — the fist holds the weapon's matching part (retarget add-on)
+# Current update: 0.12.0 — the rest-relative grip, the fist holds the weapon's matching part (retarget add-on 0.8.0)
 
-- State: committed on branch grip-matching-part, not merged, not pushed; no version change.
+- State: released as 0.12.0 with the retarget add-on 0.8.0, from tag v0.12.0, after the branch grip-matching-part was merged into main. The release also holds the four sections below, merged on main after 0.11.0 without a release. The user asked: "Ok, merge push and release this version."
 - The user, with four screenshots of Isshin's clip on Wolf before and after moving the weapon by hand on one frame: "In the current version weapons still don't get positioned quite correctly, or maybe again? ... Could this be related to where the socket sits relative to the rest of the part? If you check Isshin's and Wolf's weapons in Blender alone and you overlay them, do they align well?" After the diagnosis they asked whether a guard-based fix generalizes, and chose: "Build the general version: find the gripped part from the source's fist, match the two weapons' width profiles along the long axis, and place the target's matching part on the source's scaled grip line. Fall back to the bone for weapons without a long axis. Test sword, spear and axe cases, then measure on my Isshin scene."
 - Diagnosis: SOURCE grip placed the target weapon bone at the source weapon bone's place in the palm, scaled. The bones sit at different places on the models (Wolf 0.222 m from the pommel and 1.69 cm off the hilt line, Isshin 0.349 m and 1.02 cm), so the hilt lines were 1.49 cm apart in the palm. The new defaults (35552ae) had not undone the 0.11.0 turn fix: a fresh bake measured the same as the saved scene.
 - retarget.py:
@@ -23,9 +23,9 @@
 - Open: c1070's R_Katana weights hold a sparse curved blade and a blob below the pommel that the profile reads as the widest part; the grip lands 56 cm up Wolf's blade there. The user: "The c0170 is another issue" (c1070), to look at later.
 - Open: a thinner target hilt sits centered in the source's looser fist; closing the fingers to contact would be its own step. A weapon modelled from very few long faces gives a smeared profile.
 
-# Unreleased — raw bake by default (retarget add-on)
+# Raw bake by default (retarget add-on, in 0.12.0)
 
-- State: on main, not released; no version change.
+- State: on main, released in 0.12.0.
 - While the full-body merge was running, the user asked: "While you are at it, I want the default options to me more of a "raw bake" that doesn't use the fixes. So it should use source grip, not adjust hands on blade, avoid clipping or keep arms close."
 - New defaults in `SKR_Settings` (`blender_addon/sekiro_retarget/__init__.py`): `weapon_grip` 'SOURCE' (was 'OWN'); `second_hand`, `body_clearance` and `arm_gap` False (were True). "Adjust hands on blade" was read as **Second hand on the weapon**, the only option that moves a hand onto the weapon. `blade_follow` stays at 100%; it acts only with the target's own grip, and the panel shows it only then.
 - Not changed, as they are not fixes: the bake method (*Bone by bone*), the body travel and root motion options, the weapon turn that lays the target's blade along the source's, placed weapons and the foot target chains. The full-body method's own contacts, planted feet and hands that meet, belong to that method and stay.
@@ -33,9 +33,9 @@
 - Scenes where these options were never set bake raw from now on, since Blender stores an add-on option in the scene only once it is set, and nothing in the add-on writes them. Checked: a scene saved with the previous add-on, with only **Keep arms close to the body** set by hand, opens with the source's grip, the second hand and body clearance off, and the arm distance still on.
 - Tests: `blender_weapon_grips.py` took the own grip from the default and failed as expected. It now checks the defaults and that a default bake holds the weapon as the source's grip does, with no second hand, then sets the own grip and the second hand for its other checks. The other weapon and arm tests set the options they check per bake and pass unchanged.
 
-# Unreleased — full-body bake, experimental (retarget add-on)
+# Full-body bake, experimental (retarget add-on, in 0.12.0)
 
-- State: committed on branch `auto-retarget` and merged into main as 060cb12, not released; no version change. The user asked: "Merge auto-retarget into main as an experimental bake method, run the full suite, commit and push without a release." **Bake method** in step 3 offers *Full body (experimental)* beside *Bone by bone*, which stays the default and bakes as before. A second round set the feet to the target's own hip width and checked weapon grips and parts with the full-body bake.
+- State: committed on branch `auto-retarget` and merged into main as 060cb12, released in 0.12.0. The user asked: "Merge auto-retarget into main as an experimental bake method, run the full suite, commit and push without a release." **Bake method** in step 3 offers *Full body (experimental)* beside *Bone by bone*, which stays the default and bakes as before. A second round set the feet to the target's own hip width and checked weapon grips and parts with the full-body bake.
 - The user asked: "An additional question to how we even calculate retargeting, originally I had asked about biped, people told me about it and that it doesn't really require mapping bones. Can you think of a method where mapping bones is not necessary? I have heard the term Full Body IK."
 - Offered foot goals that keep the target's own stance width next, the user answered: "You can add that. While you are at it check if the hand grip and the weapon/parts orientation works correctly. This was an issue in the bone-by-bone method that were only discovered later."
 
@@ -140,9 +140,9 @@ Recommendation: keep it experimental. On these two FromSoftware pairs, whose ske
 - `blender_addon/sekiro_retarget/__init__.py`: **Bake method**; `tools/package_addon.py` packs `fullbody.py`.
 - Tests: `standalone/tests/test_retarget_mapping.py` (`BodyTemplate`), `standalone/tests/blender_full_body.py` (new), `standalone/tests/blender_panels.py` (two states), `standalone/tests/humanoids.py` (`proportioned()`); `blender_weapon_grips.py`, `blender_weapon_hands.py` and `blender_weapon_clearance.py` take `-- BODY`.
 
-# Unreleased — the mirrored katana strikes with its edge (retarget add-on)
+# The mirrored katana strikes with its edge (retarget add-on, in 0.12.0)
 
-- State: committed on branch `mirror-sword-edge`, not released; no version change.
+- State: committed on branch `mirror-sword-edge`, released in 0.12.0.
 - The user asked, with two screenshots: "For the mirroring can you also check the math for the weapon orientation? After mirroring it seems to hit with the flat side of the Katana. You can also check if this or the previous issue apply to the other parts like the prosthetics too." Then: "After mirroring an animation the weapon sockets and such would not just need to be fixed in the blender scene playback synthetically but in in such a way that they would actually work in the game." Then: "Actually I have decided that for most sockets mirroring makes no sense, sry for the extra work." and "the sword is the one important part."
 - Cause: symmetry() chose each gear bone's reflection W from the meshes that the armature bends with the gear's bones. Wolf's weapons have no such mesh; the bridge hangs them by sockets. So R_Weapon took the reflection of armature X seen from its rest, and R_Weapon rests with that plane halfway between the katana's edge and its flat (the plane x = y of the bone frame): the mirrored blade turned 90° about itself.
 - Fix in mirror.py: held_meshes() finds the bridge sockets (a COPY_TRANSFORMS on the rig's bone at full influence) and their meshes, through parents only, with any event 715 mount at its own place (below()). symmetry() adds their vertices and offers the reflections across the mesh's principal axes besides the bone's own axes. For the katana that is the flip of bone Y.
@@ -150,15 +150,15 @@ Recommendation: keep it experimental. On these two FromSoftware pairs, whose ske
 - Kept unmirrored, by the user's decision: the sheath (dummy 147, on a bone skinned with the clothes), LargeSheath (149), the prosthetic tools on L_Forearm (dummies 112–124), weapons that event 715 moves to such dummies, TAE event dummies and part clips. The mount/anchor handling for those was tried and taken out again.
 - Tests: blender_mirror.py gained the socket katana; results in VERIFICATION.md.
 
-# Unreleased — preview lights in new character scenes
+# Preview lights in new character scenes (in 0.12.0)
 
-- State: committed on branch `mirror-sword-edge` after the katana fix, not released; no version change. The change came from another session; the user asked here to document and commit it.
+- State: committed on branch `mirror-sword-edge` after the katana fix, released in 0.12.0. The change came from another session; the user asked here to document and commit it.
 - standalone/blender_character.py: setup_view() calls the new setup_preview_lighting(scene, center, height), which makes or reuses three AREA lights with a DISK shape, `Sekiro Preview Key`, `Fill` and `Rim`, at offsets around the models' centre, their size, distance and power scaled with the models' height (scale = max(1.25, height) / 1.8, power with its square), each pointed at the centre. The 3D views' Material Preview now has use_scene_world and use_scene_lights on, where both were off.
 - Reuse by name keeps a second setup_view() from adding lights. Lights are not part of the HKX export.
 - docs/USER_GUIDE.md describes the lights in the character preview section; tests: standalone/tests/blender_preview_lighting.py (new), results in VERIFICATION.md.
 - Open: older scenes get no lights; the guide says to copy them from a new scene.
 
-# Current update: 0.11.0 — weapons lie as the source's (retarget add-on 0.7.0)
+# 0.11.0 — weapons lie as the source's (retarget add-on 0.7.0)
 
 - State: released as 0.11.0 with the retarget add-on 0.7.0, from tag v0.11.0. It holds the grip fix (this section), the event 715 fix (next section), and the panel review, Mirror animation and the Part animations view, which were merged on main after 0.10.0 without a release. The branch weapon-locations, with the event 715 fix and then the grip fix, went into main by fast-forward.
 - The user asked: "When using the option for "source grip" with a weapon the result can still feel quite bad even after the first fix. I feel like the weapon would now fit way better with a slight rotation. It doesn't seem to make sense to me that this need to be an explicit adjustment in the bake or after. Can you check that the orientation of the weapon is actually calculated correctly? Does it take into account that the models can have different orientations?" Then, mid-work: "Commit, push and release this because this is an important issue."

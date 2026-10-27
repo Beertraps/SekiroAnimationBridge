@@ -1,6 +1,10 @@
-# Unreleased — the fist holds the weapon's matching part
+# 0.12.0 — the rest-relative weapon grip, the fist holds the weapon's matching part, raw bake by default, full-body bake (experimental), the mirrored katana strikes with its edge, preview lights
 
-## Retarget: Source's grip
+Install `SekiroRetargetAssistant-0.8.0.zip` over 0.7.0 for the retarget changes.
+
+## Retarget: the rest-relative grip, and the fist holds the weapon's matching part
+
+### Retarget: Source's grip
 
 - With *Source's grip*, the target's weapon could sit beside the fingers instead of inside the fist, although its turn matched. The bake put the target's weapon bone where the source's weapon bone sits in the palm, and games place weapon bones at different spots on their models: Wolf's sits 22 cm from the end of his katana's hilt and 1.7 cm off its middle, Isshin's 35 cm from his and 1.0 cm off. On Isshin's c5400_a000_003024 on Wolf, Wolf's hilt ran 1.5 cm from where Isshin's runs in his fist, scaled to the hand, which put it into the fingers on one side.
 - Now the bake finds the part of the source's weapon that the source's fist holds and the matching part of the target's weapon. It measures how wide each weapon is along its length and lines up the two outlines: the widest part with the widest part, such as guard with guard, head with head, butt with butt, and in proportion between them. The center line of the target's matching part goes where the source's lies in the source's palm, scaled to the hand. On the same clip Wolf's hilt now runs within 0.2 to 0.25 cm and 0.8 to 0.9° of Isshin's, and his fist sits 6.5 to 6.6 cm from the guard, where Isshin's sits 11.1 cm from his, in proportion to the two hilts' lengths.
@@ -15,16 +19,16 @@
 - The weapon turn of every bake now also lays the two weapons head to head and butt to butt where their outlines show which end is which. Before, a spear whose bone sits nearer its butt on one model and nearer its head on the other could come out back to front.
 - The status names the matching part: *R_Weapon sits in R_Hand by the part that matches where the source's fist holds R_Katana, 0.6 cm along from R_Weapon's origin, scaled to the hand, ...*
 
-# Unreleased — raw bake by default
+## Raw bake by default
 
-## Retarget: bake options
+### Retarget: bake options
 
-- The bake options now start raw. **Weapon grip** is *Source's grip*: the weapon sits in the target's hand as the source's sits in the source's hand, scaled to the hand, with the source's fingers. **Keep hands out of the body**, **Keep arms close to the body** and **Second hand on the weapon** are off. Turn them on under **Arms and hands** and **Weapons** where a target needs them; *Target's own grip* keeps **Blade follows source** at 100%.
+- The bake options now start raw. **Weapon grip** is *Rest-relative grip* (see above). **Keep hands out of the body**, **Keep arms close to the body** and **Second hand on the weapon** are off. Turn them on under **Arms and hands** and **Weapons** where a target needs them; *Target's own grip* keeps **Blade follows source** at 100%.
 - In scenes made with earlier versions, options you never changed take the new defaults too, since Blender stores an add-on option in the scene only once it is set. Options you changed keep their values.
 
-# Unreleased — full-body bake, experimental
+## Full-body bake, experimental
 
-## Retarget: Bake method
+### Retarget: Bake method
 
 - **Bake method** in step 3 chooses how the target takes the source's motion. *Bone by bone*, the default, bakes as before. *Full body (experimental)* finds the body in both rigs by itself, by bone names where they are clear and by the skeleton's shape otherwise, so it needs no bone list for the hips, spine, neck, head, arms, legs, hands, feet and fingers. Bones outside the body, such as weapons, take their source bones from the bone list, or from automatic matching when there is no list.
 - Chains of other bone counts take the source's motion spread over their own bones: a two-bone spine takes a three-bone spine's bend, twist bones along an arm or leg take their share of its turn, and a target without clavicles works.
@@ -33,15 +37,15 @@
 - The price: to keep those contacts, the legs and arms point up to 13° away from the source's, and where spine bone counts differ, a bend within one target spine bone is lost. Weapon grips, Second hand, body clearance, arm distance, foot targets and root motion work as with the bone-by-bone bake: on Isshin onto Wolf, the katana sits in Wolf's hand within 0.001 mm and 0.001° of where the bone-by-bone bake puts it, with the same fingers and the parts on its sockets in place, and the three weapon tests pass with either method.
 - On two FromSoftware pairs, Owl and Isshin onto Wolf, both methods give nearly the same result. Bone by bone stays the recommended method for those; try the full body for rigs from other sources.
 
-# Unreleased — the mirrored katana strikes with its edge
+## The mirrored katana strikes with its edge
 
-## Retarget: Mirror animation
+### Retarget: Mirror animation
 
 - A mirrored clip moved Wolf's katana into the left hand turned a quarter turn about its blade, so that it struck with the flat side. The mirror reflected the weapon bone across the character's middle plane as seen from the bone's rest, and `R_Weapon` rests with that plane halfway between the katana's edge and its flat. Now the mirror reads the meshes that the bridge's weapon sockets hang on a bone and reflects the bone so that its weapon maps onto itself: the edge stays the edge. On Isshin's clip on Wolf, the mirrored katana now lies within 0.06 cm of the mirror image of the original, against 0.63 cm before, the flat where the edge should be.
 - The change is in the bone's motion, which the export writes into the `R_Weapon` track. The game hangs the sword on that bone's dummy, as the bridge's socket does, so the game shows the sword as Blender does.
 - Only the weapon in the hand changes. Where Wolf's TAE event 715 moves a weapon to another dummy, such as the katana into its sheath, it keeps its side, as do the sheath, the prosthetic tools, TAE events and weapon part clips.
 
-# Unreleased — preview lights in new character scenes
+## Preview lights in new character scenes
 
 - New character scenes get three soft area lights, `Sekiro Preview Key`, `Sekiro Preview Fill` and `Sekiro Preview Rim`, placed around the imported models and scaled with their height. Material Preview now uses the scene's lights and world instead of Blender's built-in studio light, so the character looks in Material Preview as in Rendered view.
 - The lights are ordinary scene objects: move, recolor or delete them as you like. They do not change the animation export.

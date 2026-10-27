@@ -251,7 +251,7 @@ Original animation annotations and unrelated HKX metadata are not reproduced. Fl
 
 ## Optional Blender retargeting add-on
 
-`SekiroRetargetAssistant-0.7.0.zip` is in the tool folder and on the Releases page. In Blender 4.5, open Edit > Preferences > Add-ons > dropdown menu > Install from Disk, choose this ZIP, and enable **Sekiro Retarget Assistant**. Remove an older version first, or restart Blender after installing over it. Press N in the 3D Viewport and open **Retarget**.
+`SekiroRetargetAssistant-0.8.0.zip` is in the tool folder and on the Releases page. In Blender 4.5, open Edit > Preferences > Add-ons > dropdown menu > Install from Disk, choose this ZIP, and enable **Sekiro Retarget Assistant**. Remove an older version first, or restart Blender after installing over it. Press N in the 3D Viewport and open **Retarget**.
 
 The add-on's panel leads through four steps: **1. Choose rigs**, **2. Match bones**, **3. Bake motion** and **4. Export HKX**. Open the receiving character's bridge scene and choose its armature as the target, use **Append source .blend** for the source, which also matches the bones, review the list and click **Bake motion onto target**. Then click **Export HKX** in step 4: it writes the HKX through this bridge, with the same options and checks as the export page. Alternatively, save the scene and export it here. A greyed-out button says under it what it needs first. The bake options and export settings wait in closed groups: the export settings' defaults suit most clips, and the bake starts raw, with the rest-relative weapon grip and the corrections for hands, arms and a second hand on the weapon off.
 
