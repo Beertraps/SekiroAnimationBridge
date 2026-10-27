@@ -362,8 +362,11 @@ async function resolveClip(restore=false){
   selection=resolved;
   for(const key of ['animation','skeleton','compendium','skeletonCompendium','characterSource','preset'])$(key).value=resolved[key]||'';
   for(const key of ['materialBinder','textureDirectory','referenceModel'])$(key).value=state.overrides?.[key]||resolved[key]||'';
+  const npc=clip.character!=='c0000',saved=state.modelChoices?.[clip.character]||(restore&&state.character===characterId?(state.models||config.models||[])[0]:'');
   const models=new Set(restore?state.models||config.models||[]:[]);
-  parts=resolved.parts;if(models.size&&parts.some(p=>models.has(p.path)))parts.forEach(p=>p.selected=models.has(p.path));
+  parts=resolved.parts;
+  if(npc&&saved&&parts.some(p=>p.path===saved))parts.forEach(p=>p.selected=p.path===saved);
+  else if(!npc&&models.size&&parts.some(p=>models.has(p.path)))parts.forEach(p=>p.selected=models.has(p.path));
   extrasOpen=null;renderParts();applyWeapon(weapon);
   const structured=resolved.layout!=='folder',notes=[];
   if(!parts.length)notes.push(clip.character==='c0000'?'No player outfit found. c0000.chrbnd is a skeleton reference with no visible body. Add outfit PARTSBND files from this game, or switch to Rig only.':structured?`This source has no ${clip.character}.chrbnd or FLVER. Choose model files, or switch to Rig only.`:'No matching model found. Add this character’s CHRBND, or switch to Rig only.');
@@ -718,6 +721,11 @@ function renderParts(){
  $('manual-model-tools').hidden=folder;$('scan').hidden=folder;document.querySelector('.model-tools').hidden=folder&&!clip;
  $('preset').hidden=folder&&!(clip?.character==='c0000'&&clip?.game==='sekiro');
  if(!parts.length){box.innerHTML='';renderModelMasks();updateAssembly();return;}
+ if(folder&&clip&&clip.character!=='c0000'){
+  const selected=parts.find(p=>p.selected),options=parts.map(p=>`<option value="${escape(p.path)}" ${p===selected?'selected':''}>${escape(p.name)} · ${escape(basename(p.path))}</option>`).join('');
+  box.innerHTML=`<div class="part-row"><span>Model file</span><select data-npc-model aria-label="Character model for this animation" title="${escape(selected?.path||'')}"><option value="">Choose a model</option>${options}</select></div>`;
+  renderModelMasks();updateAssembly();return;
+ }
  const wolf=isWolfAssembly(),player=!wolf&&parts.some(p=>/^(fc|hd|hr|am|bd|lg)_/i.test(p.id));
  const roles=wolf?wolfRoles:player?playerRoles.filter(([r])=>parts.some(p=>prefix(p)===r)):[];
  const regions=new Set(roles.map(([r])=>r)),weapons=parts.filter(p=>/^wp_/i.test(p.id)),others=parts.filter(p=>!regions.has(prefix(p))&&!/^wp_/i.test(p.id));
@@ -1103,6 +1111,12 @@ $('clip-list').addEventListener('keydown',event=>{
 });
 $('parts').addEventListener('change',event=>{
  const el=event.target,d=el.dataset;
+ if(d.npcModel!==undefined){
+  parts.forEach(p=>p.selected=p.path===el.value);
+  const source=activeSource(),clip=currentClip();
+  if(source&&clip)source.state={...source.state,modelChoices:{...source.state?.modelChoices,[clip.character]:el.value}};
+  renderParts();return saveSoon();
+ }
  if(d.model||d.extra){const part=parts.find(p=>p.path===(d.model||d.extra));if(part)part.selected=el.checked;if(d.extra&&!el.checked&&document.getElementById('extra-input'))renderParts();else{renderModelMasks();updateAssembly();}return saveSoon();}
  if(d.region!==undefined){parts.filter(p=>prefix(p)===d.region).forEach(p=>p.selected=p.path===el.value);renderParts();return saveSoon();}
  if(d.regionInput!==undefined){

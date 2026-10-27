@@ -580,7 +580,7 @@ def selection(catalog, clip_id, preset='auto'):
     if not wolf and preset in PRESETS: preset = 'auto'
     preset = ('wolf' if wolf else 'player' if player else 'npc') if preset == 'auto' else preset
     if structured:
-        # One game per structured source: models are found by ID rather than by shared folder.
+        # One game per structured source: its NPC models may use another ID than the animation.
         available = catalog['parts'] if player else catalog['models']
     else:
         available = [p for p in catalog['parts'] if p['game'] == source_game and p['scope'] == clip['scope']]
@@ -594,10 +594,11 @@ def selection(catalog, clip_id, preset='auto'):
             player_parts(parts)
             missing = [] if any(p['selected'] for p in parts) else ['Player outfit PARTSBND files (c0000.chrbnd is a skeleton reference)']
     else:
-        parts = [dict(p, selected=True) for p in available if p['id'] == clip['character']]
-        # Unknown IDs require an explicit model choice rather than a Wolf preset.
-        if not clip['character']:
-            parts = [dict(p, selected=len(available)==1) for p in available]
+        # Animation and visible model IDs can differ (for example c5400 and c5410).
+        # Keep every model in this source available, with the matching ID as the default.
+        models = [p for p in available if re.fullmatch(r'c\d{4}', p['id'])] if clip['character'] else available
+        parts = [dict(p, selected=p['id'] == clip['character'] if clip['character'] else len(models) == 1)
+                 for p in models]
         missing = []
     if structured:
         references = [r['path'] for r in catalog['referenceModels']]

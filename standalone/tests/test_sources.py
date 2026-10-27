@@ -172,9 +172,19 @@ class StructuredSelection(unittest.TestCase):
                     materialLibraries=[dict(path='mtd/mtd.mtdbnd.dcx',kind='mtd',loose=False),dict(path='mtd/allmaterialbnd.mtdbnd.dcx',kind='mtd',loose=False)])
     def test_character_model_is_found_by_its_id(self):
         chosen=selection(self.catalog(),'c5060:0')
-        self.assertEqual([(p['id'],p['selected']) for p in chosen['parts']],[('c5060',True)])
+        self.assertEqual([(p['id'],p['selected']) for p in chosen['parts']],[('c5060',True),('c1000',False)])
         self.assertEqual((chosen['textureFolders'],chosen['textureDirectory'],chosen['characterSource']),(['chr','parts'],'',''))
         self.assertEqual((chosen['materialBinder'],chosen['referenceModel']),('mtd/allmaterialbnd.mtdbnd.dcx','c0000.chrbnd.dcx'))
+    def test_animation_can_choose_a_model_with_another_id(self):
+        catalog=self.catalog()
+        catalog['clips'].append(dict(catalog['clips'][0],id='c5400:0',character='c5400'))
+        catalog['models'].append(dict(id='c5410',name='C5410',path='c5410.chrbnd.dcx',selected=False))
+        chosen=selection(catalog,'c5400:0')
+        self.assertIn('c5410',{p['id'] for p in chosen['parts']})
+        self.assertFalse(any(p['selected'] for p in chosen['parts']))
+        catalog['models'].append(dict(id='c5400',name='C5400',path='c5400.chrbnd.dcx',selected=False))
+        chosen=selection(catalog,'c5400:0')
+        self.assertEqual([p['id'] for p in chosen['parts'] if p['selected']],['c5400'])
     def test_wolf_uses_its_standard_parts(self):
         chosen=selection(self.catalog(),'c0000:0')
         self.assertEqual(chosen['preset'],'wolf')
