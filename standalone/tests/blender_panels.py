@@ -21,7 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import blf
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -427,6 +427,19 @@ def states():
     assert bpy.ops.sekiro_retarget.bake() == {'FINISHED'}, settings.status
     yield 'Full body baked'
 
+    scene.frame_set(10)
+    settings.grip_item = 'R_Weapon|R_Hand'
+    assert bpy.ops.sekiro_retarget.grip_adjust() == {'FINISHED'}
+    yield 'Weapon in hand: posing'
+
+    weapon = target.pose.bones['R_Weapon']
+    weapon.matrix = Matrix.Translation((0, 0, .01)) @ weapon.matrix
+    assert bpy.ops.sekiro_retarget.grip_apply() == {'FINISHED'}, settings.status
+    yield 'Weapon in hand: aligned'
+
+    assert bpy.ops.sekiro_retarget.grip_reset() == {'FINISHED'}, settings.status
+    bpy.ops.object.mode_set(mode='OBJECT')
+
     settings.method = 'BONES'
     assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
     assert bpy.ops.sekiro_retarget.bake() == {'FINISHED'}, settings.status
@@ -486,6 +499,10 @@ EXPECTED = {
                                       ['(Bake motion onto target) (greyed out)', 'Match bones first.', '{list']),
     'Full body baked': (["Baked 24 frames from the full body", "Full body (experimental): 52 body bones follow the source's body chains",
                          'R_Weapon sits in R_Hand'], ['foot kept on the source']),
+    'Weapon in hand: posing': (['Frame 10: turn (R) or move (G) R_Weapon until it sits in R_Hand as you want',
+                                '(Apply to all frames)  (Cancel)'], ['(Adjust weapon)']),
+    'Weapon in hand: aligned': (['R_Weapon sits in R_Hand as you aligned it under Weapon in hand', '(Adjust weapon)',
+                                 'Aligned: 1.0 cm, 0.0°  (Reset)'], ['(Apply to all frames)']),
     'Control rig on': (['The target has a control rig. Remove it under Control rig before baking',
                         'IK slider: 0 follows FK, 1 follows IK.', '(Remove control rig)', 'v Fixes'],
                        ['(Add control rig)', '(Pose Mode)']),

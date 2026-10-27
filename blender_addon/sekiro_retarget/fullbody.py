@@ -102,11 +102,13 @@ def stance(source, target, bone_map, chains, rotation, kept=frozenset()):
 
     A chain bone of the limbs and fingers turns so that its segment lies along the source chain over the same share
     of the way. The bones in kept, the spine and neck, keep the target's own stance, as the bone-by-bone bake keeps
-    them: a hunched source would otherwise hunch the target in every frame. They and the other bones keep their
-    nearest turned ancestor's rotation, as in retarget.stance_alignment. rotation maps source armature directions
-    into the target's.
+    them: a hunched source would otherwise hunch the target in every frame. A hand points to its knuckles and lies
+    about that line as the source's hand (see retarget.align_hand). They and the other bones keep their nearest
+    turned ancestor's rotation, as in retarget.stance_alignment. rotation maps source armature directions into the
+    target's.
     """
     heads = {bone.name: bone.head_local for bone in source.data.bones}
+    hands = retarget.stance_hands(source, target, bone_map)
     result = {}
     for bone in sorted(target.data.bones, key=lambda b: len(b.parent_recursive)):
         if bone.name not in bone_map and bone.name not in chains:
@@ -121,6 +123,8 @@ def stance(source, target, bone_map, chains, rotation, kept=frozenset()):
             want = rotation @ (point(heads, spec['stop']) - point(heads, spec['start']))
             if have.length > 1e-6 and want.length > 1e-6:
                 alignment = have.rotation_difference(want) @ alignment
+        if bone.name in hands and bone.name not in kept:
+            alignment = retarget.align_hand(alignment, bone.name, hands[bone.name], source, target, bone_map, rotation)
         result[bone.name] = alignment
     return result
 
@@ -195,7 +199,7 @@ def held(sides, flags, up):
 
 
 def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, rotation, carried, holds, placed, armed, forward,
-                  ground=None):
+                  ground=None, gripped=None, knuckles=None):
     """Keep the feet on the source's footprint and the hands together where the source's are; returns what moved.
 
     Each foot's goal is where the source's foot is, measured from the source's hips, scaled by travel and measured
@@ -212,7 +216,12 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
     forearm's length of each other, the target's wrists move to the source's distance and direction apart, scaled
     by arm length, each by half; where only one hand holds a weapon, the other hand moves all the way, so that the
     weapon stays where the bake put it and Second hand can still put the free hand on its grip.
-    The weight fades out by a forearm's length and is averaged over 0.05 s. samples
+    The weight fades out by a forearm's length, but holds wherever gripped, per frame from 0 to 1, says the source holds
+    its weapon with both hands (see retarget.both_hands), so that the hands stay together on a long hilt such as Owl's,
+    where his wrists are 0.6 to 0.9 of his forearm apart; it is averaged over 0.05 s. As far as gripped says, the
+    middles of the knuckles keep the source's distance and direction apart rather than the wrists, since the hilt
+    passes through them and hands of other sizes than the arms', such as Isshin's against Owl's, put them elsewhere;
+    knuckles gives per target hand its finger roots and the source's (see retarget.stance_hands). samples
     holds the source bones' armature-space positions per frame; carried, the bones that move with the body; holds
     and placed, the weapons that the bake placed in a hand (see retarget.weapon_holds), which move with that hand;
     armed, the hands that hold a weapon (see retarget.hand_weapons).
@@ -292,16 +301,28 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
         forearms = [(rest[arm['hand']] - rest[arm['forearm']]).length for arm in sides]
         lengths = [(rest[arm['forearm']] - rest[arm['upperarm']]).length + forearm for arm, forearm in zip(sides, forearms)]
         unit, ratio = sum(forearms) / 2, sum(arm['length'] for arm in arms) / sum(lengths)
-        weights = [retarget.fade((sample[arms[0]['source']] - sample[arms[1]['source']]).length / unit, .6, 1.0) for sample in samples]
+        weights = [max(retarget.fade((sample[arms[0]['source']] - sample[arms[1]['source']]).length / unit, .6, 1.0),
+                       gripped[t] if gripped else 0.0) for t, sample in enumerate(samples)]
         weights = retarget.smoothed(weights, max(1, round(.05 * rate)))
         holding = [arm['chain'][2] in armed for arm in arms]
         shares = (.5, .5) if holding[0] == holding[1] else tuple(0.0 if weapon else 1.0 for weapon in holding)
+        roots = [knuckles.get(arm['chain'][2]) for arm in arms] if knuckles else [None, None]
+
+        def end(t, i, places, own):
+            """The wrist of arm i, or as far toward its knuckles as gripped says, where the hilt passes through."""
+            wrist = places[arms[i]['chain'][2] if own else arms[i]['source']]
+            wrist = wrist.translation if own else wrist
+            grip = gripped[t] if gripped and all(roots) else 0.0
+            if grip < 1e-3:
+                return wrist.copy()
+            names = roots[i][0 if own else 1]
+            middle = sum(((places[name].translation if own else places[name]) for name in names), Vector()) / len(names)
+            return wrist.lerp(middle, grip)
         for t, (poses, sample, weight) in enumerate(zip(pose_frames, samples, weights)):
             if weight < 1e-3:
                 continue
-            apart = rotation @ (sample[arms[1]['source']] - sample[arms[0]['source']]) * ratio
-            wrists = [poses[arm['chain'][2]].translation.copy() for arm in arms]
-            excess = (wrists[1] - wrists[0]) - apart
+            apart = rotation @ (end(t, 1, sample, False) - end(t, 0, sample, False)) * ratio
+            excess = (end(t, 1, poses, True) - end(t, 0, poses, True)) - apart
             for arm, share, sign in zip(arms, shares, (1, -1)):
                 if not share:
                     continue

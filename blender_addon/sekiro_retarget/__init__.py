@@ -6,6 +6,7 @@ bl_info = {
 }
 
 import json
+import math
 from collections import Counter
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -74,6 +75,26 @@ class SKR_BoneMap(PropertyGroup):
     suggestion: StringProperty()
 
 
+class SKR_GripOffset(PropertyGroup):
+    weapon: StringProperty()
+    hand: StringProperty()
+    matrix: FloatVectorProperty(size=16)  # The move and turn in the hand's space, row by row.
+
+
+HELD_ITEMS=[]  # Blender keeps only references to the strings of dynamic enum items.
+
+
+def held_items(self,context):
+    rig=self.target
+    held=[item.split('|') for item in (rig.get(retarget.HELD,'') if rig else '').split(';') if '|' in item]
+    HELD_ITEMS[:]=[(f'{weapon}|{hand}',f'{weapon} in {hand}','') for weapon,hand in held] or [('NONE','No weapon','Bake first')]
+    return HELD_ITEMS
+
+
+def grip_offset(settings,weapon):
+    return next((item for item in settings.grip_offsets if item.weapon==weapon),None)
+
+
 class SKR_Settings(PropertyGroup):
     source: PointerProperty(name='Source rig', type=bpy.types.Object, poll=armature_poll, update=pair_changed,
         description='The armature whose animation is copied, such as the donor of a two-character import')
@@ -94,7 +115,7 @@ class SKR_Settings(PropertyGroup):
                 'body, such as weapons, take their source bones from the bone list, or from automatic matching')],
         default='BONES')
     rest_mode: EnumProperty(name='Rest stance', description='How the target\'s limbs stand before the motion is applied', items=[
-        ('ALIGN','Match source stance','Pose the target limbs like the source rest pose before applying motion, '
+        ('ALIGN','Match source stance','Pose the target limbs and hands like the source rest pose before applying motion, '
                  'so an A-pose target follows a T-pose source without lowered or raised arms'),
         ('REST','Keep target stance','Apply source rotations from the target rest pose; for rigs that share a rest stance')], default='ALIGN')
     root_motion: EnumProperty(name='Root motion', description='Where the clip\'s root motion, the travel that moves the '
@@ -125,17 +146,33 @@ class SKR_Settings(PropertyGroup):
                     'it stands as close to the target\'s torso, at the target\'s size, easing in and out; for a source '
                     'with a wider body than the target. Needs body meshes on both rigs')
     weapon_grip: EnumProperty(name='Weapon grip', items=[
-        ('OWN','Target\'s own grip','The weapon sits in the hand as in the target\'s own clip, with the fingers closed '
-               'around it as there; the wrist turns so that the blade follows the source\'s'),
+        ('REST','Rest-relative grip','The weapon stays at the target\'s own grip point in the hand, from its own clip or '
+                'else its rest pose, and turns there as the source\'s weapon turns in the source\'s hand away from its rest '
+                'pose, and each finger of both hands as the source\'s finger turns from its rest pose; needs no meshes. '
+                'For rigs whose rest poses hold their weapons alike, as FromSoftware\'s do'),
         ('SOURCE','Source\'s grip','The weapon sits and turns in the hand as the source\'s weapon sits and turns in the '
-                  'source\'s hand, scaled to the hand, with the source\'s fingers; for a weapon made to fit the source\'s grip')], default='SOURCE')
+                  'source\'s hand, scaled to the hand, with the source\'s fingers: the fist holds the part of the weapon '
+                  'that matches the part the source\'s fist holds, found from both weapons\' shapes; for a weapon made '
+                  'to fit the source\'s grip'),
+        ('OWN','Target\'s own grip','The weapon sits in the hand as in the target\'s own clip, with the fingers closed '
+               'around it as there; the wrist turns so that the blade follows the source\'s')], default='REST')
     blade_follow: FloatProperty(name='Blade follows source', default=100.0, min=0.0, max=100.0, subtype='PERCENTAGE', precision=0,
         description='How far the wrist turns so that the blade points as the source\'s does: 100% keeps the source\'s '
                     'blade directions, 0% keeps the wrist as the source turns it. Where the two grips differ, turning '
                     'bends the wrist sideways')
+    finger_fit: BoolProperty(name='Bend fingers onto the weapon', default=False,
+        description='With the rest-relative or the source\'s grip, bend each finger joint until its skin just touches '
+                    'the weapon: open where it goes in, close a little where it stands off. Changes the source\'s '
+                    'finger pose. Uses the meshes that the target deforms')
     second_hand: BoolProperty(name='Second hand on the weapon', default=False,
         description='Where the source holds its weapon with both hands, the target\'s other hand goes onto the target\'s '
                     'weapon at the matching place, through the arm, easing on and off')
+    grip_offsets: CollectionProperty(type=SKR_GripOffset)
+    grip_item: EnumProperty(name='Weapon',items=held_items,
+        description='The weapon to align in its hand: one that the last bake put in a hand')
+    grip_adjusting: StringProperty()  # weapon|hand while the user poses it.
+    grip_frame: IntProperty()
+    grip_start: FloatVectorProperty(size=16)  # The weapon in its hand when Adjust weapon started.
     timing: EnumProperty(name='Clip timing', description='How long the baked clip runs', items=[
         ('SOURCE','Use source length','Update target metadata to the source duration'),
         ('TARGET','Fit target length','Resample source motion across the target clip length')], default='SOURCE')
@@ -423,19 +460,109 @@ class SKR_OT_bake(Operator):
                     'both rigs; the original action is kept')
     bl_options={'REGISTER','UNDO'}
     def execute(self,context):
-        settings=context.scene.sekiro_retarget
-        try:
-            result=retarget.bake(context.scene,settings)
-            source=('the full body' if result['bake_method']=='BODY' else f"{result['mapped']} mapped bones")
-            settings.status=(f"Baked {result['frames']} frames from {source}; travel scale {result['scale']:.3f}; "
-                             f"root motion {result['root_motion'].lower()}."+''.join(' '+line for line in result['notes']+result['warnings']))
-            if not settings.export_path and bpy.data.filepath:
-                clip=(retarget.read_motion(settings.target) or {}).get('clip','')
-                if clip:settings.export_path='//'+Path(clip).stem+'.hkx'
-            self.report({'WARNING'} if result['warnings'] else {'INFO'},settings.status)
-            return {'FINISHED'}
-        except Exception as exc:
-            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+        return run_bake(self,context)
+
+
+def run_bake(operator,context):
+    settings=context.scene.sekiro_retarget
+    try:
+        result=retarget.bake(context.scene,settings)
+        source=('the full body' if result['bake_method']=='BODY' else f"{result['mapped']} mapped bones")
+        settings.status=(f"Baked {result['frames']} frames from {source}; travel scale {result['scale']:.3f}; "
+                         f"root motion {result['root_motion'].lower()}."+''.join(' '+line for line in result['notes']+result['warnings']))
+        if not settings.export_path and bpy.data.filepath:
+            clip=(retarget.read_motion(settings.target) or {}).get('clip','')
+            if clip:settings.export_path='//'+Path(clip).stem+'.hkx'
+        operator.report({'WARNING'} if result['warnings'] else {'INFO'},settings.status)
+        return {'FINISHED'}
+    except Exception as exc:
+        operator.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+def held_weapon(settings):
+    """(weapon, hand) chosen under Weapon in hand, or None where the target has no such bones."""
+    rig=settings.target
+    if not rig or '|' not in settings.grip_item:return None
+    weapon,hand=settings.grip_item.split('|')
+    return (weapon,hand) if weapon in rig.pose.bones and hand in rig.pose.bones else None
+
+
+def weapon_in_hand(rig,weapon,hand):
+    bones=rig.pose.bones
+    return retarget.in_hand_of({weapon:bones[weapon].matrix,hand:bones[hand].matrix},hand,weapon)
+
+
+class SKR_OT_grip_adjust(Operator):
+    bl_idname='sekiro_retarget.grip_adjust'
+    bl_label='Adjust weapon'
+    bl_description=('Select the weapon on this frame, so that you can turn (R) and move (G) it in the hand; Apply to all '
+                    'frames then bakes again with the weapon sitting in the hand that way on every frame')
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        settings=context.scene.sekiro_retarget;held=held_weapon(settings);rig=settings.target
+        if not held:
+            self.report({'ERROR'},'Bake first: Weapon in hand aligns a weapon that the bake put in a hand.');return {'CANCELLED'}
+        weapon,hand=held
+        if rig.mode!='POSE':
+            if context.object and context.object.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+            for obj in context.selected_objects:obj.select_set(False)
+            rig.hide_set(False);rig.select_set(True);context.view_layer.objects.active=rig
+            bpy.ops.object.mode_set(mode='POSE')
+        for bone in rig.pose.bones:bone.bone.select=bone.name==weapon
+        rig.data.bones.active=rig.data.bones[weapon]
+        context.view_layer.update()
+        settings.grip_start=[value for row in weapon_in_hand(rig,weapon,hand) for value in row]
+        settings.grip_frame=context.scene.frame_current;settings.grip_adjusting=settings.grip_item
+        return {'FINISHED'}
+
+
+class SKR_OT_grip_apply(Operator):
+    bl_idname='sekiro_retarget.grip_apply'
+    bl_label='Apply to all frames'
+    bl_description=('Bake again, with the weapon sitting in the hand on every frame as you posed it on this one. The '
+                    'alignment stays for later bakes until you reset it')
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        scene=context.scene;settings=scene.sekiro_retarget;rig=settings.target
+        if '|' not in settings.grip_adjusting:return {'CANCELLED'}
+        weapon,hand=settings.grip_adjusting.split('|')
+        if scene.frame_current!=settings.grip_frame:
+            self.report({'ERROR'},f'Go back to frame {settings.grip_frame}, where you started, and pose the weapon there; '
+                                  'changing the frame resets an unkeyed pose.');return {'CANCELLED'}
+        context.view_layer.update()
+        change=weapon_in_hand(rig,weapon,hand)@retarget.matrix_of(settings.grip_start).inverted()
+        item=grip_offset(settings,weapon)
+        if item is None:
+            item=settings.grip_offsets.add();item.weapon=weapon;item.matrix=[float(i%5==0) for i in range(16)]
+        item.hand=hand
+        item.matrix=[value for row in change@retarget.matrix_of(item.matrix) for value in row]
+        settings.grip_adjusting=''
+        return run_bake(self,context)
+
+
+class SKR_OT_grip_cancel(Operator):
+    bl_idname='sekiro_retarget.grip_cancel'
+    bl_label='Cancel'
+    bl_description='Put the weapon back where the bake put it'
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        settings=context.scene.sekiro_retarget;settings.grip_adjusting=''
+        context.scene.frame_set(context.scene.frame_current)
+        return {'FINISHED'}
+
+
+class SKR_OT_grip_reset(Operator):
+    bl_idname='sekiro_retarget.grip_reset'
+    bl_label='Reset'
+    bl_description='Forget your alignment of this weapon and bake again with the grip alone'
+    bl_options={'REGISTER','UNDO'}
+    def execute(self,context):
+        settings=context.scene.sekiro_retarget;held=held_weapon(settings)
+        if not held:return {'CANCELLED'}
+        for index,item in enumerate(settings.grip_offsets):
+            if item.weapon==held[0]:settings.grip_offsets.remove(index);break
+        settings.grip_adjusting=''
+        return run_bake(self,context)
 
 
 class SKR_OT_export_target(Operator):
@@ -854,14 +981,54 @@ class SKR_PT_bake_arms(BakeOptions,Panel):
         self.layout.prop(settings,'body_clearance');self.layout.prop(settings,'arm_gap')
 
 
+GRIP_HINTS={
+    'REST':'Keeps the weapon at the target\'s own grip point, turned as the source\'s turns from its rest pose.',
+    'SOURCE':'Puts the weapon where the source\'s sits in the source\'s hand, scaled to the hand.',
+    'OWN':'Holds the weapon as the target\'s own clip does, with that clip\'s fingers.'}
+
+
 class SKR_PT_bake_weapons(BakeOptions,Panel):
     bl_label='Weapons'
     bl_idname='SKR_PT_retarget_bake_weapons'
     def draw(self,context):
         layout=self.layout;settings=context.scene.sekiro_retarget
         menu(layout,settings,'weapon_grip')
+        text(layout,context,GRIP_HINTS[settings.weapon_grip])
         if settings.weapon_grip=='OWN':layout.prop(settings,'blade_follow',slider=True)
+        else:layout.prop(settings,'finger_fit')
         layout.prop(settings,'second_hand')
+
+
+class SKR_PT_bake_grip(SidebarPanel,Panel):
+    bl_label='Weapon in hand'
+    bl_idname='SKR_PT_retarget_bake_grip'
+    bl_parent_id='SKR_PT_retarget_bake';bl_options={'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls,context):
+        rig=context.scene.sekiro_retarget.target
+        return bool(rig and rig.get(retarget.HELD))
+    def draw(self,context):
+        layout=self.layout;scene=context.scene;settings=scene.sekiro_retarget
+        if not settings.grip_adjusting:layout.prop(settings,'grip_item',text='')
+        held=held_weapon(settings)
+        if settings.grip_adjusting:
+            weapon,hand=settings.grip_adjusting.split('|')
+            text(layout,context,f'Frame {settings.grip_frame}: turn (R) or move (G) {weapon} until it sits in {hand} as you '
+                                'want, then click Apply to all frames. Stay on this frame.',icon='INFO')
+            if scene.frame_current!=settings.grip_frame:
+                text(layout,context,f'Go back to frame {settings.grip_frame}.',icon='ERROR').alert=True
+            row=layout.row(align=True);row.scale_y=1.3
+            row.operator('sekiro_retarget.grip_apply',icon='CHECKMARK');row.operator('sekiro_retarget.grip_cancel',icon='X')
+            return
+        text(layout,context,'Pose the weapon in the hand on one frame; the bake then keeps it there on every frame.')
+        layout.operator('sekiro_retarget.grip_adjust',icon='TOOL_SETTINGS')
+        item=grip_offset(settings,held[0]) if held else None
+        if item:
+            change=retarget.matrix_of(item.matrix)
+            moved=change.translation.length*retarget.uniform_scale(settings.target)*100
+            row=layout.row(align=True)
+            row.label(text=f'Aligned: {moved:.1f} cm, {math.degrees(change.to_quaternion().angle):.1f}°')
+            row.operator('sekiro_retarget.grip_reset',icon='LOOP_BACK')
 
 
 class SKR_PT_export(SidebarPanel,Panel):
@@ -992,12 +1159,13 @@ class SKR_PT_fixes(Panel):
         if fix.status:text(layout.box(),context,fix.status,boxed=True)
 
 
-CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,
-    SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_save_map,
+CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_GripOffset,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,
+    SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_grip_adjust,SKR_OT_grip_apply,SKR_OT_grip_cancel,
+    SKR_OT_grip_reset,SKR_OT_save_map,
     SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_mirror_animation,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
     SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
 # The steps of the retarget panel, after it and in the order they are shown.
-CLASSES+=(SKR_PT_rigs,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_arms,SKR_PT_bake_weapons,
+CLASSES+=(SKR_PT_rigs,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_arms,SKR_PT_bake_weapons,SKR_PT_bake_grip,
           SKR_PT_export,SKR_PT_export_settings,SKR_PT_status)
 
 

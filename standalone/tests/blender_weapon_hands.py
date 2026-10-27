@@ -32,6 +32,7 @@ import sekiro_retarget
 from sekiro_retarget import retarget
 
 COUNT, RATE, SIZE = 60, 30, 1.2
+KNUCKLES = ('Finger1', 'Finger2', 'Finger3', 'Finger4')  # Index to little finger roots.
 METHOD = sys.argv[sys.argv.index('--') + 1] if '--' in sys.argv else 'BONES'  # The bake method, BONES or BODY.
 # The right wrist on frames 25-45, in armature space: 4 cm inside the target torso's front.
 GOAL = Vector((-.08, -.2, 1.15))
@@ -193,11 +194,48 @@ def placement(name, axis=Vector((1, 0, 0))):
     return frames
 
 
-def follows(frames, name, turned=True):
-    """Checks that a weapon sits where it belongs on every frame, is hidden at 0.1% where the axe is hidden at 0 and
-    otherwise shown and, unless the bake turned it for its mesh, turned like the axe; returns the largest offset error."""
+def palm(rig, side):
+    """In world space: x from the wrist toward the knuckles, y from the little finger's root toward the index
+    finger's, at the wrist; and the length from the wrist to the knuckles."""
+    wrist = world(rig, f'{side}_Hand').translation
+    roots = [world(rig, f'{side}_{name}').translation for name in KNUCKLES]
+    x = sum(roots, Vector()) / len(roots) - wrist
+    across = roots[0] - roots[-1]
+    y = (across - x.normalized() * across.dot(x.normalized())).normalized()
+    frame = Matrix((x.normalized(), y, x.normalized().cross(y))).transposed().to_4x4()
+    frame.translation = wrist
+    return frame, x.length
+
+
+def in_palm(name, line, axe_line, along=True):
+    """Largest (distance, degrees) over the frames where the axe shows of a target weapon's line from the axe's, both
+    in their left palms, the axe's scaled by the two hands' sizes. A line is (point, direction) in its bone's space;
+    along: the distance of the two points, else only across the target's line."""
+    distance = degrees = 0.0
+    for frame in range(3, COUNT + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        (target_palm, target_size), (source_palm, source_size) = palm(target, 'L'), palm(source, 'L')
+        found = []
+        for rig, bone, (point, direction), scale, frame_palm in ((target, name, line, 1.0, target_palm),
+                                                                 (source, 'L_Axe', axe_line, target_size / source_size, source_palm)):
+            held = world(rig, bone)
+            held = Matrix.LocRotScale(held.translation, held.to_quaternion(), None)
+            found.append(((frame_palm.inverted() @ (held @ Vector(point))) * scale,
+                          frame_palm.to_quaternion().inverted() @ held.to_quaternion() @ Vector(direction)))
+        (point, direction), (axe_point, axe_direction) = found
+        off = axe_point - point
+        distance = max(distance, (off if along else off - direction * off.dot(direction)).length)
+        degrees = max(degrees, math.degrees(direction.angle(axe_direction)))
+    return distance, degrees
+
+
+def follows(frames, name, turned=True, placed=True):
+    """Checks that a weapon sits where it belongs on every frame, unless it takes a grip instead (placed false), is
+    hidden at 0.1% where the axe is hidden at 0 and otherwise shown and, unless the bake turned it for its mesh or
+    grip, turned like the axe; returns the largest offset error."""
     for frame, item in enumerate(frames, 1):
-        assert item['error'] < 1e-4, f"{name} lies {item['error'] * 1000:.2f} mm from where it belongs on frame {frame}"
+        assert not placed or item['error'] < 1e-4, f"{name} lies {item['error'] * 1000:.2f} mm from where it belongs on frame {frame}"
         if frame <= 2:
             assert all(abs(value - retarget.HIDDEN) < 1e-6 for value in item['scale']), \
                 f'{name} is not hidden at {retarget.HIDDEN} on frame {frame}, where the source hides the axe: {item["scale"]}'
@@ -300,7 +338,11 @@ assert (rows['L_Yari'].reason, rows['R_Katana'].source, rows['R_Katana'].reason,
     ('Manual mapping', '', 'Source moved to L_Yari', False), (rows['L_Yari'].reason, rows['R_Katana'].source, rows['R_Katana'].reason)
 substituted = bake(body_clearance=False)
 assert substituted['placed'] == {'L_Yari': 'L_Hand'}, substituted['placed']
-spear_error = follows(placement('L_Yari'), 'L_Yari')
+# The spear hangs below the left hand, so it takes the source's grip there: without an axe mesh, by the bones.
+assert substituted['grips']['L_Yari']['mode'] == 'SOURCE' and substituted['grips']['L_Yari']['part'] is None, substituted['grips']
+follows(placement('L_Yari'), 'L_Yari', turned=False, placed=False)
+spear_error, spear_turn = in_palm('L_Yari', ((0, 0, 0), (1, 0, 0)), ((0, 0, 0), (1, 0, 0)))
+assert spear_error < 1e-4 and spear_turn < .05, f"the spear should sit in the left palm as the axe does: {spear_error, spear_turn}"
 grip = target.data.bones['R_Hand'].matrix_local.inverted() @ target.data.bones['R_Katana'].matrix_local
 for frame in range(1, COUNT + 1):
     scene.frame_set(frame)
@@ -313,14 +355,19 @@ for frame in range(1, COUNT + 1):
 axe = box('Axe', (-.015, -.25, -.006), (.015, .75, .006), 2, lambda co: 'L_Axe', source, source, source.data.bones['L_Axe'].matrix_local)
 turned = bake(body_clearance=False)
 assert abs(turned['weapons']['L_Yari'] - 90) < 1, turned['weapons']
-follows(placement('L_Yari', Vector((0, 1, 0))), 'turned L_Yari', turned=False)
+follows(placement('L_Yari', Vector((0, 1, 0))), 'turned L_Yari', turned=False, placed=False)
+# With both meshes, the spear's matching part lies on the axe's line in the palm.
+assert turned['grips']['L_Yari']['part'], turned['grips']
+turned_gap = in_palm('L_Yari', ((0, 0, 0), (1, 0, 0)), ((0, 0, 0), (0, 1, 0)), along=False)
+assert turned_gap[0] < 1e-4 and turned_gap[1] < .05, f"the spear should lie on the axe's line in the left palm: {turned_gap}"
 lines = []
 for frame in range(3, COUNT + 1):
     scene.frame_set(frame)
     bpy.context.view_layer.update()
     blade, haft = long_axis(world_points(spear)), long_axis(world_points(axe))
     lines.append(math.degrees(min(blade.angle(haft), blade.angle(-haft))))
-assert max(lines) < 1, f'the spear and the axe differ by up to {max(lines):.2f} degrees'
+# The spear lies in the target's palm as the axe lies in the source's, and the two palms turn a little otherwise.
+assert max(lines) < 3, f'the spear and the axe differ by up to {max(lines):.2f} degrees'
 
 # Hiding the katana, which the spear took the axe from, and the spear itself in the map: both shrink to 0.1% on every
 # frame where they would be, the katana at its grip in the right hand and the spear where the axe puts it, and the
@@ -360,7 +407,9 @@ assert set(bake(body_clearance=False)['hidden']) == {'R_Katana', 'L_Yari'}
 print(f"Weapon hand checks passed{' with the full-body bake' if METHOD == 'BODY' else ''}: the katana took the axe from the other hand and followed it within "
       f"{switch_error * 1000:.3f} mm, hidden at {retarget.HIDDEN} on frames 1-2 with its scabbard in place; the right "
       f"hand was moved out on frames {pushed['R']['frames'][0]}-{pushed['R']['frames'][-1]} by up to {moved * 100:.1f} cm "
-      f"without moving the katana; the spear took the axe within {spear_error * 1000:.3f} mm and turned "
-      f"{turned['weapons']['L_Yari']:.0f} degrees for the axe mesh, parallel within {max(lines):.3f} degrees; hiding the "
+      f"without moving the katana; the spear took the axe's grip in the left palm within {spear_error * 1000:.3f} mm / "
+      f"{spear_turn:.4f} degrees and turned {turned['weapons']['L_Yari']:.0f} degrees for the axe mesh, on the axe's line in "
+      f"the palm within {turned_gap[0] * 1000:.3f} mm / {turned_gap[1]:.4f} degrees and parallel in the world within "
+      f"{max(lines):.3f} degrees; hiding the "
       f"katana and the spear in the map shrank both and the scabbard to {retarget.HIDDEN} on all {COUNT} frames, and "
       f"the map kept them hidden.")

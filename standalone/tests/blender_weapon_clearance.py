@@ -242,6 +242,9 @@ sword = box('Sword', (-.12, -.006, -.015), (.9, .006, .015), 2, None, socket)  #
 
 settings = scene.sekiro_retarget
 settings.method = METHOD
+# The two swords lie along different axes of their bones, which the source's grip lines up from their shapes and the
+# rest-relative grip, from the rest poses, does not.
+settings.weapon_grip = 'SOURCE'
 settings.source, settings.target = source, target
 assert retarget.hidden_bones(source) == {'R_Gun'}, retarget.hidden_bones(source)
 assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
