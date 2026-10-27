@@ -180,6 +180,10 @@ class StructuredSelection(unittest.TestCase):
         self.assertEqual(chosen['preset'],'wolf')
         self.assertEqual(sorted(p['id'] for p in chosen['parts'] if p['selected']),sorted(PRESETS['wolf']))
         self.assertEqual(chosen['missing'],[])
+        catalog=self.catalog()
+        catalog['parts'].append(dict(id='wp_a_0300',name='WP_A_0300',path='wp_a_0300.partsbnd.dcx',selected=False))
+        selected=selection(catalog,'c0000:0')['parts']
+        self.assertTrue(next(p for p in selected if p['id']=='wp_a_0300')['selected'])
     def test_material_library_tie_follows_folder_order(self):
         catalog=self.catalog()
         catalog['materialLibraries']=[dict(path='b_mod/mtd/allmaterialbnd.mtdbnd.dcx',kind='mtd',loose=False),dict(path='a_game/material/allmaterial.matbinbnd.dcx',kind='matbin',loose=False)]

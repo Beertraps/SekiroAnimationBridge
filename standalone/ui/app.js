@@ -97,7 +97,7 @@ function rememberState(){
 function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{rememberState();config=values();try{await api('settings',config);}catch(e){toast(e.message,true);}},450);}
 const selectDefaults={preset:'auto',game:'auto',exportGame:'auto',frameRange:'scene',trackSet:'original',rootMotion:'auto',quantization:'threecomp40'};
 function setValues(data){
- config=data;sources=Array.isArray(data.sources)?data.sources:[];activeId=sources.some(s=>s.id===data.activeSource)?data.activeSource:(sources[0]?.id||'');
+ config=data;config.modelMasks||={};sources=Array.isArray(data.sources)?data.sources:[];activeId=sources.some(s=>s.id===data.activeSource)?data.activeSource:(sources[0]?.id||'');
  renderActions(data.exportAction||'');
  document.querySelectorAll('[data-config]').forEach(el=>{if(el.type==='checkbox')el.checked=!!data[el.id];else el.value=data[el.id]||selectDefaults[el.id]||'';});
  document.querySelectorAll('[name="format"]').forEach(el=>el.checked=el.value===data.format);
@@ -539,7 +539,7 @@ function sceneChecks(){
  if(folder&&!clip.ready)return [['bad','Missing inputs']];
  if(folder&&resolving)return [['wait','Matching files…']];
  if(folder&&!selection)return [];
- const checks=[[has('animation')?'ok':'bad','Animation'],[has('skeleton')?'ok':'bad','Skeleton'],has('compendium')?['ok','Compendium']:['',folder?'Self-contained types':'No compendium']];
+ const checks=[[has('animation')?'ok':'bad','Animation'],[has('skeleton')?'ok':'bad','Skeleton'],has('compendium')?['ok','Compendium']:['','No animation compendium']];
  if(has('skeletonCompendium')&&$('skeletonCompendium').value.trim()!==$('compendium').value.trim())checks.push(['ok','Skeleton compendium']);
  if(!$('includeCharacter').checked)checks.push(['','Rig only']);
  else{const n=parts.filter(p=>p.selected).length;checks.push(n?['ok',n===1?'1 model':`${n} parts`]:['bad','No model'],has('materialBinder')?['ok','Materials']:[currentGame()==='er'?'bad':'','No material library']);}
@@ -566,7 +566,7 @@ function renderSceneHead(){
 
 /* Retarget donor: a pinned second animation that the import places beside the selected one */
 const donorKeys=['inputMethod','assetFolder','assetCatalog','sourceLayout','sourceFolders','sourceRecursive','game','assetCharacter','assetClip',
- 'animation','compendium','skeleton','skeletonCompendium','characterSource','preset','models','includeCharacter','materialBinder','textureDirectory','referenceModel','weaponAttachments'];
+ 'animation','compendium','skeleton','skeletonCompendium','characterSource','preset','models','modelMasks','includeCharacter','materialBinder','textureDirectory','referenceModel','weaponAttachments'];
 function donorIsCurrent(){
  const d=config.donor,source=activeSource();if(!d)return false;
  return d.inputMethod==='folder'?inputMethod==='folder'&&d.assetClip===clipId&&samePath(d.assetFolder,source?.root||source?.path):inputMethod==='manual'&&samePath(d.animation,$('animation').value.trim());
@@ -586,7 +586,7 @@ function pinDonor(){
  }else requireFields(['animation','skeleton']);
  if($('includeCharacter').checked&&!parts.some(p=>p.selected))throw Error('Select one or more character parts for the donor, or switch to Rig only.');
  const v=values(),name=folder?clip.name.replace(/\.hkx$/i,''):basename(v.animation).replace(/\.hkx$/i,'');
- config.donor={...Object.fromEntries(donorKeys.map(key=>[key,v[key]])),label:name,fileTag:folder?`${clip.character||'character'}_${name}`:name,
+ config.donor={...Object.fromEntries(donorKeys.map(key=>[key,v[key]])),modelMasks:{...v.modelMasks},label:name,fileTag:folder?`${clip.character||'character'}_${name}`:name,
   detail:(folder?[(clip.character||'').toUpperCase(),gameNames[clip.game]||'',activeSource()?.name||'']:[gameNames[v.game]||'Game read from the file','extracted files']).filter(Boolean).join(' · ')};
  renderDonor();saveSoon();toast('Donor pinned. Now choose the animation of the character that receives it.');
 }
@@ -672,6 +672,21 @@ function regionRow([role,label,sub]){
  return `<div class="part-row"><span>${escape(label)}${sub?`<small>${escape(sub)}</small>`:''}</span>${control}</div>`;
 }
 const modelRow=p=>`<label class="model-row" title="${escape(p.path)}"><input type="checkbox" data-model="${escape(p.path)}" ${p.selected?'checked':''}><span><strong>${escape(p.name)}</strong><small>${escape(p.role)} · ${escape(p.container)} · ${escape(basename(p.path))}</small></span>${icon('cube')}</label>`;
+const maskCache=new Map();let maskPath='',maskSequence=0;
+function renderModelMasks(){
+ const box=$('model-masks'),model=parts.find(p=>p.selected&&/^c\d{4}$/i.test(p.id));
+ const path=model?.path||'';
+ if(path!==maskPath){maskPath=path;const seq=++maskSequence;
+  if(path&&!maskCache.has(path))api('model-masks',{path}).then(groups=>{if(seq===maskSequence){maskCache.set(path,groups);renderModelMasks();}})
+   .catch(error=>{if(seq===maskSequence){maskCache.set(path,[]);toast('Could not read model mesh groups: '+error.message,true);renderModelMasks();}});
+ }
+ const groups=maskCache.get(path)||[];
+ box.hidden=!path||!groups.length;
+ if(box.hidden){box.innerHTML='';return;}
+ const chosen=config.modelMasks?.[path];
+ box.innerHTML='<strong>Visible model meshes</strong><p class="note">This model contains alternate mesh groups. Choose the groups for the character or costume you want in this scene. Unnumbered meshes are always included.</p>'
+  +'<div class="model-mask-options">'+groups.map(g=>`<label title="${escape(g.example)}"><input type="checkbox" data-mask="${escape(g.id)}" ${!chosen||chosen.includes(g.id)?'checked':''}><span>#${escape(g.id)} <small>${escape(g.example)} · ${g.count}</small></span></label>`).join('')+'</div>';
+}
 // Sekiro's names for its weapon models, from EquipParamWeapon and the weapon name text. Tools that share a model follow the first.
 const sekiroWeapons={wp_a_0300:['Katana / Kusabimaru'],wp_a_0310:['Mortal Blade'],
  wp_a_0700:['Loaded Shuriken','Spinning Shuriken','Gouging Top','Lazulite Shuriken'],wp_a_0701:['Phantom Kunai'],wp_a_0702:['Sen Throw'],
@@ -702,14 +717,14 @@ function renderParts(){
  const box=$('parts'),folder=inputMethod==='folder',clip=folder?currentClip():null;
  $('manual-model-tools').hidden=folder;$('scan').hidden=folder;document.querySelector('.model-tools').hidden=folder&&!clip;
  $('preset').hidden=folder&&!(clip?.character==='c0000'&&clip?.game==='sekiro');
- if(!parts.length){box.innerHTML='';updateAssembly();return;}
+ if(!parts.length){box.innerHTML='';renderModelMasks();updateAssembly();return;}
  const wolf=isWolfAssembly(),player=!wolf&&parts.some(p=>/^(fc|hd|hr|am|bd|lg)_/i.test(p.id));
  const roles=wolf?wolfRoles:player?playerRoles.filter(([r])=>parts.some(p=>prefix(p)===r)):[];
  const regions=new Set(roles.map(([r])=>r)),weapons=parts.filter(p=>/^wp_/i.test(p.id)),others=parts.filter(p=>!regions.has(prefix(p))&&!/^wp_/i.test(p.id));
  let html=roles.length?(player?'<p class="note">One piece per region is chosen when only one is available. Pick the outfit pieces you want.</p>':'')+roles.map(regionRow).join(''):(others.length?`<p class="note">Select the model that matches the animation’s skeleton. One model is enough.</p>${others.map(modelRow).join('')}`:'');
  const extras=roles.length?[...others,...weapons]:weapons;
  if(extras.length)html+=extrasBlock(extras,roles.length?'Weapons & extra parts':'Weapon placement');
- box.innerHTML=html;updateAssembly();
+ box.innerHTML=html;renderModelMasks();updateAssembly();
 }
 const weaponStates=game=>game==='sekiro'?[['auto','Auto · game socket'],['right','Drawn · right hand'],['left','Drawn · left hand'],['sheath','Hip sheath'],['back','Back sheath'],['custom','Custom dummy IDs…']]
  :[['auto','Auto · right hand'],['right','Right hand'],['left','Left hand'],['both','Two-handed'],['sheath','Sheathed · right-hand weapon'],['sheath-left','Sheathed · left-hand weapon'],['custom','Custom dummy IDs…']];
@@ -1088,7 +1103,7 @@ $('clip-list').addEventListener('keydown',event=>{
 });
 $('parts').addEventListener('change',event=>{
  const el=event.target,d=el.dataset;
- if(d.model||d.extra){const part=parts.find(p=>p.path===(d.model||d.extra));if(part)part.selected=el.checked;if(d.extra&&!el.checked&&document.getElementById('extra-input'))renderParts();else updateAssembly();return saveSoon();}
+ if(d.model||d.extra){const part=parts.find(p=>p.path===(d.model||d.extra));if(part)part.selected=el.checked;if(d.extra&&!el.checked&&document.getElementById('extra-input'))renderParts();else{renderModelMasks();updateAssembly();}return saveSoon();}
  if(d.region!==undefined){parts.filter(p=>prefix(p)===d.region).forEach(p=>p.selected=p.path===el.value);renderParts();return saveSoon();}
  if(d.regionInput!==undefined){
   const value=el.value.trim().toLowerCase(),matches=parts.filter(p=>prefix(p)===d.regionInput),found=matches.find(p=>p.id.toLowerCase()===value||p.name.toLowerCase()===value);
@@ -1106,6 +1121,14 @@ $('parts').addEventListener('change',event=>{
  }
 });
 $('parts').addEventListener('click',event=>{if(event.target.closest('#extra-add'))addExtra();});
+$('model-masks').addEventListener('change',event=>{
+ const id=event.target.dataset.mask;if(id===undefined)return;
+ const path=maskPath,groups=maskCache.get(path)||[];
+ config.modelMasks||={};
+ const selected=new Set(config.modelMasks[path]||groups.map(group=>group.id));
+ if(event.target.checked)selected.add(id);else selected.delete(id);
+ config.modelMasks[path]=[...selected];renderModelMasks();saveSoon();
+});
 $('parts').addEventListener('toggle',event=>{if(event.target.matches('.extras'))extrasOpen=event.target.open;},true);
 document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('change',()=>{
  const id=el.id,folder=inputMethod==='folder';el.closest('.path-row')?.classList.remove('invalid');

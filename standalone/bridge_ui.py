@@ -29,7 +29,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme','donor',
-        'partAnimations','exportParts'}
+        'partAnimations','exportParts','modelMasks'}
 
 
 def find_blender():
@@ -55,7 +55,7 @@ def defaults():
     result = dict(blender=find_blender(), writer=str(APP/'writer-env/Scripts/python.exe'),
         decoder=str(default_decoder()), animation='', compendium='', skeleton='',
         characterSource=str(source) if source.is_dir() else '', materialBinder='', textureDirectory='',
-        preset='auto', game='auto', exportGame='auto', models=[], includeCharacter=True, openWhenDone=False, force=False,
+        preset='auto', game='auto', exportGame='auto', models=[], modelMasks={}, includeCharacter=True, openWhenDone=False, force=False,
         inputMethod='folder', assetFolder='', assetCharacter='', assetClip='', assetCatalog='', skeletonCompendium='', oodle='',referenceModel='',weaponAttachments={},
         outputBlend=str(HOME/'work/wolf_animation.blend'), inputBlend='',
         outputHKX=str(HOME/'work/wolf_animation_edited.hkx'), format='interleaved',
@@ -280,6 +280,11 @@ class Handler(BaseHTTPRequestHandler):
                     parts=[dict(id=asset_id(p),name=asset_id(p).upper(),role=ROLES.get(asset_id(p).split('_')[0],'Extra model'),path=p,selected=True,container='Model file') for p in data['files']]
                     return self.send_json(dict(parts=parts,missing=[],materials='',count=len(parts)))
                 return self.send_json(scan_character(data['source'],data.get('preset','auto'),data.get('game','auto')))
+            if self.path=='/api/model-masks':
+                from character_assets import model_masks
+                from dcx_codec import configure_oodle
+                configure_oodle(CONFIG.get('oodle',''))
+                return self.send_json(model_masks(data['path']))
             if self.path=='/api/job':
                 with LOCK:
                     if JOB and JOB['status']=='running': raise ValueError('A conversion is already running.')

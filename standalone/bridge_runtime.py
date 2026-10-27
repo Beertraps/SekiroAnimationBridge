@@ -355,7 +355,7 @@ def convert(request):
                     request.get('materialBinder', ''), request.get('previewTexture', ''),
                     request.get('referenceModel', ''), request.get('weaponAttachments', {}), document['skeletonName'], source_game,
                     [bone['name'] for bone in document['skeleton']['bones']],
-                    request.get('textureFolders') or None, bool(request.get('textureRecursive')))
+                    request.get('textureFolders') or None, bool(request.get('textureRecursive')), request.get('modelMasks'))
                 if request.get('partAnimations', True):
                     report['partClips'], report['partNotices'] = part_clips(sources, manifest, animation, source_game, decoder,
                                                                              temp / 'parts', tae_binder, tae_character, event)

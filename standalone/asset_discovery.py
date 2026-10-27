@@ -16,7 +16,7 @@ import re
 import os
 from pathlib import Path, PureWindowsPath
 from dcx_codec import configure_oodle, unwrap
-from character_assets import asset_id, ROLES, PRESETS
+from character_assets import asset_id, ROLES, PRESETS, KUSABIMARU
 from game_profiles import GAMES, havok_info, resolve_game, player_parts, path_game
 from asset_sources import (KINDS, LAYOUTS, detect, executable_game, material_game, game_folders,
                            find_game_root, resolve_folders, kind_files, layout_files, leading_id, plural)
@@ -588,7 +588,7 @@ def selection(catalog, clip_id, preset='auto'):
         parts = [dict(p) for p in available if not re.fullmatch(r'c\d{4}', p['id'])]
         wanted = PRESETS.get(preset, PRESETS['wolf'])
         if wolf:
-            for p in parts: p['selected'] = p['id'] in wanted
+            for p in parts: p['selected'] = p['id'] in wanted or p['id'] == KUSABIMARU
             missing = [p for p in wanted if not any(m['id'] == p for m in parts)]
         else:
             player_parts(parts)

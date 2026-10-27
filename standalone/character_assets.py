@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path, PureWindowsPath
+from material_assets import sampler_kind
 
 ROLES = {"fc": "Head", "am": "Arms / prosthetic", "bd": "Torso", "lg": "Legs", "wp": "Weapon", "hd": "Headwear", "hr": "Hair"}
 PRESETS = {
@@ -10,12 +11,64 @@ PRESETS = {
     "tutorial": ["fc_m_0200", "am_m_9010", "bd_m_9030", "lg_m_9000"],
     "mortal": ["fc_m_0200", "am_m_9000", "bd_m_9040", "lg_m_9000"],
 }
+KUSABIMARU = 'wp_a_0300'
 IMAGE_EXTS = {".png", ".tga", ".dds", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
 def sampler_priority(texture):
-    # Layer zero is the base surface; damage and expression overlays can precede it in the file.
-    return 0 if (texture.texture_type or '').lower().endswith(('albedomap_0', 'normalmap_0')) else 1
+    # Some skin shaders put tiling detail before the actual skin in sampler order.
+    name = (texture.get('semantic', '') if isinstance(texture, dict) else texture.texture_type or '').lower()
+    if 'simpleblend_stencil_nonmetal_sss' in name and name.endswith('texture2d_7_albedomap'):
+        return 0
+    return 0 if name.endswith(('albedomap_0', 'normalmap_0')) else 1
+
+
+def preview_sampler_kind(info):
+    semantic = info['semantic'].lower()
+    target = sampler_kind(semantic)
+    # The stencil skin shader uses this "emissive" slot for a damage normal map.
+    if target == 'emissive' and 'simpleblend_stencil_nonmetal_sss' in semantic and info['texture'].lower().endswith('_n'):
+        return ''
+    return target
+
+
+def mesh_mask(name):
+    match = re.match(r'#(\d+)#', name or '')
+    return match[1] if match else ''
+
+
+def selected_mesh_indices(flver, masks=None):
+    if masks is None:
+        return list(range(len(flver.meshes)))
+    wanted = set(masks)
+    return [i for i, mesh in enumerate(flver.meshes) if not mesh_mask(mesh.material.name) or mesh_mask(mesh.material.name) in wanted]
+
+
+def model_masks(source):
+    """Named FLVER mesh groups for the model picker; unnumbered meshes are always shown."""
+    from soulstruct.containers import Binder
+    from soulstruct.flver import FLVER
+    from dcx_codec import unwrap
+    path = Path(source).resolve()
+    if not path.is_file():
+        raise ValueError(f'Model file not found: {path}')
+    if path.name.lower().endswith(('.flver', '.flver.dcx')):
+        flvers = [FLVER.from_bytes(unwrap(path.read_bytes())[0])]
+    else:
+        flvers = [FLVER.from_bytes(unwrap(entry.data)[0]) for entry in Binder.from_bytes(unwrap(path.read_bytes())[0]).entries
+                  if entry.path.lower().endswith(('.flver', '.flver.dcx'))]
+    groups = {}
+    for flver in flvers:
+        for mesh in flver.meshes:
+            name = mesh.material.name or ''
+            mask = mesh_mask(name)
+            if not mask:
+                continue
+            group = groups.setdefault(mask, dict(id=mask, count=0, example=''))
+            group['count'] += 1
+            if not group['example']:
+                group['example'] = name.split('#', 2)[-1].strip()
+    return sorted(groups.values(), key=lambda group: int(group['id']))
 
 
 def material_uses_alpha(params, mtd_name):
@@ -91,7 +144,7 @@ def scan_character(source, preset="auto", game='auto'):
     for path in files:
         ident = asset_id(path)
         role = "Character" if re.fullmatch(r"c\d{4}", ident) else ROLES.get(ident.split("_")[0], "Extra model")
-        parts.append(dict(id=ident, name=ident.upper(), role=role, path=str(path), selected=ident in wanted,
+        parts.append(dict(id=ident, name=ident.upper(), role=role, path=str(path), selected=ident in wanted or (preset in PRESETS and ident == KUSABIMARU),
                           container="Binder + textures" if "bnd" in path.name.lower() else "FLVER"))
     if len(parts) == 1 and not parts[0]['id'].startswith('wp_'):
         parts[0]["selected"] = True
@@ -106,12 +159,12 @@ def scan_character(source, preset="auto", game='auto'):
 
 def prepare_character(sources, output_dir, texture_dir="", material_binder="", texture_override="",
                       reference_model="", weapon_attachments=None, skeleton_name='', game='sekiro', skeleton_bones=None,
-                      texture_folders=None, texture_recursive=False):
+                      texture_folders=None, texture_recursive=False, model_masks=None):
     """texture_folders are a game's shared folders (chr, parts): only packages named
     after the models and their materials are read there, not every package."""
     from soulstruct.containers import Binder, TPF
     from soulstruct.flver import FLVER
-    from material_assets import MaterialLibrary, material_samplers, sampler_kind
+    from material_assets import MaterialLibrary, material_samplers
     from flver_geometry import extract_model
     from dcx_codec import unwrap
     from asset_sources import kind_files
@@ -142,6 +195,7 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
                 texture_scores[stem] = score
 
     sources = [Path(s).resolve() for s in sources]
+    model_masks = model_masks or {}
     if not sources:
         raise ValueError("Select at least one character part, or switch to Rig only.")
     search_dirs = set()
@@ -193,13 +247,13 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
     if texture_folders:
         # Texture names stay exact; the IDs only choose which packages to open.
         needed, tokens = set(), set()
-        for name, flver, _ in models:
+        for name, flver, origin in models:
             tokens |= texture_tokens(name)
-            for mesh in flver.meshes:
+            for mesh in (flver.meshes[i] for i in selected_mesh_indices(flver, model_masks.get(origin))):
                 mtd_name = PureWindowsPath(mesh.material.mat_def_path).name.lower()
                 tokens |= texture_tokens(mtd_name)
                 for info in material_samplers(mesh.material, library.get(mtd_name)):
-                    if info['texture'] and sampler_kind(info['semantic'].lower()):
+                    if info['texture'] and preview_sampler_kind(info):
                         needed.add(info['texture'].lower())
                         tokens |= texture_tokens(info['texture'])
         # A package in an earlier folder hides packages of the same name in later folders.
@@ -271,9 +325,13 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
             if weapon_attachment.get('notice'):
                 warnings.append(weapon_attachment['notice'])
         data_path = out / f"{index:02d}_{name}.npz"
-        stats = extract_model(flver, data_path, name)
+        chosen_masks = model_masks.get(origin)
+        indices = selected_mesh_indices(flver, chosen_masks)
+        if not indices:
+            continue
+        stats = extract_model(flver, data_path, name, indices)
         material_specs = []
-        for mesh in flver.meshes:
+        for mesh in (flver.meshes[i] for i in indices):
             mat = mesh.material
             mtd_name = PureWindowsPath(mat.mat_def_path).name.lower()
             mtd = library.get(mtd_name)
@@ -281,10 +339,10 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
             params = {p.name: p.value for p in mtd.params} if mtd else {}
             spec['alpha'] = material_uses_alpha(params, mtd_name)
             spec['color'] = list(params.get('g_DiffuseMapColor', (1, 1, 1)))
-            for info in material_samplers(mat, mtd):
+            for info in sorted(material_samplers(mat, mtd), key=sampler_priority):
                 stem = info['texture']
                 semantic = info['semantic'].lower()
-                target = sampler_kind(semantic)
+                target = preview_sampler_kind(info)
                 color = target in ('albedo', 'emissive')
                 if not stem or not target:
                     continue

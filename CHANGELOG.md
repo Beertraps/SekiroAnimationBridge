@@ -1,3 +1,10 @@
+# Unreleased — Wolf's katana, alternate model meshes, and skin preview
+
+- Wolf outfit imports select Kusabimaru (`wp_a_0300`) when the part exists in the source. A missing weapon does not make the outfit incomplete.
+- The scene setup lists numbered mesh groups within a character model, so one animation can be imported with a chosen appearance. The selection is saved per model file; unnumbered meshes are always included.
+- Sekiro stencil skin materials use the base skin albedo before their tiling detail maps and ignore a damage normal map stored in an emissive slot. This corrects Resurrection `c1070`'s body preview.
+- The scene checklist says **No animation compendium** when that field is empty, instead of **Self-contained types**.
+
 # 0.12.0 — the rest-relative weapon grip, the fist holds the weapon's matching part, raw bake by default, full-body bake (experimental), the mirrored katana strikes with its edge, preview lights
 
 Install `SekiroRetargetAssistant-0.8.0.zip` over 0.7.0 for the retarget changes.

@@ -101,6 +101,8 @@ The preview has no meshes and no weapons. The weapon part clips that will play w
 
 A folder may contain several characters. The character selector filters animations and chooses the corresponding NPC model. Wolf retains its outfit and individual part controls. Texture IDs need not equal the character ID: matching uses actual material texture names across the supplied packages, without an Owl-specific rule. A collected folder is read completely, so keep it limited to the packages you need; for a whole game, add the game folder as a source instead. Materials and textures are optional for a rig-only import.
 
+Some NPC FLVERs contain several appearances for one animation skeleton. After selecting that model, **Visible model meshes** lists its numbered mesh groups, with a material name from each group. Turn off the groups for appearances you do not want; unnumbered meshes remain visible. For Resurrection's `c1070`, groups `09` and `10` are Juzo, while `11` and `20`–`24` are Shige. Choose any shared prop groups separately. The bridge remembers the chosen groups for that model file. It does not animate model mask events, so the selection stays fixed throughout the imported clip.
+
 For already extracted inputs, choose **Individual files**. A single assets folder saved by an earlier version becomes the first source.
 
 ### DCX support and Oodle
@@ -168,6 +170,8 @@ The reader combines split vertex buffers, retains UV layers, normalizes skin wei
 
 The tool resolves texture names per material. It reads the selected binders' TPFs and shared `common_body.tpf.dcx`, and looks for `mtd\allmaterialbnd.mtdbnd.dcx` beside the parts folder. A small custom `wolf.mtdbnd` library is also supported. Override the material library or supply an additional TPF/image folder under **Textures & materials**.
 
+For Sekiro's stencil skin shader, the preview uses its base skin albedo rather than the tiling detail maps that appear earlier in the material's sampler list. It also leaves a damage normal map out of the preview's emission channel, even when that map occupies an emissive-named slot. Resurrection's `c1070` uses `c1070_skin_a` for its base map. The game's layered skin effects are still approximated.
+
 Alpha-tested fur and hair materials are recognized from their authored alpha thresholds, including NPC materials that use blend mode zero. Sekiro's layered fur and cloth shaders remain approximations in Blender.
 
 Used base-color and normal maps are converted to PNG outside Blender, assigned through the MTD's UV selection, and packed into the `.blend`. Hair transparency and its tint layer are approximated. Materials with an authored solid color retain that color. Missing referenced images produce notices in Activity and a neutral fallback, rather than an unrelated texture assignment.
@@ -181,7 +185,7 @@ This is a character preview, not a reconstruction of every Sekiro shader. Layere
 Wolf’s body parts share the character skeleton. Separate weapon models have their own local bones; their placement comes from the character model’s dummy attachment points. The importer keeps each weapon’s armature separate and follows the correct animated bone through the authored socket transform. Weapon bones are not added to the main HKX export rig.
 
 1. Include **`c0000.chrbnd.dcx`** alongside the Wolf assets when importing weapons, or supply its extracted `c0000.flver` in **Textures & materials → Rig attachment model**. The ANIBND skeleton provides bone animation; this CHRBND supplies socket positions and orientations. A source finds it automatically.
-2. Select weapon packages under **Weapons & extra parts**. `wp_a_0300.partsbnd.dcx` is the normal katana/Kusabimaru; `wp_a_0310.partsbnd.dcx` is the Mortal Blade. The tool does not choose an equipped loadout from an HKX filename.
+2. Kusabimaru (`wp_a_0300.partsbnd.dcx`) is selected with Wolf's outfit when available. Change it under **Weapons & extra parts** if needed; `wp_a_0310.partsbnd.dcx` is the Mortal Blade. The tool does not choose an equipped loadout from an HKX filename.
 3. Leave placement on **Auto · game socket**, or choose **Drawn · right hand**, **Drawn · left hand**, **Hip sheath**, **Back sheath**, or a **Custom dummy ID** for the preview. The separate scabbard stays on the body when its blade is held.
 
 | Automatic placement | Attachment on Wolf |

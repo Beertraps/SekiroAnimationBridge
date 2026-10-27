@@ -45,16 +45,20 @@ def influences(mesh, bone_count, count):
     return indices, weights / weights.sum(axis=1, keepdims=True)
 
 
-def extract_model(flver, output_path: Path, label="FLVER"):
+def extract_model(flver, output_path: Path, label="FLVER", mesh_indices=None):
     if not flver.bones or not flver.meshes:
         raise ValueError(f"{label} has no visible skinned geometry. Player c0000.flver is a skeleton reference; select outfit PARTSBND files instead.")
+    mesh_indices = list(range(len(flver.meshes))) if mesh_indices is None else list(mesh_indices)
+    if not mesh_indices:
+        raise ValueError(f'{label}: no meshes remain in the chosen model masks.')
+    chosen_meshes = [flver.meshes[index] for index in mesh_indices]
     positions, weights, indices, faces, face_materials = [], [], [], [], []
-    uv_fields = sorted({name for mesh in flver.meshes for va in mesh.vertex_arrays
+    uv_fields = sorted({name for mesh in chosen_meshes for va in mesh.vertex_arrays
                         for name in va.array.dtype.names if name.startswith("uv_")}, key=lambda s: int(s[3:])) or ["uv_0"]
     uv_layers = {field: [] for field in uv_fields}
     normals = []
     offset = 0
-    for mesh_index, mesh in enumerate(flver.meshes):
+    for mesh_index, mesh in enumerate(chosen_meshes):
         pos = vertex_field(mesh, "position")
         if pos is None:
             raise ValueError(f"{label} mesh {mesh_index} has no position stream.")
@@ -87,10 +91,10 @@ def extract_model(flver, output_path: Path, label="FLVER"):
         bone_translations=np.asarray([list(b.translate) for b in flver.bones], dtype=np.float32),
         bone_rotations=np.asarray([list(b.rotate) for b in flver.bones], dtype=np.float32),
         bone_scales=np.asarray([list(b.scale) for b in flver.bones], dtype=np.float32),
-        material_names=np.asarray([m.material.name or f"Material {i}" for i, m in enumerate(flver.meshes)], dtype="U"),
+        material_names=np.asarray([m.material.name or f"Material {i}" for i, m in enumerate(chosen_meshes)], dtype="U"),
         **arrays)
     summary = dict(vertices=offset, triangles=sum(len(f) for f in faces), bones=len(flver.bones),
-                   materials=len(flver.meshes), uv_layers=len(uv_fields))
+                   materials=len(chosen_meshes), uv_layers=len(uv_fields))
     print(f"Prepared {label}: {summary['vertices']:,} vertices, {summary['triangles']:,} triangles, {summary['uv_layers']} UV layers", flush=True)
     return summary
 

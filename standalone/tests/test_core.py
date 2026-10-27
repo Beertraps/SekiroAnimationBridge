@@ -7,7 +7,7 @@ from types import SimpleNamespace as S
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from flver_geometry import influences, extract_model
-from character_assets import scan_character, sampler_priority, material_uses_alpha
+from character_assets import PRESETS, scan_character, sampler_priority, preview_sampler_kind, material_uses_alpha, mesh_mask, selected_mesh_indices
 from bridge_runtime import output_file, sampling_arguments, writer_arguments
 
 
@@ -39,6 +39,17 @@ class Geometry(unittest.TestCase):
                 np.testing.assert_allclose(a['bone_weights'][0],[.75,.25,0,0])
                 np.testing.assert_allclose(a['uv_1'][2],[.5,.6])
                 self.assertEqual(a['faces'].tolist(),[[0,1,2]])
+    def test_model_mask_filters_meshes_and_material_indices_together(self):
+        f=fixture()
+        f.meshes=[S(**vars(f.meshes[0])),S(**vars(f.meshes[0]))]
+        f.meshes[0].material=S(name='#10# first skin')
+        f.meshes[1].material=S(name='#11# second skin')
+        self.assertEqual(selected_mesh_indices(f,['11']),[1])
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'preview.npz';extract_model(f,target,'Owned fixture',[1])
+            with np.load(target,allow_pickle=False) as a:
+                self.assertEqual(a['material_names'].tolist(),['#11# second skin'])
+                self.assertEqual(a['face_materials'].tolist(),[0])
     def test_active_invalid_weight_is_rejected(self):
         f=fixture();f.meshes[0].vertex_arrays[1].array['bone_indices'][0,0]=255
         with self.assertRaises(ValueError): influences(f.meshes[0],4,3)
@@ -80,6 +91,20 @@ class Discovery(unittest.TestCase):
         damage=S(texture_type='Shader_Texture2D_7_AlbedoMap')
         base=S(texture_type='Shader_Texture2D_2_AlbedoMap_0')
         self.assertIs(sorted([damage,base],key=sampler_priority)[0],base)
+        skin=[dict(semantic=f'SimpleBlend_Stencil_NonMetal_SSS_snp_Texture2D_{i}_AlbedoMap') for i in (1,2,7,8)]
+        self.assertEqual(sorted(skin,key=sampler_priority)[0],skin[2])
+        self.assertEqual(preview_sampler_kind(dict(semantic='SimpleBlend_Stencil_NonMetal_SSS_snp_Texture2D_11_EmissiveMap',texture='c1070_skin_damage_n')),'')
+        self.assertEqual(preview_sampler_kind(dict(semantic='Character_snp_Texture2D_1_EmissiveMap',texture='owned_glow_e')),'emissive')
+        self.assertEqual(mesh_mask('#11# shige body'),'11')
+        self.assertEqual(mesh_mask('eye'),'')
+    def test_wolf_includes_kusabimaru_only_when_available(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            for name in (*PRESETS['wolf'],'wp_a_0300'):(root/(name+'.partsbnd.dcx')).touch()
+            found=scan_character(root,'wolf')
+            self.assertIn('wp_a_0300',{p['id'] for p in found['parts'] if p['selected']})
+            (root/'wp_a_0300.partsbnd.dcx').unlink()
+            self.assertEqual(scan_character(root,'wolf')['missing'],[])
     def test_preset_selects_one_body_per_role_and_prefers_binder(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
