@@ -29,18 +29,26 @@ REACH = .9999
 DROP = .25
 # A foot stands where it moves slower than this many leg lengths per second, measured where the game puts it.
 STAND = .25
+# Biped-style footsteps (see footsteps): a point of the foot is planted over a stretch of at least PLANT_TIME seconds
+# where it stays within the tolerance of where the stretch starts, and pins and ground corrections ease in and out
+# over EASE_TIME seconds; a whole pivot weighs on a pin from BLEND_TIME seconds into its stretch.
+PLANT_TIME, EASE_TIME, BLEND_TIME = .1, .1, .05
+PIVOTS = ('heel', 'ankle', 'ball', 'tip')
+# A jump's arc is scaled by at most this factor either way.
+ARC_LIMIT = 4.0
 
 
-def plan(source, target, rows, tracked_only):
+def plan(source, target, rows, tracked_only, given=(None, None)):
     """The body template of a source and target pair (see mapping.body_pairs), with the bone map for the bake.
 
     The bone map holds the directly paired bones, each chain bone with the source bone nearest to where it sits
     on its chain where no other target bone has that one (joints first), and for bones outside the body the bone
-    list's rows, or what automatic matching finds where the list is empty.
+    list's rows, or what automatic matching finds where the list is empty. given holds the body layouts of the
+    source's and the target's saved figures, or None for a rig without one (see figure.layout).
     """
-    pairs = matching.body_pairs(retarget.rig_bones(source), retarget.rig_bones(target))
+    pairs = matching.body_pairs(retarget.rig_bones(source), retarget.rig_bones(target), given)
     if pairs is None:
-        rig = 'source' if matching.characterize(retarget.rig_bones(source)) is None else 'target'
+        rig = 'source' if matching.characterize(retarget.rig_bones(source), given[0]) is None else 'target'
         raise ValueError(f'The full-body bake finds no body in the {rig}: it needs hips and two legs with knees. '
                          'Bake bone by bone instead.')
     bone_map = dict(pairs['direct'])
@@ -198,8 +206,194 @@ def held(sides, flags, up):
     return result
 
 
+def smooth(x):
+    return x * x * (3 - 2 * x)
+
+
+def footsteps(source, target, layout, legs, pose_frames, samples, feet, footing, travel, rate, rotation, game):
+    """Biped-style footsteps: per leg, whether its foot is planted, sliding or free on each frame, and what pins it.
+
+    Each source foot has four points it can stand on, its heel, ankle, ball and toe tip, from the source's figure
+    (see figure.measures). The source's foot carries them on every frame (feet holds its armature-space matrices),
+    and they are scaled into the target's place as the foot's goal is (see keep_contacts), where the game puts them.
+    A point is planted over each stretch of at least PLANT_TIME where it stays on the ground and within footing's
+    tolerance, in source foot lengths, scaled, of where the stretch starts, as Biped extracts footsteps from motion
+    capture; a point counts as on the ground within the same tolerance of its height at rest. The foot is
+    planted where any of its points is, and can roll from its heel to its toe. A foot that is not planted slides
+    over each stretch of at least PLANT_TIME where its lowest point stays within the same tolerance of the ground,
+    and is free elsewhere. The ground is the source figure's sole, scaled into the target's place like the feet.
+
+    Per leg: aims, each point's place per frame in the target's armature space; stretches, each point's planted
+    stretches; states; low, where its lowest point is on the ground; carry, each point on the target's foot as the
+    bone that carries it and its place in that bone's rest space; correct, how far the target's foot stands higher
+    than the scaled source foot when that point is on the ground, from its own sole and the target's ground.
+    """
+    hips, direct = layout['target']['hips'], layout['direct']
+    mine, theirs = footing['target'], footing['source']
+    bones, source_bones, up = target.data.bones, source.data.bones, mine['up']
+    hips_t, hips_s = bones[hips].head_local, source_bones[direct[hips]].head_local
+    # The source's ground, scaled into the target's place, and how far the target's own ground lies above it.
+    floor = (hips_t + rotation @ (hips_s - theirs['up'] * (hips_s.dot(theirs['up']) - theirs['ground']) - hips_s) * travel).dot(up)
+    shift = mine['ground'] - floor
+    least, count = max(2, round(PLANT_TIME * rate)), len(pose_frames)
+    result = []
+    for leg in legs:
+        side, foot, source_foot = leg['side'], leg['chain'][2], leg['source']
+        theirs_at, mine_at = theirs['pivots'][side], mine['pivots'][side]
+        tolerance = footing['tolerance'] * theirs['feet'][side] * travel
+        # The toe tip rides on the toe bone where both feet have one, so that it stays down while the toes bend.
+        toe = leg['toe'] if leg['toe'] in bones and direct.get(leg['toe']) in feet[0] else None
+        carriers = {k: (toe, direct[toe]) if toe and k == 'tip' else (foot, source_foot) for k in PIVOTS}
+        local = {k: source_bones[carriers[k][1]].matrix_local.inverted() @ theirs_at[k] for k in PIVOTS}
+        carry = {k: (carriers[k][0], bones[carriers[k][0]].matrix_local.to_quaternion().inverted()
+                     @ (mine_at[k] - bones[carriers[k][0]].head_local)) for k in PIVOTS}
+        lift = {k: theirs_at[k].dot(theirs['up']) - theirs['ground'] for k in PIVOTS}
+        correct = {k: shift + mine_at[k].dot(up) - mine['ground'] - travel * lift[k] for k in PIVOTS}
+        aims = {k: [poses[hips].translation + rotation @ (frames[carriers[k][1]] @ local[k] - sample[direct[hips]]) * travel
+                    for poses, sample, frames in zip(pose_frames, samples, feet)] for k in PIVOTS}
+        places = {k: [game(t, aim) for t, aim in enumerate(values)] for k, values in aims.items()}
+        heights = [{k: places[k][t].dot(up) - floor - travel * lift[k] for k in PIVOTS} for t in range(count)]
+        stretches, planted = {}, [False] * count
+        for k in PIVOTS:
+            found, start = [], 0
+            while start < count:
+                end = start + 1 if heights[start][k] <= tolerance else start
+                while end < count and heights[end][k] <= tolerance and (places[k][end] - places[k][start]).length <= tolerance:
+                    end += 1
+                if end - start >= least:
+                    found.append((start, end))
+                    planted[start:end] = [True] * (end - start)
+                    start = end
+                else:
+                    start += 1
+            stretches[k] = found
+        low = [min(values.values()) <= tolerance for values in heights]
+        sliding = [False] * count
+        for start, end in retarget.runs([on and not still for on, still in zip(low, planted)]):
+            if end - start >= least:
+                sliding[start:end] = [True] * (end - start)
+        result.append(dict(aims=aims, stretches=stretches, low=low, carry=carry, correct=correct,
+                           states=['planted' if p else 'sliding' if s else 'free' for p, s in zip(planted, sliding)]))
+    return result
+
+
+def jumps(steps, pose_frames, goals, carried, hips, ground, up, ratio):
+    """Scale each jump's arc by ratio, keeping its time in the air; returns the jumps.
+
+    A jump runs over the frames where no foot is planted, sliding or on the ground, between frames where one is.
+    Biped's gravity scales with the figure's height, so that a jump of the same time in the air rises in proportion
+    to the figure: the hips' height in the game, above the line from their height at lift-off to their height at
+    touchdown, is scaled by ratio, the target's height against the source's, scaled by travel. The body and the
+    feet in the air move with the hips.
+    """
+    count = len(pose_frames)
+    airborne = [all(step['states'][t] == 'free' and not step['low'][t] for step in steps) for t in range(count)]
+
+    def height(t):
+        return (pose_frames[t][hips].translation + (ground[t][0] if ground else Vector())).dot(up)
+    result = []
+    for start, end in retarget.runs(airborne):
+        if start == 0 or end == count or end - start < 2:
+            continue
+        before, after, span = height(start - 1), height(end), end - start + 1
+        rises = []
+        for t in range(start, end):
+            rise = height(t) - (before + (after - before) * (t - start + 1) / span)
+            change = (ratio - 1) * rise
+            for name in carried:
+                pose_frames[t][name].translation += up * change
+            for i in range(len(goals[t])):
+                goals[t][i] += up * change
+            rises.append((rise, rise + change))
+        top = max(rises, key=lambda item: abs(item[0]))
+        result.append(dict(frames=(start + 1, end), rise=top[0], scaled=top[1]))
+    return result
+
+
+def pins(legs, steps, goals, widths, pose_frames, rate, game, ungame, up):
+    """Move each foot's goal so that its planted points stand still and a sliding foot stays on the ground.
+
+    A planted point of the target's own foot stays where it stands on average over its stretch: along the ground
+    where the foot's goal carries it, as high as the source's point, scaled, and raised by the point's ground
+    correction (see footsteps). The ankle goes where that point, turned as the foot is, lies on that place. Where
+    several points are planted, the ankle takes their places' mean along the ground, each point weighing in fully
+    from BLEND_TIME into its stretch, so that the foot rolls from heel to toe. A foot stands as high as the lowest of
+    its points needs, the planted ones or, sliding, all of them, so that a foot the target holds at another angle
+    than the source does keeps its points on or above the ground; a sliding foot keeps the source's path along it.
+    The change eases out over EASE_TIME into the frames on either side: the height of a sliding foot and all of a
+    free foot's. Returns per leg its steps, slides, the largest pin in armature units and the points it stood on.
+    """
+    count = len(goals)
+    reach, blend = max(1, round(EASE_TIME * rate)), max(1, round(BLEND_TIME * rate))
+    result = []
+    for i, (leg, step) in enumerate(zip(legs, steps)):
+        foot, states = leg['chain'][2], step['states']
+
+        def away(t, k):
+            """Point k of the target's foot from its ankle on frame t."""
+            bone, offset = step['carry'][k]
+            pose = pose_frames[t][bone]
+            return pose.translation - pose_frames[t][foot].translation + pose.to_quaternion() @ offset
+
+        def ankle(t, k, point):
+            """The ankle that puts point k of the target's foot on a place, on the ground, on frame t."""
+            return point + up * step['correct'][k] - away(t, k)
+
+        def place(t, k):
+            """Where point k of the target's foot stands on frame t, in the game: along the ground where the foot's
+            goal carries it, at the height of the source's point."""
+            mine = game(t, goals[t][i] + away(t, k))
+            return mine - up * mine.dot(up) + up * game(t, step['aims'][k][t] + widths[i][t]).dot(up)
+        shares, used = [{} for _ in range(count)], {}
+        for k, found in step['stretches'].items():
+            for start, end in found:
+                anchor = sum((place(t, k) for t in range(start, end)), Vector()) / (end - start)
+                for t in range(start, end):
+                    shares[t][k] = (smooth(min(1.0, (t - start + 1) / blend, (end - t) / blend)), ankle(t, k, ungame(t, anchor)))
+        raw, largest = [None] * count, 0.0
+        for t in range(count):
+            if states[t] == 'planted':
+                total = sum(weight for weight, place in shares[t].values())
+                mean = sum((place * weight for weight, place in shares[t].values()), Vector()) / total
+                # The ankle as high as the lowest planted point needs, eased by its weight, so that no point sinks.
+                height = mean.dot(up)
+                height = max(height + weight * (place.dot(up) - height) for weight, place in shares[t].values())
+                raw[t] = mean + up * (height - mean.dot(up)) - goals[t][i]
+                largest = max(largest, raw[t].length)
+                main = max(shares[t], key=lambda k: shares[t][k][0])
+                used[main] = used.get(main, 0) + 1
+            elif states[t] == 'sliding':
+                height = max(ankle(t, k, step['aims'][k][t] + widths[i][t]).dot(up) for k in PIVOTS)
+                raw[t] = up * (height - goals[t][i].dot(up))
+
+        def nearest(t, kinds, values):
+            """The change on the nearest frame within reach whose state is in kinds, eased by distance, or None."""
+            for distance in range(1, reach + 1):
+                for u in (t - distance, t + distance):
+                    if 0 <= u < count and states[u] in kinds and values[u] is not None:
+                        return values[u] * smooth(1 - distance / (reach + 1))
+            return None
+        final = list(raw)
+        for t in range(count):
+            if states[t] == 'sliding':
+                near = nearest(t, ('planted',), raw)
+                if near is not None:
+                    final[t] = raw[t] + near - up * near.dot(up)
+        for t in range(count):
+            if states[t] == 'free':
+                final[t] = nearest(t, ('planted', 'sliding'), final)
+        for t in range(count):
+            if final[t] is not None:
+                goals[t][i] += final[t]
+        result.append(dict(steps=len(retarget.runs([state == 'planted' for state in states])),
+                           slides=len(retarget.runs([state == 'sliding' for state in states])),
+                           sliding=[t + 1 for t in range(count) if states[t] == 'sliding'], pinned=largest,
+                           pivots={k: used[k] for k in PIVOTS if k in used}))
+    return result
+
+
 def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, rotation, carried, holds, placed, armed, forward,
-                  ground=None, gripped=None, knuckles=None):
+                  ground=None, gripped=None, knuckles=None, footing=None):
     """Keep the feet on the source's footprint and the hands together where the source's are; returns what moved.
 
     Each foot's goal is where the source's foot is, measured from the source's hips, scaled by travel and measured
@@ -225,6 +419,12 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
     holds the source bones' armature-space positions per frame; carried, the bones that move with the body; holds
     and placed, the weapons that the bake placed in a hand (see retarget.weapon_holds), which move with that hand;
     armed, the hands that hold a weapon (see retarget.hand_weapons).
+
+    footing turns on what Biped does with footsteps: dict(source=, target= the two figures' measures (see
+    figure.measures), feet= the source feet's armature-space matrices per frame, tolerance= in foot lengths,
+    pins=, jumps=, ratio= the jumps' scale). With pins, a foot stands where footsteps finds it planted or sliding
+    rather than where it moves slower than STAND, and its planted points stand still on the ground (see pins);
+    with jumps, each jump's arc is scaled by ratio (see jumps), before the feet's goals are set to the hip width.
     """
     bones, body, direct = target.data.bones, layout['target'], layout['direct']
     to_rig = target.matrix_world.to_3x3().inverted()
@@ -242,32 +442,54 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
                     held=held, upper=retarget.subtree(bones, upper) - retarget.subtree(bones, fore) - kept,
                     lower=retarget.subtree(bones, fore) - retarget.subtree(bones, end) - kept, pole=pole, frames=[], moved=0.0,
                     short=[], gap=0.0)
-    legs = [dict(limb((leg['thigh'], leg['calf']), leg['foot'], direct[leg['foot']], ahead), side=side)
+    legs = [dict(limb((leg['thigh'], leg['calf']), leg['foot'], direct[leg['foot']], ahead), side=side, toe=leg.get('toe'))
             for side, leg in sorted(body['legs'].items())]
     goals = [[poses[hips].translation + rotation @ (sample[leg['source']] - sample[direct[hips]]) * travel for leg in legs]
              for poses, sample in zip(pose_frames, samples)]
+
+    def turn_of(t):
+        """The turn about up that root motion adds on frame t."""
+        return Quaternion(up, ground[t][1]) if ground else Quaternion()
+
+    def game(t, point):
+        """Where the game puts a point of the target's armature space on frame t."""
+        return turn_of(t) @ point + (ground[t][0] if ground else Vector())
+
+    def ungame(t, point):
+        return turn_of(t).inverted() @ (point - (ground[t][0] if ground else Vector()))
+    steps = footsteps(source, target, layout, legs, pose_frames, samples, footing['feet'], footing, travel, rate, rotation,
+                      game) if footing else None
+    leaps = jumps(steps, pose_frames, goals, carried, hips, ground, up, footing['ratio']) if footing and footing['jumps'] else []
+    widths = [[Vector()] * len(goals) for leg in legs]
     across = level(bones[legs[0]['chain'][0]].head_local - bones[legs[-1]['chain'][0]].head_local, up)  # Toward the left.
     if across is not None:
         heads, sources = {bone.name: bone.head_local for bone in source.data.bones}, layout['source']['legs']
-
-        def turn_of(t):
-            """The turn about up that root motion adds on frame t."""
-            return Quaternion(up, ground[t][1]) if ground else Quaternion()
+        # With figures, the hip joints are where the figures put them.
+        figures = (footing['target'], footing['source']) if footing else None
         sides, last = [], across  # The pelvis's sideways direction per frame, where the game turns it.
         for t, poses in enumerate(pose_frames):
             last = level(turn_of(t) @ poses[hips].to_quaternion() @ rest_hips @ across, up) or last
             sides.append(last)
         for i, leg in enumerate(legs):
-            own = bones[leg['chain'][0]].head_local - bones[hips].head_local
-            theirs = rotation @ (heads[sources[leg['side']]['thigh']] - heads[direct[hips]]) * travel
+            if figures and leg['side'] in figures[0]['thighs'] and leg['side'] in figures[1]['thighs']:
+                own = figures[0]['thighs'][leg['side']] - figures[0]['hips']
+                theirs = rotation @ (figures[1]['thighs'][leg['side']] - figures[1]['hips']) * travel
+            else:
+                own = bones[leg['chain'][0]].head_local - bones[hips].head_local
+                theirs = rotation @ (heads[sources[leg['side']]['thigh']] - heads[direct[hips]]) * travel
             leg['width'] = (own - theirs).dot(across)
-            places = [turn_of(t) @ aims[i] + (ground[t][0] if ground else Vector()) for t, aims in enumerate(goals)]
-            limit, end = STAND * leg['length'] / rate, len(places) - 1
-            stands = [(places[min(end, t + 1)] - places[max(0, t - 1)]).length <= limit * (min(end, t + 1) - max(0, t - 1))
-                      for t in range(len(places))]
+            if footing and footing['pins']:
+                stands = [state != 'free' for state in steps[i]['states']]
+            else:
+                places = [game(t, aims[i]) for t, aims in enumerate(goals)]
+                limit, end = STAND * leg['length'] / rate, len(places) - 1
+                stands = [(places[min(end, t + 1)] - places[max(0, t - 1)]).length <= limit * (min(end, t + 1) - max(0, t - 1))
+                          for t in range(len(places))]
             leg['stands'] = len(retarget.runs(stands))
             for t, side in enumerate(held(sides, stands, up)):
-                goals[t][i] += turn_of(t).inverted() @ side * leg['width']
+                widths[i][t] = turn_of(t).inverted() @ side * leg['width']
+                goals[t][i] += widths[i][t]
+    placing = pins(legs, steps, goals, widths, pose_frames, rate, game, ungame, up) if footing and footing['pins'] else None
     drops, shortest = [], min(leg['length'] for leg in legs)
     for poses, aims in zip(pose_frames, goals):
         need = 0.0
@@ -336,4 +558,7 @@ def keep_contacts(source, target, layout, pose_frames, samples, travel, rate, ro
                            gap=leg['gap'] * scale, stands=leg.get('stands', 0),
                            outward=leg.get('width', 0.0) * (1 if leg['side'] == 'L' else -1) * scale) for leg in legs],
                 hands=[dict(side=arm['side'], hand=arm['chain'][2], frames=arm['frames'], moved=arm['moved'] * scale)
-                       for arm in arms if arm['frames']])
+                       for arm in arms if arm['frames']],
+                footsteps=[dict(item, side=leg['side'], pinned=item['pinned'] * scale) for leg, item in zip(legs, placing)]
+                if placing else None,
+                jumps=[dict(item, rise=item['rise'] * scale, scaled=item['scaled'] * scale) for item in leaps])

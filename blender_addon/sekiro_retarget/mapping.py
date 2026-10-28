@@ -794,9 +794,23 @@ def foot_targets(bones):
     return targets
 
 
-def characterize(bones):
+def given_roles(given):
+    """The roles of a body layout saved with a figure (see figure.layout), as Rig.roles keys; None for a part the
+    layout leaves out, such as a clavicle."""
+    roles = {('', 'hips'): given.get('hips'), ('', 'head'): given.get('head')}
+    for kind, parts in (('arms', ('clavicle', 'upperarm', 'forearm', 'hand')), ('legs', ('thigh', 'calf', 'foot', 'toe'))):
+        for side, limb in given.get(kind, {}).items():
+            roles.update(((side, part), limb.get(part)) for part in parts)
+    return roles
+
+
+def characterize(bones, given=None):
     """The body of a rig for the full-body bake, whatever its bones are called; None without hips, two legs and rest
     positions.
+
+    given is a body layout from a figure the user fitted (see figure.layout): its hips, spine, neck, head and limb
+    bones replace what names and shape find, and none of them counts as found by shape; the fingers are found as
+    without it.
 
     Gives the hips, the spine from the hips up, the neck and the head, and per side an arm, a leg and the fingers. An
     arm's chain runs from its clavicle, where it has one, or its upper arm to its hand, and a leg's from its thigh to
@@ -809,6 +823,13 @@ def characterize(bones):
     """
     rig = Rig(bones)
     heads = {name: info.head for name, info in rig.bones.items()}
+    if given:
+        for key, name in given_roles(given).items():
+            if name in rig.bones:
+                rig.roles[key] = name
+            elif not name:
+                rig.roles.pop(key, None)
+            rig.inferred.discard(key)
     hips = rig.roles.get(('', 'hips'))
     if not hips or None in heads.values():
         return None
@@ -858,6 +879,10 @@ def characterize(bones):
         arms[side] = dict(clavicle=clavicle, upperarm=upper, forearm=joint(chain, forearm), hand=hand,
                           chain=path(clavicle, hand) if clavicle else chain)
     spine, neck, head = rig.chain('spine'), rig.chain('neck'), rig.roles.get(('', 'head'))
+    if given:
+        spine = [name for name in given.get('spine', ()) if name in rig.bones] or spine
+        neck = [name for name in given.get('neck', ()) if name in rig.bones] if 'neck' in given else neck
+        rig.inferred -= {'spine', 'neck'}
     spine = path(spine[0], spine[-1]) or spine if spine else []
     if neck and head:
         neck = path(neck[0], head)[:-1] or neck
@@ -877,9 +902,9 @@ def characterize(bones):
                 metacarpals=metacarpals, shape=sorted(found))
 
 
-def body_pairs(source, target):
+def body_pairs(source, target, given=(None, None)):
     """Where each bone of the target's body takes its motion from on the source's body; None when either rig has no
-    body (see characterize).
+    body (see characterize, which takes the layouts in given for the source and the target).
 
     Chains pair up between the joints that both rigs have: the spine from its first bone through the chest to the
     neck, the neck to the head, an arm through its shoulder (and clavicle, where both rigs have one) and elbow to the
@@ -896,7 +921,7 @@ def body_pairs(source, target):
     part of the way from the first one's head to the second's).
     """
     source, target = list(source), list(target)
-    src, dst = characterize(source), characterize(target)
+    src, dst = characterize(source, given[0]), characterize(target, given[1])
     if not src or not dst:
         return None
     source_heads = {bone.name: tuple(bone.head) for bone in source}

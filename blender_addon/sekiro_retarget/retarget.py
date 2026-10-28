@@ -51,7 +51,7 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 from . import mapping as matching
-from . import fullbody
+from . import figure, fullbody
 
 BONE_CURVE = re.compile(r'pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 # The scale of a hidden weapon. Isshin's clips shrink his spear and scabbard to 0.1%; unlike 0, this leaves the
@@ -1903,6 +1903,62 @@ def second_hands(rig, pairs, pose_frames, samples, rate, rotation, baked):
     return report
 
 
+def moving_props(source, target, bone_map, body, figures, holds, in_hand, hiding, skipped, travel, mode):
+    """Mapped bones outside the body whose source bones move away from their parents, as a thrown or a drawn weapon
+    does: {target bone: (holder, anchor, ratio)}, outer bones first.
+
+    Biped retargets the props that a BIP file carries by the figure's height or by its limb sizes; here a prop's
+    source bone keeps its place from its anchor, the nearest mapped bone above it, and the holder is the target bone
+    mapped to that one. mode HEIGHT scales that offset by the figures' heights; LIMB by the anchor's limb: an arm's
+    or a leg's length, the torso from the hips to the neck, and travel for a bone above the hips, such as Master.
+    A source bone moves where the source's clip keys it more than 1% of the source's leg length from its rest place.
+    The body, the weapons that the bake places or grips, hidden weapons and the bones in skipped are left out.
+    """
+    if body:
+        inside = set(body['direct']) | set(body['chains']) | set(body['unpaired'])
+        layout = body['source']
+    else:
+        anatomy = matching.anatomy(rig_bones(target))
+        inside = {name for key, name in anatomy.items() if isinstance(key, tuple) and name} | set(anatomy['spine']) | \
+            set(anatomy['neck']) | set(matching.Rig(rig_bones(target)).fingers)
+        layout = matching.characterize(rig_bones(source))
+    left_out = inside | set(holds) | {name for name, hand, placed_in in in_hand} | set(hiding) | set(skipped)
+    keyed = {}
+    for curve in action_curves(source.animation_data.action):
+        match = BONE_CURVE.match(curve.data_path)
+        if match and curve.data_path.endswith('.location') and len(curve.keyframe_points):
+            values = [0.0] * (2 * len(curve.keyframe_points))
+            curve.keyframe_points.foreach_get('co', values)
+            name = re.sub(r'\\(.)', r'\1', match.group(1))
+            keyed[name] = max(keyed.get(name, 0.0), max(abs(value) for value in values[1::2]))
+    mine, theirs = figures[1], figures[0]
+    bones = source.data.bones
+
+    def ratio(anchor):
+        """The scale of a prop's offset from its anchor, source armature units to the target's."""
+        height = mine['height'] / theirs['height']
+        if mode == 'HEIGHT' or not layout:
+            return height
+        for kind, top in (('arms', 'upperarm'), ('legs', 'thigh')):
+            for side, limb in layout[kind].items():
+                start = limb.get('clavicle') or limb[top] if kind == 'arms' else limb[top]
+                if anchor in subtree(bones, start) and side in mine[kind] and side in theirs[kind] and theirs[kind][side] > 1e-9:
+                    return mine[kind][side] / theirs[kind][side]
+        if anchor in subtree(bones, layout['hips']):
+            return mine['torso'] / theirs['torso'] if theirs['torso'] > 1e-9 else height
+        return travel
+    inverse = {source_name: name for name, source_name in bone_map.items()}
+    result = {}
+    for name in sorted(bone_map, key=lambda name: len(target.data.bones[name].parent_recursive)):
+        source_name = bone_map[name]
+        if name in left_out or keyed.get(source_name, 0.0) <= .01 * theirs['leg']:
+            continue
+        anchor = next((bone.name for bone in bones[source_name].parent_recursive if bone.name in inverse), None)
+        if anchor:
+            result[name] = (inverse[anchor], anchor, ratio(anchor))
+    return result
+
+
 def spans(frames):
     """Frame numbers as ranges, such as 3–7, 12."""
     parts, start = [], None
@@ -1933,8 +1989,11 @@ def bake(scene, settings):
     for t, s in rows.items():
         if t not in target.data.bones or s not in source.data.bones:
             raise ValueError('The bone list is stale. Run Match bones again.')
+    # Figures saved for the two skeletons (see figure) give the body layout and the measures.
+    saved = (figure.saved(source), figure.saved(target)) if settings.use_figures else (None, None)
     # The full-body bake pairs the body itself and takes only the other bones from the list (see fullbody).
-    body = fullbody.plan(source, target, rows, settings.tracked_only) if whole else None
+    body = fullbody.plan(source, target, rows, settings.tracked_only, tuple(data and data['layout'] for data in saved)) \
+        if whole else None
     bone_map = body['bone_map'] if body else rows
     chains = body['chains'] if body else {}
     for rig in (source, target):
@@ -1998,6 +2057,16 @@ def bake(scene, settings):
     rotation = target_rotation.inverted() @ source.matrix_world.to_quaternion()
     rotation_inverse = rotation.inverted()
     factor = estimate_scale(source, target, bone_map, target_body) if settings.auto_scale else settings.travel_scale
+    footing = body and (settings.foot_contacts == 'PIVOT' or settings.jump_scale)
+    # A figure's measures, where an option reads them or a saved figure gives the leg length; a rig without a saved
+    # figure measures the figure that Create figure would make.
+    figures = (figure.measures(source, saved[0]), figure.measures(target, saved[1])) \
+        if footing or settings.prop_scale != 'NONE' or any(saved) else None
+    if figures and None in figures:
+        raise ValueError(f"{(source if figures[0] is None else target).name} has no body to fit a figure to: it needs hips "
+                         "and two legs with knees. Turn off the options that read figures.")
+    if figures and any(saved) and settings.auto_scale:
+        factor = max(.05, min(20.0, figures[1]['leg'] * uniform_scale(target) / (figures[0]['leg'] * uniform_scale(source))))
     # Source armature units to target armature units for travel.
     travel = factor * uniform_scale(source) / uniform_scale(target)
     align = settings.rest_mode == 'ALIGN'
@@ -2198,7 +2267,16 @@ def bake(scene, settings):
         # The hands' finger roots, between which the full-body bake keeps the hands together on a hilt.
         grip_roots = stance_hands(source, target, bone_map) if both else {}
         footprint |= {name for roots, source_roots in grip_roots.values() for name in source_roots}
-        grip_samples, source_frames, body_samples = [], [], []
+        # The source's feet and toes, whose points Biped-style footsteps follow (see fullbody.footsteps).
+        source_feet = [body['direct'][leg[part]] for leg in body['target']['legs'].values() for part in ('foot', 'toe')
+                       if leg.get(part) in body['direct']] if footing else []
+        # Moving props: bones outside the body whose source bones move away from their parents, placed from the nearest
+        # mapped bone above them as far as the source's are, scaled by height or by limb size.
+        props = moving_props(source, target, bone_map, body, figures, holds, in_hand, hiding,
+                             columns | connectors | ({carrier} if carrier else set()), travel,
+                             settings.prop_scale) if settings.prop_scale != 'NONE' else {}
+        below_props = {name: [bone for bone in ordered if name in {parent.name for parent in bone.parent_recursive}] for name in props}
+        grip_samples, source_frames, body_samples, foot_samples = [], [], [], []
         # Sample both rigs before assigning a new action; the original target clip
         # supplies animation for bones that deliberately remain unmapped.
         for i in range(count):
@@ -2213,6 +2291,8 @@ def bake(scene, settings):
                 grip_samples.append({bone: source_poses[bone] for bone in sampled})
             if footprint:
                 body_samples.append({bone: source_poses[bone].translation.copy() for bone in footprint})
+            if source_feet:
+                foot_samples.append({bone: source_poses[bone] for bone in source_feet})
             if src_root:
                 source_root_samples.append((src_root.location.copy(), src_root.rotation_euler.copy()))
             scene.frame_set(i + 1)
@@ -2277,6 +2357,13 @@ def bake(scene, settings):
                                                  turned @ weapons.get(name, Quaternion()), Vector([max(v, HIDDEN) for v in scale]))
                 for bone in below[name]:
                     poses[bone.name] = pose_of(bone)
+            for name, (holder, anchor, ratio) in props.items():
+                # As far from the bone that carries it as the source's prop is from its own, scaled; turned as before.
+                location, orientation, size = poses[name].decompose()
+                offset = rotation @ (source_poses[bone_map[name]].translation - source_poses[anchor].translation) * ratio
+                poses[name] = Matrix.LocRotScale(poses[holder].translation + offset, orientation, size)
+                for bone in below_props[name]:
+                    poses[bone.name] = pose_of(bone)
             for name in hiding:
                 # Shrunk where it is, as FromSoftware clips hide a weapon. A bone below it follows it, and a mapped one,
                 # which takes its own scale rather than its parent's, shrinks too.
@@ -2298,9 +2385,16 @@ def bake(scene, settings):
             ground = [(to_rig @ ((location - start_location) * factor), euler.z - start_rotation.z) for location, euler in source_root_samples]
         gripped = [max((both_hands(frame, *item)[0] for item in both if min(frame[item[0]].to_scale()) >= .5), default=0.0)
                    for frame in grip_samples] if both else None
+        # Biped's gravity scales with the figure's height, so a jump rises as far as the target's height against the
+        # source's, in place of the travel scale that the body's other motion takes.
+        ratio = max(1 / fullbody.ARC_LIMIT, min(fullbody.ARC_LIMIT, figures[1]['height'] / (travel * figures[0]['height']))) \
+            if footing else 1.0
         contacts = fullbody.keep_contacts(source, target, body, pose_frames, body_samples, travel, rate, rotation, carried, holds,
                                           placed, {hand for name, hand, placed_in in in_hand}, target_body.get('forward'),
-                                          ground, gripped, grip_roots) if body else None
+                                          ground, gripped, grip_roots,
+                                          dict(source=figures[0], target=figures[1], feet=foot_samples, tolerance=settings.plant_tolerance,
+                                               pins=settings.foot_contacts == 'PIVOT', jumps=settings.jump_scale, ratio=ratio)
+                                          if footing else None) if body else None
         # The second hands keep their baked turns relative to the weapons, which are the source's.
         baked = [{name: poses[name].to_quaternion() for pair in pairs for name in (pair['weapon'], pair['chain'][2])}
                  for poses in pose_frames]
@@ -2571,6 +2665,25 @@ def bake(scene, settings):
                 hand = 'Left' if item['side'] == 'L' else 'Right'
                 notes.append(f"{hand} hand moved by up to {item['moved'] * 100:.1f} cm on frames {spans(item['frames'])}, where the "
                              "source's hands are together, to keep them as far apart as the source's.")
+            for item in contacts['footsteps'] or ():
+                foot = 'Left' if item['side'] == 'L' else 'Right'
+                stood = ', '.join(f'{name} {count}' for name, count in item['pivots'].items())
+                notes.append(f"{foot} foot: {item['steps']} planted and {item['slides']} sliding footsteps; planted points stand still "
+                             f"on the ground, up to {item['pinned'] * 100:.1f} cm from the scaled footprint" +
+                             (f" (frames on heel, ankle, ball, toe tip: {stood})." if stood else '.'))
+            for item in contacts['jumps']:
+                notes.append(f"Jump on frames {item['frames'][0]}-{item['frames'][1]}: rises {item['scaled'] * 100:.1f} cm above the line "
+                             f"from lift-off to touchdown, {item['rise'] * 100:.1f} cm by the leg length; the time in the air is kept.")
+            if settings.jump_scale and not contacts['jumps']:
+                notes.append('No jump found: on every frame between the first and the last, a foot is on the ground.')
+            if figures:
+                kinds = [f"{rig.name}'s {'saved figure' if data else 'automatic figure'}" for rig, data in ((target, saved[1]), (source, saved[0]))]
+                notes.append('Measures from ' + ' and '.join(kinds) + '.')
+        for name, (holder, anchor, by) in props.items():
+            notes.append(f"{name} moves with {holder} as the source's {bone_map[name]} moves from {anchor}, scaled by {by / travel:.2f} "
+                         f"against the travel ({'by height' if settings.prop_scale == 'HEIGHT' else 'by limb size'}).")
+        if settings.prop_scale != 'NONE' and not props:
+            notes.append("No moving props: no bone outside the body moves away from its parent in the source's clip.")
         for item in bent:
             if item['frames']:
                 notes.append(f"{item['hand']}'s fingers bent onto {item['weapon']} on frames {spans(item['frames'])}: opened by up "
@@ -2592,6 +2705,8 @@ def bake(scene, settings):
                              for item in grips},
                       second_hands=seconds,
                       foot_targets={name: targets[name][0] for name in sorted(targets)},
+                      props={name: dict(holder=holder, anchor=anchor, ratio=by) for name, (holder, anchor, by) in props.items()},
+                      figures=[bool(data) for data in saved], jump_ratio=ratio,
                       method='World-space FK from the source rest pose' + (' with matched rest stances' if align else '') +
                              '; target proportions retained' if not body else
                              'Full body: body chains transferred by share of their length' +

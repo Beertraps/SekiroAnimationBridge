@@ -7,6 +7,14 @@
 - Sekiro stencil skin materials use the base skin albedo before their tiling detail maps and ignore a damage normal map stored in an emissive slot. This corrects Resurrection `c1070`'s body preview.
 - The scene checklist says **No animation compendium** when that field is empty, instead of **Self-contained types**.
 
+## Retarget: body figures and Biped-style feet, jumps and props
+
+- New **Body figures** panel under **1. Choose rigs**, as 3ds Max's Biped fits a figure to each character. **Create figure** places a stick figure with Biped's parts (Pelvis, Spine, Neck, Head, and per side Clavicle, UpperArm, Forearm, Hand, Thigh, Calf, Foot, Toe and Heel) on the joints that the add-on finds, with the head's top, the heels and the toe tips from the meshes. You move the ends in Edit Mode, choose another skeleton bone for a part where needed, and click **Save figure**. It is kept on the rig and in a figure folder, one file per skeleton, so other scenes with the same skeleton find it. The full-body bake then takes the body's bones, leg length, hip joints, height, limbs and feet from the figure. The figure only measures the character: it is not animated or constrained, and export is unchanged. Without a saved figure the bake works as before.
+- New **Feet, jumps and props (Biped)** options under **3. Bake motion onto target**, all off by default:
+  - **Foot contacts** > *Planted, sliding, free (Biped)*: with the full-body bake, a foot is planted where its heel, ankle, ball or toe tip stays on the ground within **Plant tolerance** (0.15 of the source's foot length, Biped's default) for 0.1 s. That point of the target's own foot then stands still, so the foot rolls from heel to toe without sliding. A foot that moves along the ground slides on the target's ground, and is free in the air. The toe tip rides on the toe bone, so it stays down while the toes bend.
+  - **Scale jumps by height**: where both feet are off the ground, the body rises in proportion to the target's height against the source's, rather than by leg length; the time in the air is kept, as Biped's gravity scales with the figure.
+  - **Moving props** > *By height* or *By limb size*: bones outside the body whose source bones move away from their parents, such as a thrown weapon, move as far from the nearest mapped bone above them as the source's, scaled. Works with both bake methods.
+
 # 0.12.0 — the rest-relative weapon grip, the fist holds the weapon's matching part, raw bake by default, full-body bake (experimental), the mirrored katana strikes with its edge, preview lights
 
 Install `SekiroRetargetAssistant-0.8.0.zip` over 0.7.0 for the retarget changes.

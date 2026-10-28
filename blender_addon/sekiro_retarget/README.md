@@ -176,6 +176,26 @@ Sekiro and Dark Souls III rigs hang a straight chain from `Master` on each side:
 
 The price of the contacts: the legs and arms point up to about 13° away from the source's, and where the spine bone counts differ, a bend within one target spine bone is lost. Weapons sit in the hand as with *Bone by bone*. On FromSoftware pairs such as Owl or Isshin onto Wolf, whose skeletons match bone for bone, both methods give nearly the same result, and *Bone by bone* stays the better choice. The full-body bake is meant for rigs of other bone counts and proportions; check its result before you export it.
 
+### Body figures
+
+3ds Max's Biped retargets through a figure: a simple stand-in body that you fit to each character once. **1. Choose rigs** > **Body figures** does the same. A figure measures the character; it is not a control rig. It is never animated and never constrained, and the bake still moves the real bones.
+
+1. Choose the source and the target in **1. Choose rigs**, then open **Body figures**.
+2. Click **Create figure** under the rig. A stick figure appears in front of the rig and Blender switches to Edit Mode. Its parts carry Biped's names (*Pelvis*, *Spine*, *Neck*, *Head*, and per side *Clavicle*, *UpperArm*, *Forearm*, *Hand*, *Thigh*, *Calf*, *Foot*, *Toe* and *Heel*), and each sits where the add-on finds that part of the body in the skeleton and meshes.
+3. Check the ends that the skeleton alone cannot show. Click a part's end and press G to move it: the *Head*'s tip to the top of the head or helmet, each *Heel* to the back of the heel on the ground, each *Toe*'s tip to the tip of the foot, each *Thigh*'s start to the hip joint.
+4. With a part selected, the panel shows the skeleton bone it stands for. Choose another bone there if the add-on picked the wrong one.
+5. Click **Save figure**. The figure is kept on the rig and as a file in the figure folder (**Edit** > **Preferences** > **Add-ons** > Sekiro Retarget Assistant > **Figure folder**), one file per skeleton, so every other scene and clip with the same skeleton finds it. The close button removes the figure from the scene, and **Delete saved figure** deletes it.
+
+The full-body bake then takes from the saved figure which bones are the hips, spine, neck, head, arms and legs, and it measures the leg length, the hip joints, the height, the limbs and the feet on it. Without a saved figure it uses the automatic one, which **Create figure** would make, so the bake works as before. **Use saved figures** turns them off for a bake.
+
+### Feet, jumps and props (Biped)
+
+Under **3. Bake motion onto target** > **Feet, jumps and props (Biped)**, all off by default:
+
+- **Foot contacts** > *Planted, sliding, free (Biped)* finds footsteps the way Biped does from motion capture, with the full-body bake. A foot is planted where its heel, ankle, ball or toe tip stays on the ground and within **Plant tolerance** (in lengths of the source's foot; Biped's default 0.15) for at least 0.1 s. That point of the target's own foot then stands still, so the foot can roll from heel to toe without sliding. A foot that moves along the ground slides, keeping the source's path and staying on the target's ground. It is free in the air. Where the target holds its foot at another angle than the source, the foot stands as high as its lowest point needs, so no part of it goes into the ground. The status lists each foot's planted and sliding steps and the points it stood on. *Slow feet stand*, the default, keeps the earlier behavior: a foot stands where it moves slower than a quarter leg length per second.
+- **Scale jumps by height**: Biped scales gravity with the figure's height. Where both feet are off the ground, the body rises above the line from lift-off to touchdown as far as the target's height against the source's, instead of by leg length; the time in the air stays the same. The status gives each jump's frames and rise.
+- **Moving props** places bones outside the body whose source bones move away from their parents, such as a thrown weapon. *By height* moves the bone from the nearest mapped bone above it as far as the source's, scaled by the two heights; *By limb size* scales by the limb that carries it (arm, leg, torso, or leg length for a bone above the hips). *Keep target place*, the default, keeps them on their parents as before. This works with both bake methods.
+
 ## Export
 
 **Export HKX** follows the same path as the bridge's export page. Blender samples the evaluated pose with the bridge's own exporter, so constraints, drivers and NLA tracks are baked. The bridge's conversion Python then writes the HKX with its Havok compatibility fixes and, with **Read back and compare**, decodes it again and reports the largest difference. **Output** and **Replace existing**, which writes over an existing `.hkx` and its sidecar, stay in step 4; the rest is under **Export settings**:

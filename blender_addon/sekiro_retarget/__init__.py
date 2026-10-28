@@ -17,11 +17,11 @@ from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProp
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from mathutils import Matrix
-from . import control_rig, export, fixes, mapping, mirror, retarget
+from . import control_rig, export, figure, fixes, mapping, mirror, retarget
 
 
 def armature_poll(self, obj):
-    return obj.type == 'ARMATURE'
+    return obj.type == 'ARMATURE' and not obj.get(figure.OWNER)
 
 
 def pair_changed(self, context):
@@ -52,9 +52,13 @@ class SKR_Preferences(AddonPreferences):
         description='Folder of the Animation Bridge (or its standalone folder). Empty: the installation that ran last')
     writer: StringProperty(name='Conversion Python', subtype='FILE_PATH',
         description='Python with the conversion libraries. Empty: the one chosen in the bridge settings')
+    figure_folder: StringProperty(name='Figure folder', subtype='DIR_PATH',
+        description='Folder where saved body figures are kept, one file per skeleton. Empty: Blender\'s configuration '
+                    'folder, under sekiro_retarget/figures')
     def draw(self,context):
         layout=self.layout
-        layout.prop(self,'bridge_folder');layout.prop(self,'writer')
+        layout.prop(self,'bridge_folder');layout.prop(self,'writer');layout.prop(self,'figure_folder')
+        layout.label(text='Figures: '+str(figure.folder()),icon='ARMATURE_DATA')
         folder=export.bridge_folder(self);writer=export.writer_python(self)
         layout.label(text='Bridge: '+(str(folder) if folder else 'not found; start the bridge UI once or set the folder'),
                      icon='CHECKMARK' if folder else 'ERROR')
@@ -137,6 +141,31 @@ class SKR_Settings(PropertyGroup):
         description='Scale of body travel and root motion while Scale travel by leg length is off')
     body_translation: BoolProperty(name='Move body with source hips', default=True,
         description='The bone above the target hips and spine follows the source hips, so legs and upper body move together')
+    use_figures: BoolProperty(name='Use saved figures', default=True,
+        description='Where a body figure is saved for a rig\'s skeleton, the bake takes the body\'s bones and the leg '
+                    'length, hip joints, height, limbs and feet from it. Off: from the skeleton, as without a figure')
+    foot_contacts: EnumProperty(name='Foot contacts', description='How the full-body bake finds where a foot stands', items=[
+        ('SPEED','Slow feet stand','A foot stands where it moves slower than a quarter leg length per second; it stands '
+                 'where the source\'s foot stands, scaled'),
+        ('PIVOT','Planted, sliding, free (Biped)','As 3ds Max\'s Biped finds footsteps: a foot is planted where its heel, '
+                 'ankle, ball or toe tip stays on the ground and within the tolerance for 0.1 s, and that point then stands still on the '
+                 'ground, the target\'s foot set on it by its own shape, so the foot can roll from heel to toe; it slides '
+                 'where it moves along the ground, keeping its path on the target\'s ground; it is free elsewhere')],
+        default='SPEED')
+    plant_tolerance: FloatProperty(name='Plant tolerance', default=.15, min=.01, max=1.0, precision=2,
+        description='How far a planted point of the foot may move and still count as planted, and how close to the '
+                    'ground a sliding foot stays, in lengths of the source\'s foot. Biped\'s default is 0.15')
+    jump_scale: BoolProperty(name='Scale jumps by height', default=False,
+        description='As Biped scales gravity with the figure\'s height: where no foot is on the ground, the body rises '
+                    'above the line from lift-off to touchdown as far as the target\'s height against the source\'s, '
+                    'instead of by leg length; the time in the air stays the same')
+    prop_scale: EnumProperty(name='Moving props', description='Where bones outside the body, whose source bones move away '
+                                                              'from their parents, such as a thrown weapon, go', items=[
+        ('NONE','Keep target place','They keep their place on their parent and turn like the source\'s'),
+        ('HEIGHT','By height','They move from the nearest mapped bone above them as far as the source\'s, scaled by '
+                  'the target\'s height against the source\'s'),
+        ('LIMB','By limb size','As By height, scaled by the limb that carries them: the arm, the leg, the torso, or '
+                'the leg length for a bone above the hips')], default='NONE')
     body_clearance: BoolProperty(name='Keep hands out of the body', default=False,
         description='Where a hand, or what it holds, would go into the target torso deeper than the source\'s hand goes '
                     'into its own body, move it out through the arm, easing in and out; for a target with a thicker body '
@@ -810,6 +839,93 @@ class SKR_OT_fix_apply(Operator):
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 
+ROLES=[('target','Target',''),('source','Source','')]
+
+
+def figure_rig(context,role):
+    rig=getattr(context.scene.sekiro_retarget,role)
+    if not rig:raise ValueError(f'Choose the {role} rig first.')
+    return rig
+
+
+class SKR_OT_figure_create(Operator):
+    bl_idname='sekiro_retarget.figure_create'
+    bl_label='Create figure'
+    bl_description=('Place a Biped-style figure on this rig\'s joints, or its saved figure, and open it in Edit Mode so '
+                    'that you can move its parts onto the character')
+    bl_options={'REGISTER','UNDO'}
+    role: EnumProperty(items=ROLES)
+    def execute(self,context):
+        try:
+            rig=figure_rig(context,self.role)
+            if context.object and context.object.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+            data=figure.saved(rig) or figure.fit(rig)
+            if data is None:raise ValueError(f'{rig.name} has no body to fit a figure to: it needs hips and two legs with knees.')
+            obj=figure.build(rig,data)
+            for other in context.view_layer.objects:other.select_set(False)
+            context.view_layer.objects.active=obj;obj.select_set(True)
+            bpy.ops.object.mode_set(mode='EDIT')
+            context.scene.sekiro_retarget.status=(f'Figure of {rig.name} in Edit Mode: click a part\'s end and press G to move it, '
+                                                  'then Save figure.')
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_figure_save(Operator):
+    bl_idname='sekiro_retarget.figure_save'
+    bl_label='Save figure'
+    bl_description='Keep the figure for this rig\'s skeleton, on the rig and in the figure folder, for every clip of it'
+    bl_options={'REGISTER','UNDO'}
+    role: EnumProperty(items=ROLES)
+    def execute(self,context):
+        try:
+            rig=figure_rig(context,self.role);obj=figure.edited(rig)
+            if not obj:raise ValueError('Create the figure first.')
+            if context.object and context.object.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+            path=figure.save(rig,obj)
+            context.scene.sekiro_retarget.status=f'Saved the figure of {rig.name} to {path}.'
+            self.report({'INFO'},context.scene.sekiro_retarget.status)
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_figure_remove(Operator):
+    bl_idname='sekiro_retarget.figure_remove'
+    bl_label='Close figure'
+    bl_description='Remove the figure from the scene. A saved figure stays saved'
+    bl_options={'REGISTER','UNDO'}
+    role: EnumProperty(items=ROLES)
+    def execute(self,context):
+        try:
+            rig=figure_rig(context,self.role);obj=figure.edited(rig)
+            if obj:
+                if context.object==obj and obj.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.data.objects.remove(obj)
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_figure_forget(Operator):
+    bl_idname='sekiro_retarget.figure_forget'
+    bl_label='Delete saved figure'
+    bl_description='Delete the figure saved for this rig\'s skeleton, from the rig and from the figure folder'
+    bl_options={'REGISTER','UNDO'}
+    role: EnumProperty(items=ROLES)
+    def invoke(self,context,event):
+        return context.window_manager.invoke_confirm(self,event)
+    def execute(self,context):
+        try:
+            rig=figure_rig(context,self.role)
+            removed=figure.forget(rig)
+            self.report({'INFO'},f'Deleted the saved figure of {rig.name}'+(f' and {removed} file(s).' if removed else '.'))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
 REVIEW=.94  # Matches below this strength are listed for review.
 
 
@@ -906,6 +1022,39 @@ class SKR_PT_rigs(SidebarPanel,Panel):
             text(layout,context,'Source and target are the same armature. Choose two different ones.',icon='ERROR').alert=True
 
 
+FIGURE_HELP=('In Edit Mode, click the end of a part and press G to move it: the Head\'s tip to the top of the head, '
+             'each Heel to the back of the heel on the ground, each Toe\'s tip to the tip of the foot, and the Thighs\' '
+             'heads to the hip joints. Then Save figure.')
+
+
+class SKR_PT_figures(SidebarPanel,Panel):
+    bl_label='Body figures'
+    bl_idname='SKR_PT_retarget_figures'
+    bl_parent_id='SKR_PT_retarget_rigs';bl_options={'DEFAULT_CLOSED'}
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget
+        text(layout,context,'As with 3ds Max\'s Biped, fit a figure to each character once. The full-body bake then takes '
+                            'the body\'s bones, leg length, hip joints, height and feet from it, for every clip of that skeleton.')
+        for role,title,unused in ROLES:
+            rig=getattr(settings,role)
+            if not rig:continue
+            box=layout.box();box.label(text=f'{title}: {rig.name}',icon='ARMATURE_DATA')
+            kept=figure.saved(rig);obj=figure.edited(rig)
+            box.label(text='Saved figure' if kept else 'Automatic figure (none saved)',icon='CHECKMARK' if kept else 'INFO')
+            row=box.row(align=True)
+            row.operator('sekiro_retarget.figure_create',text='Edit figure' if kept or obj else 'Create figure',icon='EDITMODE_HLT').role=role
+            if obj:
+                row.operator('sekiro_retarget.figure_save',icon='FILE_TICK').role=role
+                row.operator('sekiro_retarget.figure_remove',text='',icon='X').role=role
+                text(box,context,FIGURE_HELP)
+                bone=context.active_bone if context.object==obj else None
+                if bone and figure.LINK in bone:
+                    box.prop_search(bone,f'["{figure.LINK}"]',rig.data,'bones',text=bone.name)
+                    text(box,context,'The skeleton bone this part stands for.')
+            if kept:box.operator('sekiro_retarget.figure_forget',icon='TRASH').role=role
+        if settings.target or settings.source:layout.prop(settings,'use_figures')
+
+
 class SKR_PT_bones(SidebarPanel,Panel):
     bl_label='2. Match bones'
     bl_idname='SKR_PT_retarget_bones'
@@ -971,6 +1120,19 @@ class SKR_PT_bake_travel(BakeOptions,Panel):
         if not settings.auto_scale:layout.prop(settings,'travel_scale')
         menu(layout,settings,'root_motion')
         if settings.root_motion in ('AUTO','EXTRACT'):layout.prop(settings,'root_yaw')
+
+
+class SKR_PT_bake_biped(BakeOptions,Panel):
+    bl_label='Feet, jumps and props (Biped)'
+    bl_idname='SKR_PT_retarget_bake_biped'
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_retarget
+        column=layout.column();column.active=settings.method=='BODY'
+        menu(column,settings,'foot_contacts')
+        if settings.foot_contacts=='PIVOT':column.prop(settings,'plant_tolerance')
+        column.prop(settings,'jump_scale')
+        if settings.method!='BODY':text(layout,context,'Foot contacts and jumps work with the full-body bake.',icon='INFO')
+        menu(layout,settings,'prop_scale')
 
 
 class SKR_PT_bake_arms(BakeOptions,Panel):
@@ -1163,9 +1325,11 @@ CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_GripOffset,SKR_Settings,SKR_FixPose,SKR
     SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_grip_adjust,SKR_OT_grip_apply,SKR_OT_grip_cancel,
     SKR_OT_grip_reset,SKR_OT_save_map,
     SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_mirror_animation,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
-    SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
+    SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_OT_figure_create,SKR_OT_figure_save,SKR_OT_figure_remove,
+    SKR_OT_figure_forget,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
 # The steps of the retarget panel, after it and in the order they are shown.
-CLASSES+=(SKR_PT_rigs,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_arms,SKR_PT_bake_weapons,SKR_PT_bake_grip,
+CLASSES+=(SKR_PT_rigs,SKR_PT_figures,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_biped,
+          SKR_PT_bake_arms,SKR_PT_bake_weapons,SKR_PT_bake_grip,
           SKR_PT_export,SKR_PT_export_settings,SKR_PT_status)
 
 
