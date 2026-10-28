@@ -7,7 +7,8 @@ Neck, Head and per side Clavicle, UpperArm, Forearm, Hand, Thigh, Calf, Foot, To
 skeleton bone it stands for, made from what the bake finds in the skeleton and placed on its joints. The user moves
 the parts' ends onto the character in Edit Mode: the Head's tip onto the top of the head, the Heel onto the back of
 the heel on the ground, the Toe's tip onto the tip of the foot, the Thigh's head onto the hip joint, and changes a
-link where the bake took the wrong bone. Saving keeps the figure on the rig and in a figure folder under the
+link where the bake took the wrong bone. Only where the parts start and end counts, not how they turn or roll.
+The figure is fitted to the rest pose, so while it is open the rig shows its Rest Position. Saving keeps the figure on the rig and in a figure folder under the
 skeleton's signature, its bone names and hierarchy, so that the next clip of that skeleton finds it.
 
 The bake reads from a figure the body layout, which bones are the hips, spine, neck, head and limbs, and measures:
@@ -30,6 +31,7 @@ KEY = 'sekiro_figure'  # On the rig: its saved figure, as JSON.
 OWNER = 'sekiro_figure_of'  # On a figure object: the rig it is fitted to.
 PART = 'sekiro_figure_part'  # On a figure bone: its part.
 LINK = 'sekiro_figure_bone'  # On a figure bone: the skeleton bone it stands for, or ''.
+POSE = 'sekiro_figure_pose'  # On a figure object: the rig's pose position before the figure opened.
 VERSION = 1
 LIMB_PARTS = dict(arms=(('Clavicle', 'clavicle'), ('UpperArm', 'upperarm'), ('Forearm', 'forearm'), ('Hand', 'hand')),
                   legs=(('Thigh', 'thigh'), ('Calf', 'calf'), ('Foot', 'foot'), ('Toe', 'toe')))
@@ -202,15 +204,18 @@ def parent_part(part, parts):
 
 
 def build(rig, data):
-    """The figure as an armature object parented to the rig, its parts in the rig's armature space."""
+    """The figure as an armature object parented to the rig, its parts in the rig's armature space. The rig shows its
+    Rest Position until the figure closes (see close), since the figure is fitted to the rest pose."""
     old = edited(rig)
+    previous = old.get(POSE, rig.data.pose_position) if old else rig.data.pose_position
     if old:
         bpy.data.objects.remove(old)
     armature = bpy.data.armatures.new(rig.name + ' Figure')
     obj = bpy.data.objects.new(rig.name + ' Figure', armature)
     (rig.users_collection[0] if rig.users_collection else bpy.context.scene.collection).objects.link(obj)
     obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = rig, Matrix.Identity(4), Matrix.Identity(4)
-    obj[OWNER] = rig
+    obj[OWNER], obj[POSE] = rig, previous
+    rig.data.pose_position = 'REST'
     obj.show_in_front = True
     armature.display_type = 'STICK'
     view = bpy.context.view_layer
@@ -240,6 +245,17 @@ def build(rig, data):
 def edited(rig):
     """The figure object being fitted to a rig, or None."""
     return next((obj for obj in bpy.data.objects if obj.type == 'ARMATURE' and obj.get(OWNER) == rig), None)
+
+
+def close(rig):
+    """Remove the rig's open figure, if any, and give the rig back the pose position it had before."""
+    obj = edited(rig)
+    if obj is None:
+        return
+    if bpy.context.object == obj and obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    rig.data.pose_position = obj.get(POSE, rig.data.pose_position)
+    bpy.data.objects.remove(obj)
 
 
 def read(obj, rig):

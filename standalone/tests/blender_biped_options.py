@@ -4,9 +4,10 @@ A source of base proportions stands with its knees slightly bent and its left fo
 onto its ball and back, its toes flat, with 2 mm of jitter; slides its right foot 20 cm outward along the ground;
 jumps 30 cm with both feet off the ground for twelve frames; and throws a prop from its right hand. The target has shorter legs, a longer foot and a prop of its
 own. Checked:
-- Body figures: Create figure places the parts on the joints, a part linked to a missing bone cannot be saved, a
-  saved figure is kept on the rig and in the figure folder, found there for another rig of the same skeleton, used
-  by the bake, and deleted again.
+- Body figures: Create figure places the parts on the joints and shows the rig's rest pose while the figure is open,
+  when the bake refuses; a part linked to a missing bone cannot be saved; saving closes the figure and gives the rig
+  back its pose position, as closing does; a saved figure is kept on the rig and in the figure folder, found there
+  for another rig of the same skeleton, used by the bake, and deleted again.
 - Planted, sliding, free: the target's planted ball stands still on its own through the roll, where the default
   contacts let it move with the scaled ankle; the slide is found and keeps the foot at its own height; no frame
   jumps further than with the default contacts.
@@ -187,11 +188,20 @@ settings.rest_mode, settings.root_motion = 'ALIGN', 'NONE'
 assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
 assert any(row.target == 'R_Prop' and row.source == 'R_Prop' for row in settings.rows)
 
-# Body figures. Create figure places the parts on the joints and opens the figure in Edit Mode.
+# Body figures. Create figure places the parts on the joints, opens the figure in Edit Mode and shows the rig's rest
+# pose, which the figure is fitted to.
 assert figure.saved(target) is None
 assert bpy.ops.sekiro_retarget.figure_create(role='target') == {'FINISHED'}
 fitted = figure.edited(target)
 assert fitted and fitted.mode == 'EDIT' and fitted.parent == target, fitted
+assert target.data.pose_position == 'REST'
+# While the figure is open, the bake would read the rest pose, so it refuses.
+try:
+    bpy.ops.sekiro_retarget.bake()
+    raise AssertionError('baked with an open figure')
+except RuntimeError as error:
+    assert 'figure of Target is open' in str(error), error
+bpy.ops.object.mode_set(mode='EDIT')
 edit = fitted.data.edit_bones
 for part, label in (('Pelvis', 'hips'), ('L Thigh', 'L.thigh'), ('L Calf', 'L.calf'), ('L Foot', 'L.foot'), ('R Hand', 'R.hand')):
     assert (edit[part].head - target.data.bones[names[label]].head_local).length < 1e-6, part
@@ -213,6 +223,7 @@ edit['L Calf'][figure.LINK] = names['L.calf']
 # The head reaches 25 cm higher than the automatic fit puts it: a tall helmet, say.
 edit['Head'].tail += Vector((0, 0, .25))
 assert bpy.ops.sekiro_retarget.figure_save(role='target') == {'FINISHED'}
+assert figure.edited(target) is None and target.data.pose_position == 'POSE'  # Saving closes the figure.
 kept = figure.saved(target)
 files = list(Path(FOLDER).glob('*.json'))
 assert kept and len(files) == 1 and files[0].name.endswith(figure.signature(target) + '.json'), files
@@ -223,8 +234,18 @@ assert abs(measured['leg'] - automatic['leg']) < 1e-9
 twin = armature('Twin', target_bones)
 assert figure.KEY not in twin and figure.saved(twin)['parts'] == kept['parts']
 assert figure.saved(source) is None
+# Edit figure opens the saved one; opening it twice and closing it gives the rig back the pose position it had before.
+for _ in range(2):
+    assert bpy.ops.sekiro_retarget.figure_create(role='target') == {'FINISHED'} and target.data.pose_position == 'REST'
+reopened = figure.read(figure.edited(target), target)['parts']
+assert reopened.keys() == kept['parts'].keys() and all((Vector(reopened[part][1]) - Vector(tail)).length < 1e-6
+                                                       for part, (head, tail, link) in kept['parts'].items())
 assert bpy.ops.sekiro_retarget.figure_remove(role='target') == {'FINISHED'} and figure.edited(target) is None
-assert figure.saved(target) is not None  # Closing keeps what was saved.
+assert target.data.pose_position == 'POSE' and figure.saved(target) is not None  # Closing keeps what was saved.
+source.data.pose_position = 'REST'
+assert bpy.ops.sekiro_retarget.figure_create(role='source') == {'FINISHED'}
+assert bpy.ops.sekiro_retarget.figure_remove(role='source') == {'FINISHED'} and source.data.pose_position == 'REST'
+source.data.pose_position = 'POSE'
 
 # Planted, sliding, free, against the default contacts.
 plain, plain_frames = bake()

@@ -492,9 +492,18 @@ class SKR_OT_bake(Operator):
         return run_bake(self,context)
 
 
+def no_open_figures(settings):
+    """Refuse while a body figure is open: its rig shows its Rest Position, not its animation."""
+    for rig in (settings.source,settings.target):
+        if rig and figure.edited(rig):
+            raise ValueError(f'The figure of {rig.name} is open, and {rig.name} shows its rest pose. Save or close the '
+                             'figure first (Body figures).')
+
+
 def run_bake(operator,context):
     settings=context.scene.sekiro_retarget
     try:
+        no_open_figures(settings)
         result=retarget.bake(context.scene,settings)
         source=('the full body' if result['bake_method']=='BODY' else f"{result['mapped']} mapped bones")
         settings.status=(f"Baked {result['frames']} frames from {source}; travel scale {result['scale']:.3f}; "
@@ -616,6 +625,7 @@ class SKR_OT_export_hkx(Operator):
     def execute(self,context):
         settings=context.scene.sekiro_retarget
         try:
+            no_open_figures(settings)
             self.job=export.start(context,settings,preferences(context))
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -852,7 +862,8 @@ class SKR_OT_figure_create(Operator):
     bl_idname='sekiro_retarget.figure_create'
     bl_label='Create figure'
     bl_description=('Place a Biped-style figure on this rig\'s joints, or its saved figure, and open it in Edit Mode so '
-                    'that you can move its parts onto the character')
+                    'that you can move its parts onto the character. The rig shows its Rest Position until the figure '
+                    'is saved or closed')
     bl_options={'REGISTER','UNDO'}
     role: EnumProperty(items=ROLES)
     def execute(self,context):
@@ -865,8 +876,8 @@ class SKR_OT_figure_create(Operator):
             for other in context.view_layer.objects:other.select_set(False)
             context.view_layer.objects.active=obj;obj.select_set(True)
             bpy.ops.object.mode_set(mode='EDIT')
-            context.scene.sekiro_retarget.status=(f'Figure of {rig.name} in Edit Mode: click a part\'s end and press G to move it, '
-                                                  'then Save figure.')
+            context.scene.sekiro_retarget.status=(f'Figure of {rig.name} in Edit Mode, on its rest pose: click a part\'s end and '
+                                                  'press G to move it, then Save figure.')
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -875,7 +886,8 @@ class SKR_OT_figure_create(Operator):
 class SKR_OT_figure_save(Operator):
     bl_idname='sekiro_retarget.figure_save'
     bl_label='Save figure'
-    bl_description='Keep the figure for this rig\'s skeleton, on the rig and in the figure folder, for every clip of it'
+    bl_description=('Keep the figure for this rig\'s skeleton, on the rig and in the figure folder, for every clip of '
+                    'it, and close it')
     bl_options={'REGISTER','UNDO'}
     role: EnumProperty(items=ROLES)
     def execute(self,context):
@@ -884,7 +896,8 @@ class SKR_OT_figure_save(Operator):
             if not obj:raise ValueError('Create the figure first.')
             if context.object and context.object.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
             path=figure.save(rig,obj)
-            context.scene.sekiro_retarget.status=f'Saved the figure of {rig.name} to {path}.'
+            figure.close(rig)
+            context.scene.sekiro_retarget.status=f'Saved the figure of {rig.name} to {path}. {rig.name} shows its pose again.'
             self.report({'INFO'},context.scene.sekiro_retarget.status)
             return {'FINISHED'}
         except Exception as exc:
@@ -894,15 +907,12 @@ class SKR_OT_figure_save(Operator):
 class SKR_OT_figure_remove(Operator):
     bl_idname='sekiro_retarget.figure_remove'
     bl_label='Close figure'
-    bl_description='Remove the figure from the scene. A saved figure stays saved'
+    bl_description='Remove the figure from the scene without saving, and show the rig\'s pose again. A saved figure stays saved'
     bl_options={'REGISTER','UNDO'}
     role: EnumProperty(items=ROLES)
     def execute(self,context):
         try:
-            rig=figure_rig(context,self.role);obj=figure.edited(rig)
-            if obj:
-                if context.object==obj and obj.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
-                bpy.data.objects.remove(obj)
+            figure.close(figure_rig(context,self.role))
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -1024,7 +1034,7 @@ class SKR_PT_rigs(SidebarPanel,Panel):
 
 FIGURE_HELP=('In Edit Mode, click the end of a part and press G to move it: the Head\'s tip to the top of the head, '
              'each Heel to the back of the heel on the ground, each Toe\'s tip to the tip of the foot, and the Thighs\' '
-             'heads to the hip joints. Then Save figure.')
+             'heads to the hip joints. Only where the parts start and end counts, not how they turn. Then Save figure.')
 
 
 class SKR_PT_figures(SidebarPanel,Panel):
