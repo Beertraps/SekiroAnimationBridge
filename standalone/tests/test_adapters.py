@@ -404,5 +404,96 @@ class Checker(PackageCase):
         self.assertEqual((code, steps), (1, ['package.json']))
         self.assertIn('lacks the package API functions', failed[0])
 
+
+OPTIONED = '''"""A package that shows the source options it gets."""
+from pathlib import Path
+
+CATALOG_SCHEMA = 1
+
+
+def detect(path, options, ctx):
+    root = Path(path)
+    if not (root / 'optioned.game').is_file():
+        return None
+    shown = ['engineVersion', 'key'] + (['fileList'] if options['engineVersion'] == 'old' else [])
+    return dict(game='optioned', root=str(root), options=shown, needs=[] if options['key'] else ['key'], seen=options)
+
+
+def scan(detection, options, ctx, previous=None):
+    return dict(schema=CATALOG_SCHEMA, game='optioned', folder=detection['root'], characters=[], clips=[], seen=options)
+
+
+def inventory(catalog, character, ctx):
+    return catalog
+
+
+def selection(catalog, clip_id, preset, ctx):
+    raise ValueError('no clips')
+
+
+def preview(selection, ctx):
+    raise ValueError('no clips')
+
+
+def prepare(request, catalog, temp, ctx):
+    raise ValueError('no clips')
+'''
+
+
+class SourceOptions(PackageCase):
+    """Options a package declares for its sources, such as an engine version or a key, from the dialog to the package."""
+
+    OPTIONS = [dict(id='engineVersion', name='Engine version', kind='choice', default='auto',
+                    choices=[dict(value='auto', label='Auto'), dict(value='old', label='Old')]),
+               dict(id='key', name='Key', kind='secret', placeholder='0x…', help='The archive key.'), 'fileList']
+
+    def setUp(self):
+        super().setUp()
+        game = dict(self.manifest()['games'][0], id='optioned', name='Optioned Game', short='OP', executables=[])
+        self.write_package(self.user, self.manifest(id='optioned', name='Optioned engine', games=[game],
+                                                    sourceOptions=self.OPTIONS), code=OPTIONED)
+        games.reload()
+        self.engine = games.adapter('optioned')
+        self.root = self.temp / 'Optioned Game'
+        self.root.mkdir()
+        (self.root / 'optioned.game').write_text('', encoding='utf-8')
+
+    def test_option_definitions_are_checked(self):
+        text = dict(name='Name', kind='text')
+        for options, message in (([dict(text, id='Key')], 'source option ids'), ([dict(text, id='key'), dict(text, id='key')], 'source option ids'),
+                                 ([dict(text, id='fileList')], 'source option ids'),
+                                 ([dict(id='mode', name='Mode', kind='choice', default='b', choices=[dict(value='a', label='A')])], 'unique choices'),
+                                 ([dict(id='mode', name='Mode', kind='choice', choices=[])], 'unique choices')):
+            with self.assertRaisesRegex(ValueError, message):
+                packages.check_package_data(self.manifest(sourceOptions=options))
+        with self.assertRaises(ValueError):
+            packages.check_package_data(self.manifest(sourceOptions=[dict(text, id='size', kind='number')]))
+        self.assertEqual(self.engine.package.error, '')
+
+    def test_values_are_trimmed_and_unknown_choices_fall_back(self):
+        self.assertEqual(self.engine.options(), dict(fileList='', engineVersion='auto', key=''))
+        self.assertEqual(self.engine.options('list.txt', dict(engineVersion='bogus', key='  abc  ', other='x')),
+                         dict(fileList='list.txt', engineVersion='auto', key='abc'))
+        self.assertEqual(self.engine.options('', dict(engineVersion='old'))['engineVersion'], 'old')
+
+    def test_detection_shows_the_fields_the_source_needs(self):
+        found = games.detect(self.root)
+        self.assertEqual((found['engine'], found['needs'], found['needsFileList']), ('optioned', ['key'], False))
+        self.assertEqual([f['id'] for f in found['optionFields']], ['engineVersion', 'key'])
+        key = found['optionFields'][1]
+        self.assertEqual((key['kind'], key['placeholder'], key['help'], key['filter']), ('secret', '0x…', 'The archive key.', ''))
+        self.assertEqual([c['value'] for c in found['optionFields'][0]['choices']], ['auto', 'old'])
+        found = games.detect(self.root, 'list.txt', dict(key='k', engineVersion='old'))
+        self.assertEqual((found['needs'], found['needsFileList'], found['seen']['fileList']), ([], True, 'list.txt'))
+
+    def test_the_scan_gets_the_options_and_each_set_has_its_own_catalog(self):
+        from asset_discovery import discover
+        first, catalog = discover(self.root, self.cache, self.notify, '', 'auto', 'game', options=dict(key='one'))
+        self.assertEqual(catalog['seen'], dict(fileList='', engineVersion='auto', key='one'))
+        second, catalog = discover(self.root, self.cache, self.notify, '', 'auto', 'game', options=dict(key='two'))
+        self.assertEqual(catalog['seen']['key'], 'two')
+        self.assertNotEqual(first, second)
+
+
 if __name__ == '__main__':
     unittest.main()

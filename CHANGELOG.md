@@ -19,12 +19,23 @@
 - The decoders share one .NET 9 runtime. Release ZIPs carry it in `dotnet-runtime/`, and the decoders no longer include their own; a source checkout prepares it with `tools\prepare_dotnet_runtime.cmd`. **Settings & setup** shows it as **.NET runtime**.
 - DMC5 sources scanned before need one new scan.
 - The skeleton preview hands a package the whole selection it made for the clip, as the import does, so a package that needs more than the clip's file (DOOM Eternal needs its game folder) can preview. `tools\check_package.cmd` asks for the preview the way the page does.
+- **Source options.** A package can declare fields for its sources, such as a key, a version choice or a file, and the source dialog shows the ones a source needs. The values are kept with the source on this computer, each set of values has its own scan, and the CLI takes them with `-SourceOptionsFile`. `tools\check_package.cmd` takes them with `--option id=value`.
 
 ## Experimental: DOOM Eternal package
 
 - `packages/doom_eternal` imports DOOM Eternal's characters: the Doom Slayer, the demons and the cinematics, with their animations, skin weights and textures. It reads the game's `.resources` archives in place with the game's own Oodle library, in Python ported from [Valen](https://github.com/jandk/valen) (MIT), and needs no other program.
 - Characters show readable names and gore variants in words; clip names leave out the folders they share.
 - Release ZIPs do not include it, and it is not attached to releases. A source checkout loads it as it is; `tools/package_game_package.py packages/doom_eternal` builds a ZIP to install into a release.
+
+## Experimental: Unreal Engine package
+
+- `packages/unreal` reads Unreal Engine 4 and 5 games, one package for all of them. It lists one character per skeleton with animations, previews the animation sequences and imports them with the skeleton's skeletal meshes, materials and textures. Its decoder runs on [CUE4Parse](https://github.com/FabianFG/CUE4Parse) (Apache-2.0) and reads the PAK and IoStore archives in place; `packages\unreal\decoder\build_decoder.cmd` builds it from a pinned commit. [docs/games/unreal.md](docs/games/unreal.md) walks through it.
+- CUE4Parse needs .NET 10, so the decoder carries its own .NET 10 runtime instead of the bridge's shared .NET 9 one. Building it needs the .NET 10 SDK.
+- The decoder takes Microsoft.Bcl.Memory 9.0.22 instead of the 9.0.0 that CUE4Parse names, which has a known vulnerability (GHSA-73j8-2gch-69rq). Its build stops when the SDK would give it a .NET runtime older than 10.0.4, which has the same one. SixLabors.ImageSharp stays at CUE4Parse's 3.1.12 despite its advisories: the fixed 3.2.0 builds only with a Six Labors license key, and the decoder does not run the affected TIFF, ICC profile and histogram code.
+- The source dialog reads the engine version from the game's executable, or guesses it from the archive format and says so. It asks for the AES key of encrypted archives and offers fields for a mappings file (`.usmap`) and the game's own Oodle library. The bridge includes no keys, mappings or Oodle libraries and downloads none.
+- Deep Rock Galactic has an entry with its engine version, and its import is checked with the Xbox app version's files: the scan, the dwarves and the Glyphids with their models in Blender. Unreal Engine 5 games, IoStore archives, keys and mappings files are not checked with a real game yet.
+- When the scan finds animations but cannot read their package headers to learn their skeletons, it says why instead of listing no characters: the game needs its mappings file, or another engine version. The game guide shows how to install CMake and the C++ build tools for ACL clips.
+- Release ZIPs do not include it.
 
 ## Import page
 

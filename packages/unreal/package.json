@@ -1,0 +1,118 @@
+{
+  "id": "unreal",
+  "name": "Unreal Engine",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "Imports animations and characters of Unreal Engine 4 and 5 games: skeletons, animation sequences, skeletal meshes, materials and textures, read in place from the game's PAK or IoStore archives. Encrypted games need their AES key; games that store properties without names need a mappings file (.usmap).",
+  "authors": ["Sekiro Animation Bridge contributors"],
+  "license": "GPL-3.0-or-later; the decoder uses CUE4Parse (Apache-2.0)",
+  "homepage": "https://github.com/Beertraps/SekiroAnimationBridge",
+  "sourceOptions": [
+    {
+      "id": "engineVersion",
+      "name": "Engine version",
+      "kind": "choice",
+      "default": "auto",
+      "help": "The Unreal Engine version the game was made with. Auto reads it from the game's executable, or guesses it from the archive format. Choose the version when the scan fails or the animations do not decode.",
+      "choices": [
+        {"value": "auto", "label": "Auto"},
+        {"value": "GAME_UE4_0", "label": "Unreal Engine 4.0"},
+        {"value": "GAME_UE4_1", "label": "Unreal Engine 4.1"},
+        {"value": "GAME_UE4_2", "label": "Unreal Engine 4.2"},
+        {"value": "GAME_UE4_3", "label": "Unreal Engine 4.3"},
+        {"value": "GAME_UE4_4", "label": "Unreal Engine 4.4"},
+        {"value": "GAME_UE4_5", "label": "Unreal Engine 4.5"},
+        {"value": "GAME_UE4_6", "label": "Unreal Engine 4.6"},
+        {"value": "GAME_UE4_7", "label": "Unreal Engine 4.7"},
+        {"value": "GAME_UE4_8", "label": "Unreal Engine 4.8"},
+        {"value": "GAME_UE4_9", "label": "Unreal Engine 4.9"},
+        {"value": "GAME_UE4_10", "label": "Unreal Engine 4.10"},
+        {"value": "GAME_UE4_11", "label": "Unreal Engine 4.11"},
+        {"value": "GAME_UE4_12", "label": "Unreal Engine 4.12"},
+        {"value": "GAME_UE4_13", "label": "Unreal Engine 4.13"},
+        {"value": "GAME_UE4_14", "label": "Unreal Engine 4.14"},
+        {"value": "GAME_UE4_15", "label": "Unreal Engine 4.15"},
+        {"value": "GAME_UE4_16", "label": "Unreal Engine 4.16"},
+        {"value": "GAME_UE4_17", "label": "Unreal Engine 4.17"},
+        {"value": "GAME_UE4_18", "label": "Unreal Engine 4.18"},
+        {"value": "GAME_UE4_19", "label": "Unreal Engine 4.19"},
+        {"value": "GAME_UE4_20", "label": "Unreal Engine 4.20"},
+        {"value": "GAME_UE4_21", "label": "Unreal Engine 4.21"},
+        {"value": "GAME_UE4_22", "label": "Unreal Engine 4.22"},
+        {"value": "GAME_UE4_23", "label": "Unreal Engine 4.23"},
+        {"value": "GAME_UE4_24", "label": "Unreal Engine 4.24"},
+        {"value": "GAME_UE4_25", "label": "Unreal Engine 4.25"},
+        {"value": "GAME_UE4_26", "label": "Unreal Engine 4.26"},
+        {"value": "GAME_UE4_27", "label": "Unreal Engine 4.27"},
+        {"value": "GAME_UE5_0", "label": "Unreal Engine 5.0"},
+        {"value": "GAME_UE5_1", "label": "Unreal Engine 5.1"},
+        {"value": "GAME_UE5_2", "label": "Unreal Engine 5.2"},
+        {"value": "GAME_UE5_3", "label": "Unreal Engine 5.3"},
+        {"value": "GAME_UE5_4", "label": "Unreal Engine 5.4"},
+        {"value": "GAME_UE5_5", "label": "Unreal Engine 5.5"},
+        {"value": "GAME_UE5_6", "label": "Unreal Engine 5.6"},
+        {"value": "GAME_UE5_7", "label": "Unreal Engine 5.7"},
+        {"value": "GAME_UE5_8", "label": "Unreal Engine 5.8"},
+        {"value": "GAME_UE5_9", "label": "Unreal Engine 5.9"}
+      ]
+    },
+    {
+      "id": "aesKey",
+      "name": "AES key",
+      "kind": "secret",
+      "placeholder": "0x followed by 64 hexadecimal digits",
+      "help": "The key the game's archives are encrypted with. The bridge does not include keys: use the one published for your game version. It is stored only on this computer."
+    },
+    {
+      "id": "mappings",
+      "name": "Mappings file",
+      "kind": "file",
+      "filter": "Mappings (*.usmap)|*.usmap|All files (*.*)|*.*",
+      "help": "A .usmap file for games whose packages store properties without names, which many Unreal Engine 5 games do. A dumper made for the game writes one while the game runs."
+    },
+    {
+      "id": "oodle",
+      "name": "Oodle library",
+      "kind": "file",
+      "filter": "Oodle library (oo2core_*.dll)|oo2core_*.dll|All files (*.*)|*.*",
+      "help": "Optional. The game's own oo2core DLL, for archives the built-in Oodle decompressor cannot read. The bridge never downloads it."
+    }
+  ],
+  "games": [
+    {
+      "id": "unreal",
+      "name": "Unreal Engine game",
+      "short": "UE",
+      "capabilities": {"packed_archives": true, "root_motion": false},
+      "basis": [[1, 0, 0], [0, -1, 0], [0, 0, 1]],
+      "unitScale": 0.01,
+      "hint": "the game folder with <Project>/Content/Paks, the project folder or its Paks folder",
+      "verified": false,
+      "documentation": "docs/games/unreal.md"
+    },
+    {
+      "id": "deep_rock_galactic",
+      "name": "Deep Rock Galactic",
+      "short": "DRG",
+      "executables": ["fsd.exe", "fsd-win64-shipping.exe", "fsd-wingdk-shipping.exe"],
+      "capabilities": {"packed_archives": true, "root_motion": false},
+      "basis": [[1, 0, 0], [0, -1, 0], [0, 0, 1]],
+      "unitScale": 0.01,
+      "formats": {"project": "FSD", "engine": "GAME_UE4_27"},
+      "hint": "the Deep Rock Galactic folder with FSD/Content/Paks",
+      "verified": true,
+      "documentation": "docs/games/unreal.md"
+    }
+  ],
+  "tools": [
+    {
+      "id": "decoder",
+      "name": "Unreal decoder",
+      "path": "tools/unreal-decoder/UnrealDecoder.exe",
+      "version": ["--version"],
+      "expect": "UnrealDecoder 0.1",
+      "build": "decoder/build_decoder.cmd",
+      "help": "Mounts PAK and IoStore archives and reads skeletons, animation sequences, skeletal meshes, materials and textures. Built on CUE4Parse."
+    }
+  ]
+}

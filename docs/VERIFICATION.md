@@ -1,3 +1,28 @@
+# Unreleased — import from other games: Unreal Engine — 2026-10-29
+
+## Deep Rock Galactic, on the game's own files
+
+Xbox app install (`C:\XboxGames\Deep Rock Galactic`), read only: one PAK archive (version 11, Zlib), Unreal Engine 4.27, not encrypted, no mappings file. The Unreal decoder 0.1.0, built from CUE4Parse `460fc477` and published self-contained with .NET 10.0.403, passes its self-test (17 checks). The first build had no CMake, so it had no native ACL library. CMake 4.4.4 and the Visual Studio 2026 Build Tools (18.11, C++ workload) were then installed with winget, and the script built CUE4Parse's native library from ACL v2.1.0 as CUE4Parse pins it: the self-test reports *Native ACL decoding: available*, and the dwarf's check below passes again with that build.
+
+- `tools\check_package.cmd packages\unreal --source "C:\XboxGames\Deep Rock Galactic" --models --blender`: every step passed for both characters below. Detection names Deep Rock Galactic with Unreal Engine 4.27 from the package's entry, since the Xbox app executable cannot be read for the version. The first scan took about a second from `FSD/AssetRegistry.bin` and lists 227 characters, with 1792 animations, 1428 skeletal meshes and 360 skeletons in 109,806 files.
+- The dwarf (`3P_Dwarf_Rig_Skeleton`, 523 clips) with `3P_ANIM_HeavyFront_RunForward_A`: 83 bones, 49 frames at 60 fps. In the scene the model is 1.19 m tall with its feet on the floor, its hands lie towards −Y (Blender's front) and its left eye is on +X. The skin shows the material's peach tint.
+- The Glyphid (`SK_Spider_Skeleton`, 109 clips) with `ANIM_Spider_WalkForward_A`: 53 bones, 21 frames at 30 fps. The head lies towards −Y, the left legs on +X (+0.35 m on average, the right ones −0.47 m) and the feet on the floor; the body has its material's tint.
+- Workbench renders from the front and the side show both characters upright, facing the front view, in the clip's pose.
+- 19 more skeletal meshes, the models of every twelfth character in the list, export without errors with 8 textures.
+- Defects found this way and fixed: Python 3.13 refused to search the executable through `mmap`, so it is now read in pieces; the crash reporter in `Engine/Programs/CrashReportClient` was taken for a game; the decoder missed textures that CUE4Parse files under fallback names, took the engine's placeholders (`DefaultDiffuse`) for textures, gave tint-only materials no color and kept the project name in texture paths (`FSD/Content/…` instead of `/Game/…`); the dwarf's skin showed a camouflage pattern (`T_Base_Tiger01`) that its base material holds in a parameter called just `Texture`, and now shows its tint.
+- Library versions: NuGet's audit names Microsoft.Bcl.Memory 9.0.0 (GHSA-73j8-2gch-69rq) and SixLabors.ImageSharp 3.1.12 (six advisories) among CUE4Parse's pins. With Microsoft.Bcl.Memory 9.0.22 referenced by the decoder, the published `UnrealDecoder.deps.json` lists Microsoft.Bcl.Memory 9.0.22, SixLabors.ImageSharp 3.1.12, SkiaSharp 2.88.9 and the .NET runtime 10.0.14. The build script refuses runtimes before 10.0.4; its comparison was checked with 10.0.14, 10.0.4, 10.0.3 and a 10.0.0 preview. ImageSharp 3.2.0 stopped the build with *No Six Labors license found*. CUE4Parse encodes textures with SkiaSharp and uses ImageSharp only for landscape heightmaps, which the decoder does not export. After the change the self-test passes (17 checks, native ACL available), the dwarf's check passes again through Blender (83 bones, 49 frames at 60 fps), and the 19 sample meshes export again with 8 textures, all valid PNG files.
+- `packages/unreal/tests` (12 tests), `packages/re_engine/tests` (9) and the 200 unit tests in `standalone/tests` pass.
+
+## Star Wars Zero Company, on the game's own files
+
+Steam install, read only: four IoStore containers (TOC version 8) with their three PAK files (version 11), none encrypted, Oodle compression, no Oodle library or mappings file in the game folder. The executable holds no engine branch name, so the source dialog guesses Unreal Engine 5.5 from the TOC version.
+
+- A scan takes about 15 s. The asset registry lists 309 skeletons, 25,115 animations and 2876 skeletal meshes, but names no skeleton for the animations, so the decoder reads them from the package headers.
+- `dump` of one animation shows why that fails: as 5.4 or 5.5 its header does not parse (*Read size is bigger than remaining archive length*); as 5.6 or 5.7 it parses, and CUE4Parse refuses the package because its properties have no names and no mappings file was chosen. The game needs a mappings file, which this computer does not have, so no clip was decoded.
+- Defects found this way and fixed: the scan listed no characters and said *No animation sequences found*, because the skeleton lookup dropped CUE4Parse's reason. It now fails with that reason and what to do: with the guessed 5.5, choose another engine version; as 5.6, choose the mappings file. `global.utoc`, which CUE4Parse reads as shared data and never mounts, was reported as an archive without its AES key.
+
+Not checked: Unreal Engine 5 imports; IoStore archives, AES keys, mappings files and an Oodle library with a real game (made-up files only); ACL-compressed clips, since no game here with them can be read without a mappings file; the Steam version of Deep Rock Galactic; retargeting an Unreal clip onto a Sekiro character; Blender renders other than Workbench. Many Deep Rock Galactic props mix two tints through a pattern texture in the material graph; the scene shows the pattern instead.
+
 # Unreleased — import from other games: Devil May Cry 5 — 2026-10-29
 
 ## Game packages

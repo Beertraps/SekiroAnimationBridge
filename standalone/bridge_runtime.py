@@ -114,7 +114,7 @@ def discover_source(request, notify=event):
     from asset_discovery import discover
     return discover(request.get('assetFolder', ''), HOME/'work/asset-cache', notify, request.get('oodle', ''), request.get('game', 'auto'),
                     request.get('sourceLayout') or 'folder', request.get('sourceFolders'), request.get('sourceRecursive', True),
-                    request.get('sourceFileList', ''))
+                    request.get('sourceFileList', ''), request.get('sourceOptions') or {})
 
 
 def catalog_file(request):

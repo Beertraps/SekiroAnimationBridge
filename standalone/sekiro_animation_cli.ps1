@@ -9,6 +9,8 @@ param(
     [ValidateSet('auto','folder','game','custom')][string]$SourceLayout='folder',[string]$SourceLayoutFile,
     # A packed RE Engine game reads its PAK archives by the names in the game's file list (DMC5_STM_Release.list).
     [string]$SourceFileList,
+    # A package's declared source options as a JSON object, such as {"engineVersion":"GAME_UE4_27","aesKey":"0x..."}.
+    [string]$SourceOptionsFile,
     [switch]$RigOnly,
     # A game ID from the registry: auto, sekiro, ds1, ds1r, ds3, er, and the games of installed packages, such as dmc5. The bridge checks it.
     [string]$Game='auto',
@@ -23,7 +25,7 @@ param(
     [string]$DonorAssetFolder,[string]$DonorAssetCatalog,[string]$DonorAssetClip,[string]$DonorAssetCharacter,
     [ValidateSet('auto','folder','game','custom')][string]$DonorSourceLayout,[string]$DonorSourceLayoutFile,
     [switch]$DonorRigOnly,
-    [string]$DonorGame,[string]$DonorSourceFileList,
+    [string]$DonorGame,[string]$DonorSourceFileList,[string]$DonorSourceOptionsFile,
     [string]$DonorCharacterSource,
     [ValidateSet('auto','npc','player','wolf','tutorial','mortal')][string]$DonorPreset,
     [string[]]$DonorModels,
@@ -59,11 +61,13 @@ if($WeaponAttachmentsFile){$weaponAttachments=Get-Content -LiteralPath $WeaponAt
 # A custom layout names the folders per kind: {"animations":["anims"],"characters":["models"],...}
 $sourceFolders=@{}
 if($SourceLayoutFile){$sourceFolders=Get-Content -LiteralPath $SourceLayoutFile -Raw | ConvertFrom-Json; if($SourceLayout -eq 'folder'){$SourceLayout='custom'}}
+$sourceOptions=@{}
+if($SourceOptionsFile){$sourceOptions=Get-Content -LiteralPath $SourceOptionsFile -Raw | ConvertFrom-Json}
 $request=@{
     mode=$Mode; game=$Game; exportGame=$Game; blender=$BlenderExe; decoder=$DecoderExe; writer=$WriterPython;
     animation=$Animation; compendium=$Compendium; skeleton=$Skeleton; skeletonCompendium=$SkeletonCompendium;
     assetFolder=$AssetFolder; assetCatalog=$AssetCatalog; assetClip=$AssetClip; assetCharacter=$AssetCharacter; oodle=$OodleDll;
-    sourceLayout=$SourceLayout; sourceFolders=$sourceFolders; sourceRecursive=$true; sourceFileList=$SourceFileList;
+    sourceLayout=$SourceLayout; sourceFolders=$sourceFolders; sourceRecursive=$true; sourceFileList=$SourceFileList; sourceOptions=$sourceOptions;
     inputMethod=$(if($AssetFolder){'folder'}else{'manual'});
     characterSource=$CharacterSource; preset=$WolfPreset; models=@($models);
     includeCharacter=[bool](($CharacterSource -or $models.Count -or $AssetFolder) -and !$RigOnly);
@@ -97,6 +101,7 @@ if(@($PSBoundParameters.Keys | Where-Object {$_ -like 'Donor*'}).Count){
         assetClip=$DonorAssetClip; assetCharacter=$DonorAssetCharacter;
         sourceLayout=$donorLayout; sourceFolders=$donorFolders; sourceRecursive=$true;
         sourceFileList=$(if($DonorSourceFileList){$DonorSourceFileList}elseif($shared){$SourceFileList}else{''});
+        sourceOptions=$(if($DonorSourceOptionsFile){Get-Content -LiteralPath $DonorSourceOptionsFile -Raw | ConvertFrom-Json}elseif($shared){$sourceOptions}else{@{}});
         inputMethod=$(if($donorFolder){'folder'}else{'manual'});
         characterSource=$DonorCharacterSource; preset=$(if($DonorPreset){$DonorPreset}else{'auto'}); models=@($donorModels);
         includeCharacter=[bool](($DonorCharacterSource -or $donorModels.Count -or $donorFolder) -and !$DonorRigOnly);

@@ -23,6 +23,12 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 
 - **[Valen](https://github.com/jandk/valen)** by Jan De Kock — DOOM Eternal's `.resources` archives and `packagemapspec.json`, md6 skeletons, animations and models, and BIM textures. The DOOM Eternal package (`packages/doom_eternal`) reads them with a Python port of Valen's readers; no Valen code runs. MIT; its license is in `packages/doom_eternal/LICENSE-Valen.txt`. The package is not part of the release ZIPs.
 
+## Unreal Engine file formats
+
+- **[CUE4Parse](https://github.com/FabianFG/CUE4Parse)** by FabianFG and the FModel team — mounts the PAK and IoStore archives of Unreal Engine 4 and 5 games and reads skeletons, animation sequences, skeletal meshes, materials and textures in the Unreal decoder (`packages/unreal/decoder`). Apache-2.0; its `NOTICE` names the third-party code it includes. `packages\unreal\decoder\build_decoder.cmd` builds the decoder from a pinned commit and copies CUE4Parse's `LICENSE` and `NOTICE` next to it. The Unreal package is not part of the release ZIPs.
+- Libraries that CUE4Parse uses, included with the Unreal decoder: the NuGet packages its `Directory.Packages.props` lists, such as Newtonsoft.Json, Serilog, BouncyCastle.Cryptography, ZstdSharp.Port, K4os.Compression.LZ4, SkiaSharp and SixLabors.ImageSharp, each under its own license. The decoder takes a newer Microsoft.Bcl.Memory than CUE4Parse names, under the same MIT license.
+- **[ACL (Animation Compression Library)](https://github.com/nfrechette/acl)** by Nicholas Frechette, with his [Realtime Math (RTM)](https://github.com/nfrechette/rtm) library — decodes ACL-compressed animations through CUE4Parse's native library, which the build adds only when CMake and a C++ compiler are installed. Both MIT.
+
 ## Runtimes and libraries
 
 - **[Blender](https://www.blender.org/)** — scene import, editing, sampling and the optional retarget add-on. GPL-2.0-or-later. Installed separately.
@@ -30,12 +36,13 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 - **[Python](https://www.python.org/)** — the conversion environment and the UI server. uv downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone) build of Python 3.13. PSF License.
 - **[NumPy](https://numpy.org/)** — geometry and animation arrays. BSD-3-Clause and bundled terms.
 - Soulstruct's own dependencies, installed with it: [SciPy](https://scipy.org/) (BSD-3-Clause), [constrata](https://github.com/Grimrukh/constrata) by Grimrukh (MIT), [python-zstandard](https://github.com/indygreg/python-zstandard) (BSD-3-Clause), Rich, Typer, frozendict, colorama and their dependencies.
-- **[.NET 9](https://dotnet.microsoft.com/)** — the runtime both decoders share, included in release ZIPs in `dotnet-runtime/` with its `LICENSE.txt` and `ThirdPartyNotices.txt`. MIT.
+- **[.NET 9](https://dotnet.microsoft.com/)** — the runtime both decoders share, included in release ZIPs in `dotnet-runtime/` with its `LICENSE.txt` and `ThirdPartyNotices.txt`. MIT. The Unreal decoder carries its own .NET 10 runtime instead, under the same license.
 - Libraries that SoulsAssetPipeline uses, included with the decoder: [AssimpNet](https://github.com/assimp/assimp-net) and TeximpNet (MIT) with the native [Assimp](https://github.com/assimp/assimp) (BSD-3-Clause), [FreeImage](https://freeimage.sourceforge.io/) (FreeImage Public License or GPL) and [NVIDIA Texture Tools](https://github.com/castano/nvidia-texture-tools) (MIT) libraries; [BouncyCastle.Cryptography](https://github.com/bcgit/bc-csharp) (MIT); DrSwizzler; and [ZstdNet](https://github.com/skbkontur/ZstdNet) (BSD-3-Clause) with [zstd](https://github.com/facebook/zstd) (BSD or GPL-2.0).
 
 ## Not distributed
 
-- **Oodle** (`oo2core_6_win64.dll`) by RAD Game Tools / Epic Games decompresses KRAK DCX archives. The bridge loads it from your game installation or from Soulstruct's package, and never copies it into its releases. The DOOM Eternal package loads `oo2core_8_win64.dll` from the DOOM Eternal folder in the same way.
+- **Oodle** (`oo2core_6_win64.dll`) by RAD Game Tools / Epic Games decompresses KRAK DCX archives. The bridge loads it from your game installation or from Soulstruct's package, and never copies it into its releases. The DOOM Eternal package loads `oo2core_8_win64.dll` from the DOOM Eternal folder in the same way. The Unreal package uses an Oodle library only when you choose one, such as the game's own `oo2core_*_win64.dll`.
+- **AES keys and mappings files** (`.usmap`) of Unreal Engine games. The bridge includes none and downloads none; you enter the key and choose the mappings file for your game.
 - Game files, models, textures and animations stay on your computer. No game data is included in this project.
 
-Animation Bridge is not affiliated with or endorsed by FromSoftware, Capcom, id Software, their publishers, or Havok. Game names are trademarks of their owners.
+Animation Bridge is not affiliated with or endorsed by FromSoftware, Capcom, id Software, Epic Games, their publishers, or Havok. Game names are trademarks of their owners.

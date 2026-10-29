@@ -47,6 +47,7 @@ Other engines import only. Their animations can be edited in Blender, or used as
 | Devil May Cry 5 | RE Engine, motlist 85 | Import checked with the game's files ([guide](docs/games/dmc5.md)) |
 | Resident Evil 2 (DX11) | RE Engine, motlist 85 | Untested ([notes](docs/games/re2.md)) |
 | DOOM Eternal | id Tech 7, md6 | Import checked with the game's files; experimental, not in releases (see [Build from source](#build-from-source)) |
+| Unreal Engine 4 and 5 games | Unreal Engine, PAK and IoStore | Import checked with Deep Rock Galactic; other games untested; experimental, not in releases ([guide](docs/games/unreal.md)) |
 
 ## Install
 
@@ -109,6 +110,8 @@ A source checkout also loads the experimental DOOM Eternal package from `package
 ```bat
 python tools\package_game_package.py packages\doom_eternal --output dist\AnimationBridge-package-doom_eternal.zip
 ```
+
+The experimental Unreal Engine package in `packages\unreal` loads in a source checkout too. It reads Unreal Engine 4 and 5 games with a decoder that `packages\unreal\decoder\build_decoder.cmd` builds from a pinned [CUE4Parse](https://github.com/FabianFG/CUE4Parse) commit; the [Unreal guide](docs/games/unreal.md) says what it needs. Releases do not include it.
 
 Run the unit tests with that Python, from the repository folder:
 
