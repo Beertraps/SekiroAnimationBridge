@@ -28,7 +28,9 @@ class PackageCase(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.temp = Path(temp.name)
+        # Resolved, as the bridge resolves the paths it stores: the temporary folder can be named in its 8.3 short
+        # form (C:\Users\RUNNER~1 on the release runner).
+        self.temp = Path(temp.name).resolve()
         self.bridge, self.user = self.temp / 'bridge-packages', self.temp / 'user-packages'
         shutil.copytree(FIXTURES / 'example', self.bridge / 'example')
         self.user.mkdir()
