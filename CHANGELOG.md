@@ -37,6 +37,10 @@
 - When the scan finds animations but cannot read their package headers to learn their skeletons, it says why instead of listing no characters: the game needs its mappings file, or another engine version. The game guide shows how to install CMake and the C++ build tools for ACL clips.
 - Release ZIPs do not include it.
 
+## Retarget add-on
+
+- The full-body bake is no longer experimental. **Bake method** offers *Full body* beside *Bone by bone*, which stays the default, and the bake status and report say *Full body*.
+
 ## Import page
 
 - Drag the border beside the character list or the scene panel to resize it, or the border between the two lists when they are stacked in a narrower window. A double-click resets a border, and the arrow keys move a focused one. The sizes are kept in the browser and shrink to fit a smaller window.

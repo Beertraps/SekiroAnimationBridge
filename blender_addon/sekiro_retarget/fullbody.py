@@ -1,4 +1,4 @@
-"""The full-body bake: an experimental bake method beside the bone-by-bone one.
+"""The full-body bake: the bake method beside the bone-by-bone one.
 
 It needs no bone list for the body. Both rigs are characterized (see mapping.characterize): the hips, spine,
 neck, head, clavicles, arms, legs, hands, feet and fingers are found by name where the matcher is sure and by the

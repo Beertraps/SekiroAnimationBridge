@@ -135,7 +135,7 @@ Measured on owned synthetic rigs by `blender_full_body.py` (numbers in VERIFICAT
 
 ## Decisions made here
 
-- Bone by bone stays the default; the full-body bake is labelled experimental in the menu, the panel, the status and the report.
+- Bone by bone stays the default. The full-body bake was labelled experimental in the menu, the panel, the status and the report until 2026-10-29, when the user, after using it, asked to drop the label: "it works well".
 - The spine and neck keep the target's own stance. Aligning them to the source's rest pose hunched Wolf by about 49° at the neck on Owl→Wolf, because the Owl's rest neck leans 51° forward. The bone-by-bone bake aligns only arms, legs and fingers, for the same reason.
 - At a hand contact, a hand that holds a weapon stays and the free hand moves. Moving both moved the katana in Wolf's hand by up to 3.7 cm on Isshin→Wolf, and Second hand then moved the free hand onto the grip anyway.
 - A foot that the contact pass moved by less than 0.5 mm gets no note; neither does a hip-width move under 0.5 mm.
