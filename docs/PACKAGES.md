@@ -1,6 +1,6 @@
 # Writing a game package
 
-The bridge reads FromSoftware games itself. Every other engine comes as a **game package**: a folder with a `package.json`, a Python module that implements the package API, and the tools that module runs. The RE Engine package for Devil May Cry 5 (`packages/re_engine`) is built only on this API, and so is the example package used in the tests (`standalone/tests/fixtures/packages/example`), which is the template for a new one.
+The bridge reads FromSoftware games itself. Every other engine comes as a **game package**: a folder with a `package.json`, a Python module that implements the package API, and the tools that module runs. The RE Engine package for Devil May Cry 5 (`packages/re_engine`) is built only on this API, as is the experimental DOOM Eternal package (`packages/doom_eternal`), which reads its game in Python and runs no tools, and so is the example package used in the tests (`standalone/tests/fixtures/packages/example`), which is the template for a new one.
 
 A package reads its game's files and writes the bridge's interchange files ([INTERCHANGE.md](INTERCHANGE.md)): a motion JSON for each clip and, when it can, a character manifest with models and textures. Everything after that (the skeleton preview, the Blender scene, the retarget add-on) is the bridge's work and needs no change for a new engine.
 

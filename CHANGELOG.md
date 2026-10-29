@@ -20,6 +20,12 @@
 - DMC5 sources scanned before need one new scan.
 - The skeleton preview hands a package the whole selection it made for the clip, as the import does, so a package that needs more than the clip's file (DOOM Eternal needs its game folder) can preview. `tools\check_package.cmd` asks for the preview the way the page does.
 
+## Experimental: DOOM Eternal package
+
+- `packages/doom_eternal` imports DOOM Eternal's characters: the Doom Slayer, the demons and the cinematics, with their animations, skin weights and textures. It reads the game's `.resources` archives in place with the game's own Oodle library, in Python ported from [Valen](https://github.com/jandk/valen) (MIT), and needs no other program.
+- Characters show readable names and gore variants in words; clip names leave out the folders they share.
+- Release ZIPs do not include it, and it is not attached to releases. A source checkout loads it as it is; `tools/package_game_package.py packages/doom_eternal` builds a ZIP to install into a release.
+
 ## Import page
 
 - Drag the border beside the character list or the scene panel to resize it, or the border between the two lists when they are stacked in a narrower window. A double-click resets a border, and the arrow keys move a focused one. The sizes are kept in the browser and shrink to fit a smaller window.

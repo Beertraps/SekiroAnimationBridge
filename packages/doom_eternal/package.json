@@ -1,0 +1,51 @@
+{
+  "id": "doom_eternal",
+  "name": "DOOM Eternal",
+  "version": "0.2.1",
+  "apiVersion": 1,
+  "description": "Imports the animations and models of DOOM Eternal's characters: the Doom Slayer, the demons and the cinematics, with skin weights and textures. Reads the game's .resources and .streamdb files in place with the game's own Oodle library; needs no other program.",
+  "authors": ["Sekiro Animation Bridge contributors"],
+  "license": "GPL-3.0-or-later; the file formats are ported from Valen by Jan De Kock (MIT)",
+  "homepage": "https://github.com/Beertraps/SekiroAnimationBridge",
+  "games": [
+    {
+      "id": "doom_eternal",
+      "name": "DOOM Eternal",
+      "short": "DOOM",
+      "executables": ["DOOMEternalx64vk.exe"],
+      "capabilities": {"import_animation": true, "import_character": true, "textures": true, "root_motion": false,
+                       "packed_archives": true},
+      "basis": [[0, 1, 0], [-1, 0, 0], [0, 0, 1]],
+      "unitScale": 1.0,
+      "formats": {"resources": 12, "skeleton": "md6skl", "anim": "md6anim", "model": "md6mesh", "image": "BIM",
+                  "oodle": "oo2core_8_win64.dll"},
+      "hint": "The DOOMEternal game folder, with DOOMEternalx64vk.exe and the base folder",
+      "verified": true
+    }
+  ],
+  "tools": [],
+  "bones": {
+    "names": {
+      "hips_part01_md": "Pelvis", "head_part01_md": "Head", "jaw_part01_md": "Jaw",
+      "arm_clavicle_lf": "L_Clavicle", "arm_upper_lf": "L_UpperArm", "arm_lower_lf": "L_Forearm", "arm_hand_lf": "L_Hand",
+      "arm_clavicle_rt": "R_Clavicle", "arm_upper_rt": "R_UpperArm", "arm_lower_rt": "R_Forearm", "arm_hand_rt": "R_Hand",
+      "leg_upper_lf": "L_Thigh", "leg_lower_lf": "L_Calf", "leg_foot_lf": "L_Foot", "leg_ball_lf": "L_Toe", "leg_toe_lf": "L_ToeTip",
+      "leg_upper_rt": "R_Thigh", "leg_lower_rt": "R_Calf", "leg_foot_rt": "R_Foot", "leg_ball_rt": "R_Toe", "leg_toe_rt": "R_ToeTip",
+      "weapon_part01_lf": "L_Weapon", "weapon_part01_rt": "R_Weapon"
+    },
+    "patterns": [
+      {"match": "spine_part0?(\\d+)_md", "as": "Spine\\1"},
+      {"match": "neck_part0?(\\d+)_md", "as": "Neck\\1"},
+      {"match": "thumb_part0?([1-3])_lf", "as": "L_Thumb\\1"},
+      {"match": "thumb_part0?([1-3])_rt", "as": "R_Thumb\\1"},
+      {"match": "(index|middle|ring|pinky)_part01_lf", "as": "L_\\1_metacarpal"},
+      {"match": "(index|middle|ring|pinky)_part01_rt", "as": "R_\\1_metacarpal"},
+      {"match": "(index|middle|ring|pinky)_part02_lf", "as": "L_\\1_1"},
+      {"match": "(index|middle|ring|pinky)_part02_rt", "as": "R_\\1_1"},
+      {"match": "(index|middle|ring|pinky)_part03_lf", "as": "L_\\1_2"},
+      {"match": "(index|middle|ring|pinky)_part03_rt", "as": "R_\\1_2"},
+      {"match": "(index|middle|ring|pinky)_part04_lf", "as": "L_\\1_3"},
+      {"match": "(index|middle|ring|pinky)_part04_rt", "as": "R_\\1_3"}
+    ]
+  }
+}

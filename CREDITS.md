@@ -19,6 +19,10 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 - **RE Engine file lists**, such as `DMC5_STM_Release.list` from [REE.PAK.Tool](https://github.com/Ekey/REE.PAK.Tool) by Ekey — the names of the files in the PAK archives. They carry no license, so the bridge does not include them; you choose the list for your game.
 - [RE Mesh Editor](https://github.com/NSACloud/RE-Mesh-Editor) by NSACloud and [RevilLib](https://github.com/PredatorCZ/RevilLib) by PredatorCZ served as references for the RE Engine axes and file versions. No code is copied. GPL-3.0.
 
+## id Tech 7 file formats
+
+- **[Valen](https://github.com/jandk/valen)** by Jan De Kock — DOOM Eternal's `.resources` archives and `packagemapspec.json`, md6 skeletons, animations and models, and BIM textures. The DOOM Eternal package (`packages/doom_eternal`) reads them with a Python port of Valen's readers; no Valen code runs. MIT; its license is in `packages/doom_eternal/LICENSE-Valen.txt`. The package is not part of the release ZIPs.
+
 ## Runtimes and libraries
 
 - **[Blender](https://www.blender.org/)** — scene import, editing, sampling and the optional retarget add-on. GPL-2.0-or-later. Installed separately.
@@ -31,7 +35,7 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 
 ## Not distributed
 
-- **Oodle** (`oo2core_6_win64.dll`) by RAD Game Tools / Epic Games decompresses KRAK DCX archives. The bridge loads it from your game installation or from Soulstruct's package, and never copies it into its releases.
+- **Oodle** (`oo2core_6_win64.dll`) by RAD Game Tools / Epic Games decompresses KRAK DCX archives. The bridge loads it from your game installation or from Soulstruct's package, and never copies it into its releases. The DOOM Eternal package loads `oo2core_8_win64.dll` from the DOOM Eternal folder in the same way.
 - Game files, models, textures and animations stay on your computer. No game data is included in this project.
 
-Animation Bridge is not affiliated with or endorsed by FromSoftware, Capcom, their publishers, or Havok. Game names are trademarks of their owners.
+Animation Bridge is not affiliated with or endorsed by FromSoftware, Capcom, id Software, their publishers, or Havok. Game names are trademarks of their owners.

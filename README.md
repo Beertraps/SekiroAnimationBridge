@@ -46,6 +46,7 @@ Other engines import only. Their animations can be edited in Blender, or used as
 | --- | --- | --- |
 | Devil May Cry 5 | RE Engine, motlist 85 | Import checked with the game's files ([guide](docs/games/dmc5.md)) |
 | Resident Evil 2 (DX11) | RE Engine, motlist 85 | Untested ([notes](docs/games/re2.md)) |
+| DOOM Eternal | id Tech 7, md6 | Import checked with the game's files; experimental, not in releases (see [Build from source](#build-from-source)) |
 
 ## Install
 
@@ -102,6 +103,12 @@ packages\re_engine\decoder\build_decoder.cmd
 ```
 
 `setup_writer.cmd` creates the conversion Python; `prepare_dotnet_runtime.cmd` copies the .NET 9 runtime that the decoders share from your .NET installation; `SekiroMotionDecoder\build_decoder.cmd` builds the HKX decoder from a pinned [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) commit. These store their results in `%LOCALAPPDATA%\SekiroAnimationBridge`. `packages\re_engine\decoder\build_decoder.cmd` builds the RE Engine package's decoder from a pinned [REE-Lib](https://github.com/kagenocookie/RE-Engine-Lib) commit into `packages\re_engine\tools` (only needed for Devil May Cry 5).
+
+A source checkout also loads the experimental DOOM Eternal package from `packages\doom_eternal`. It is pure Python and needs no build step: add the DOOMEternal game folder as a source. Releases do not include it. To use it with a release, build its ZIP and install that with **Install package…** under **Settings & setup**:
+
+```bat
+python tools\package_game_package.py packages\doom_eternal --output dist\AnimationBridge-package-doom_eternal.zip
+```
 
 Run the unit tests with that Python, from the repository folder:
 
