@@ -25,7 +25,8 @@ if (-not (Test-Path -LiteralPath $sapProject)) {
         throw "The path '$SoulsAssetPipelineRoot' exists but does not contain SoulsAssetPipeline.csproj. Pass the root of the correct checkout."
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $SoulsAssetPipelineRoot) | Out-Null
-    git clone $repository $SoulsAssetPipelineRoot
+    # Under %LOCALAPPDATA%, Git for Windows refuses some generated Havok class file names unless long paths are on.
+    git clone --config core.longpaths=true $repository $SoulsAssetPipelineRoot
     if ($LASTEXITCODE -ne 0) { throw "Could not clone SoulsAssetPipeline." }
     $clonedForBridge = $true
 } else {

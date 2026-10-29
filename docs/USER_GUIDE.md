@@ -377,12 +377,55 @@ For example, the umbrella's clip with Wolf's `a076_405010.hkx`:
 
 This writes `a076_405010.hkx` and `a076_405010_1.hkx` into `D:\SekiroWork\export`.
 
+## JSON command line for scripts and agents
+
+`standalone\bridge_cli.cmd` does what the UI does, one step per command, and prints each result as one JSON document. A script or an AI agent reads it from stdout; the activity log goes to stderr. When a command fails, the exit code is 1 and the result is `{"ok": false, "error": "..."}`. It uses the Blender, decoder and Oodle DLL saved in the UI unless `--blender`, `--decoder` or `--oodle` names others.
+
+```bat
+standalone\bridge_cli.cmd env
+standalone\bridge_cli.cmd scan "D:\SekiroUnpacked"
+standalone\bridge_cli.cmd clips <catalog> --character c5060 --match a000_003
+standalone\bridge_cli.cmd select <catalog> a000_003000 --character c5060
+standalone\bridge_cli.cmd import <catalog> a000_003000 --character c5060 --output "D:\SekiroWork\c5060.blend"
+standalone\bridge_cli.cmd verify "D:\SekiroWork\c5060.blend" --render "D:\SekiroWork\c5060.png"
+standalone\bridge_cli.cmd export "D:\SekiroWork\c5060.blend" --output "D:\SekiroWork\a000_003000.hkx"
+```
+
+| Command | Result |
+| --- | --- |
+| `env` | The tools and whether they are ready, as **Settings & setup** shows them, and your saved sources with their catalogs |
+| `games` | Every game the bridge knows, with installed game packages |
+| `detect FOLDER` | What the source dialog detects: layout, game and file counts |
+| `scan FOLDER` | The catalog path and the source's characters. `--layout`, `--game`, `--folders` (a custom layout as JSON) and `--file-list` as in the source dialog |
+| `clips CATALOG` | The clips, filtered by `--match` and `--ready`. In a game folder `--character` reads that character's archives first |
+| `select CATALOG CLIP` | What the import of a clip uses: its files, the model parts and which are chosen, the material library |
+| `masks MODEL` | The numbered mesh groups of a model, for `import --mask MODEL=1,2` |
+| `import CATALOG CLIP --output SCENE` | The Blender scene and the import report. `--models`, `--rig-only` and the `--donor-...` options as in the PowerShell CLI |
+| `inspect SCENE` | The scene's actions and frame ranges |
+| `verify SCENE` | Checks of the scene, without saving it: see below |
+| `export SCENE --output HKX` | The HKX, with the export options of the PowerShell CLI in lower case, such as `--frame-range` and `--binder` |
+| `run REQUEST` | Any request in the JSON that the UI and the PowerShell CLI send to `bridge_runtime.py` |
+
+A clip is named by its ID from `clips`, or by its name, such as `a000_003000`, with `--character` to say whose it is: several characters can have a clip of the same name.
+
+`verify` measures the scene in Blender and gives `passed` and a list of `checks`, each with a reason. An `advisory` check only points at a frame worth a look, and `passed` leaves it out:
+
+- **size**: the height at rest, between 0.2 and 30 m. A wrong unit scale makes a character 100 times too large or too small.
+- **upright**: the character stands along Blender's Z: at rest it is taller than deep, and at least 0.4 times as tall as wide, since spread arms or a held weapon can make a rest pose wider than tall.
+- **left side on +X**: bones named for the left side sit at +X, so the character faces Blender's front.
+- **follows its bones**: where a mesh's bones move over the clip, the mesh moves too.
+- **skin stretch** (advisory): 99% of the mesh's edges stay within 3 times their stored length on the measured frames, and the frame where they stretch most. A wrong bind pose or bone rotation stretches a body layer like this, but FromSoftware cloth and armour plates stretch 3 to 8 times in big motions too, so look at that frame before you change anything. Only longer edges count, since the game hides parts by scaling their bones to zero, and edges shorter than 0.5% of the character's height are left out.
+- **bones in the animation**: no vertex follows a model bone that the bridge added outside the animation's skeleton, since such a bone never moves.
+- **image files** and **base colors**: the materials' images exist, and every material has a base-color image.
+
+`--frames` sets how many frames of the scene range it measures (3 by default). `--render PICTURE.png` also draws the characters from the front into that file and from the left into `PICTURE-side.png`.
+
 ## Local files and support
 
 UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json` and your sources in `ui-sources.json` beside it, so an older version of the bridge leaves them alone. Scans are in this tool's `work\asset-cache`. Activity logs go under this tool's `work\logs`. The UI has one conversion at a time and can cancel its process tree. Closing the workspace stops its local server; after closing the window, an idle server also exits automatically.
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
-To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py`, `blender_mirror.py` and `blender_preview_lighting.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
+To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python-exit-code 1 --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py`, `blender_mirror.py`, `blender_preview_lighting.py` and `blender_verify_scene.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on each version. The release ZIP contains no game assets or local settings; besides the source, it includes the prebuilt decoder and uv, listed in [CREDITS.md](../CREDITS.md).

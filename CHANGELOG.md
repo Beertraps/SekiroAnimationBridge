@@ -42,6 +42,14 @@
 - **Preview caching** on the Cache card: **Standard** works as above. **Aggressive** prepares every clip of the list, two at a time, nearest to the selection first, and keeps up to 2 GB of previews. Wolf's 1247 animations take about two minutes and 80 MB. New unit test `test_clip_preview_cache.py`.
 - Preview fix: a clip track that no skeleton bone takes is left out; it moved the skeleton's last bone before.
 
+## Command line for scripts and agents
+
+- New **`standalone\bridge_cli.cmd`**: the steps of the UI as commands that each print one JSON document, for scripts and AI agents. `env`, `games`, `detect`, `scan`, `clips`, `select`, `masks`, `import`, `inspect`, `verify`, `export`, and `run` for any request the UI sends. The log goes to stderr; a failure exits with 1 and `{"ok": false, "error": ...}`. It lists one character's clips (`clips --character`), which the PowerShell CLI cannot, and takes clips by ID or by name. See the [user guide](docs/USER_GUIDE.md#json-command-line-for-scripts-and-agents).
+- New **`verify`**: measures a scene in Blender without saving it and says what is wrong: the size at rest (unit scale), the up axis, which side the left bones are on, whether each mesh follows its bones, vertices on model bones outside the animation's skeleton, and missing images or base colors. An advisory check names the frame where skinning stretches a mesh's edges most; `passed` leaves it out, since cloth stretches as far as a wrong bind. `--render` draws the characters from the front and the side. New module `blender_verify.py`; `bridge_runtime.py` and `blender_bridge.py` take the new `verify` mode.
+- New `CLAUDE.md`: setup, commands, tests and rules for agents working in the repository.
+- `build_decoder.cmd` clones SoulsAssetPipeline with Git's long paths on. Without them, Git for Windows stopped at generated Havok class files under `%LOCALAPPDATA%`.
+- The writer Python runs from the path it is given rather than its resolved one. Inside a packaged app, such as the Claude desktop app, `%LOCALAPPDATA%` resolves to a longer folder, and Soulstruct's longest module names passed Windows' 260 characters, so export failed with `ModuleNotFoundError`.
+
 # 0.13.0 — export into the animation binder, join animations, Animate tab, body figures and Biped-style feet, Wolf's katana, alternate model meshes, skin preview
 
 Install `SekiroRetargetAssistant-0.9.0.zip` over 0.8.0 for the retarget changes.

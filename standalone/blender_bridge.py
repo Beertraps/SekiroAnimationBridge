@@ -1007,6 +1007,10 @@ def main():
     export_parser.add_argument("--root-yaw", action="store_true", help="also extract the bone's heading")
     inspect_parser = modes.add_parser("inspect", help="Describe the bridge rig, its actions and frame ranges as JSON.")
     inspect_parser.add_argument("--output-json", required=True, type=Path)
+    verify_parser = modes.add_parser("verify", help="Measure the scene's rigs, skin and textures as JSON, with pass or fail checks.")
+    verify_parser.add_argument("--output-json", required=True, type=Path)
+    verify_parser.add_argument("--render", type=Path, help="also draw the characters from the front into this PNG, and from the side beside it")
+    verify_parser.add_argument("--frames", type=int, default=3, help="frames of the scene range to measure, spread evenly")
     args = parser.parse_args(script_arguments())
 
     if args.mode == "import":
@@ -1032,6 +1036,9 @@ def main():
                       frame_start=args.frame_start, frame_end=args.frame_end, frame_rate=args.frame_rate,
                       tracks=args.tracks, root_motion=args.root_motion, root_bone=args.root_bone,
                       root_axes=args.root_axes, root_yaw=args.root_yaw)
+    elif args.mode == "verify":
+        from blender_verify import verify_scene
+        verify_scene(args.output_json.resolve(), args.render.resolve() if args.render else None, args.frames)
     else:
         inspect_scene(args.output_json.resolve())
 

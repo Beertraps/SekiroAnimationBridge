@@ -25,10 +25,10 @@ def default_decoder():
     return bundled if bundled.is_file() else APP / 'decoder/SekiroMotionDecoder.exe'
 
 
-def existing(value, label):
+def existing(value, label, resolve=True):
     if not value or not Path(value).is_file():
         raise ValueError(f'{label} was not found. Browse to the file and try again.\n{value or "No path selected"}')
-    return str(Path(value).resolve())
+    return str(Path(value).resolve() if resolve else Path(value).absolute())
 
 
 def output_file(value, suffix, force=False):
@@ -325,8 +325,8 @@ def convert(request):
               report=dict(catalog=str(path), folder=catalog['folder'], character=entry['id'], clips=entry['count'],
                           ready=entry['ready'], warnings=entry.get('errors', [])))
         return str(path)
-    if mode not in ('import', 'export', 'inspect', 'write'):
-        raise ValueError('Choose import, export or inspect.')
+    if mode not in ('import', 'export', 'inspect', 'verify', 'write'):
+        raise ValueError('Choose import, export, inspect or verify.')
     event('validate', 'Checking files and output', 4)
     # 'write' takes motion JSON that Blender already sampled (the retarget add-on's Export HKX).
     blender = existing(request.get('blender'), 'Blender executable') if mode != 'write' else None
@@ -352,6 +352,27 @@ def convert(request):
                       f"{action['keyedBones']} keyed bones" + (f", {len(action['untracked'])} outside the clip's tracks" if action['untracked'] else ''))
             count = len(info['actions'])
             event('done', f"Read {count} action{'' if count == 1 else 's'} from {Path(blend).name}", 100, output=blend, report=dict(scene=info))
+            return blend
+        if mode == 'verify':
+            # Measures the scene for a script or an agent; the scene is not saved.
+            blend = existing(request.get('inputBlend'), 'Blender scene')
+            info_path = temp / 'verify.json'
+            render = output_file(request['render'], '.png', force) if request.get('render') else None
+            if render:
+                # The side view goes beside the front view.
+                output_file(str(render.with_name(render.stem + '-side.png')), '.png', force)
+            frames = int(request.get('frames') or 3)
+            if not 1 <= frames <= 100:
+                raise ValueError('Measure between 1 and 100 frames.')
+            event('blender', 'Measuring the rigs, skin and textures', 30)
+            run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'verify', '--output-json', info_path,
+                 '--frames', frames, *(['--render', render] if render else [])])
+            info = json.loads(info_path.read_text(encoding='utf-8'))
+            # Advisory checks only point at frames worth a look; passed leaves them out.
+            hard = [check for check in info['checks'] if not check.get('advisory')]
+            notes = sum(1 for check in info['checks'] if check.get('advisory') and not check['ok'])
+            event('done', f"{sum(check['ok'] for check in hard)} of {len(hard)} checks pass in {Path(blend).name}"
+                  + (f'; {notes} advisory to look at' if notes else ''), 100, output=blend, report=info)
             return blend
 
         def prepare(request, temp, event=event):
@@ -500,7 +521,9 @@ def convert(request):
             atomic_copy(staged_blend, output)
             event('done', 'Blender scene ready', 100, output=str(output), report=report)
             return str(output)
-        writer = existing(request.get('writer') or sys.executable, 'Writer Python')
+        # Not resolved: Python finds its packages from the path it starts from. Resolved through a link or a packaged
+        # app's redirected AppData, that path can grow past Windows' 260 characters at Soulstruct's longest module names.
+        writer = existing(request.get('writer') or sys.executable, 'Writer Python', resolve=False)
         if mode == 'write':
             sampled = existing(request.get('motionJson'), 'Sampled motion JSON')
         else:
