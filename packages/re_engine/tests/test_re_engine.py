@@ -47,7 +47,9 @@ class Package(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        temp = Path(self.temp.name)
+        # Resolved, as the bridge resolves the paths it stores: the temporary folder can be named in its 8.3 short
+        # form (C:\Users\RUNNER~1 on the release runner).
+        temp = Path(self.temp.name).resolve()
         self.root = temp / 'extracted'
         for path in FILES:
             target = self.root / path

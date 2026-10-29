@@ -133,7 +133,9 @@ class Package(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        temp = Path(self.temp.name)
+        # Resolved, as the bridge resolves the paths it stores: the temporary folder can be named in its 8.3 short
+        # form (C:\Users\RUNNER~1 on the release runner).
+        temp = Path(self.temp.name).resolve()
         self.game = temp / 'Hero Game'
         self.project = self.game / 'Hero'
         self.paks = self.project / 'Content' / 'Paks'
@@ -217,7 +219,7 @@ class Archives(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.temp = Path(temp.name)
+        self.temp = Path(temp.name).resolve()
         sys.path.insert(0, str(BRIDGE))
         self.addCleanup(sys.path.remove, str(BRIDGE))
         from packages.unreal import archives
