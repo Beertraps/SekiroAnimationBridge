@@ -942,6 +942,7 @@ def inspect_scene(output_json: Path):
     root_action = root.animation_data.action if root is not None and root.animation_data else None
     info = dict(format="sekiro-animation-bridge-scene", formatVersion=1, blender=bpy.app.version_string,
                 rig=rig.name, game=motion.get("game", ""), clip=motion.get("clip", ""),
+                archive=motion.get("archive", ""), member=motion.get("member", ""),
                 skeleton=motion.get("skeletonName", ""), frameCount=int(motion["frameCount"]),
                 frameRate=float(motion["frameRate"]), trackCount=len(tracked), bones=names,
                 defaultRootBone=default_root_bone(bones), activeAction=current.name if current else "",

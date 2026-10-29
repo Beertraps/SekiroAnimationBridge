@@ -38,6 +38,8 @@ param(
     [switch]$NoVerify,
     # Weapon part clips: import keys each animated part with its clip; export can write those clips too.
     [switch]$NoPartAnimations,[switch]$ExportParts,
+    # Export can also put the HKX into an animation binder, replacing the member of the same name or adding it.
+    [string]$Binder,[string]$BinderMember,
     [switch]$Force
 )
 $ErrorActionPreference='Stop'
@@ -69,7 +71,8 @@ $request=@{
     exportAction=$Action; frameRange=$FrameRange; trackSet=$Tracks; rootMotion=$RootMotion;
     rootBone=$RootBone; rootVertical=[bool]$RootVertical; rootYaw=[bool]$RootYaw;
     quantization=$Quantization; tolerance=$Tolerance; verify=![bool]$NoVerify;
-    partAnimations=![bool]$NoPartAnimations; exportParts=[bool]$ExportParts
+    partAnimations=![bool]$NoPartAnimations; exportParts=[bool]$ExportParts;
+    addToBinder=[bool]$Binder; binder=$Binder; binderMember=$BinderMember
 }
 if($PSBoundParameters.ContainsKey('FrameStart')){$request.frameStart=$FrameStart}
 if($PSBoundParameters.ContainsKey('FrameEnd')){$request.frameEnd=$FrameEnd}

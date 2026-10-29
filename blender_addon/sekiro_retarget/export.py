@@ -57,6 +57,24 @@ def load_exporter(folder):
     return module
 
 
+GAME_EXECUTABLES = ('sekiro.exe', 'DarkSouls.exe', 'DarkSoulsRemastered.exe', 'DarkSoulsIII.exe', 'eldenring.exe')
+
+
+def in_game_folder(path):
+    """Whether a path lies in a game installation, where the bridge writes nothing (as its protect_output)."""
+    return any((folder / name).is_file() for folder in Path(path).resolve().parents for name in GAME_EXECUTABLES)
+
+
+def default_binder(target, output=''):
+    """The binder to add the HKX to: the archive the clip came from, or a copy of it beside the HKX where that archive
+    is in the game installation; '' where the scene does not record it."""
+    archive = (retarget.read_motion(target) or {}).get('archive', '') if target else ''
+    if not archive or not in_game_folder(archive):
+        return archive
+    folder = Path(bpy.path.abspath(output)).parent if output else Path(bpy.path.abspath('//') or '.')
+    return str(folder / Path(archive).name)
+
+
 class Job:
     """The conversion Python writing one HKX, read line by line on a worker thread."""
 
@@ -117,6 +135,9 @@ def start(context, settings, preferences=None):
         raise ValueError('Choose an output filename ending in .hkx.')
     if not settings.export_replace and (output.exists() or output.with_suffix('.motion.json').exists()):
         raise ValueError('The output exists. Choose a new name or enable Replace existing.\n' + str(output))
+    binder = bpy.path.abspath(settings.export_binder_path).strip() if settings.export_binder else ''
+    if settings.export_binder and not binder:
+        raise ValueError('Choose the Binder to add the HKX to, or turn off Add to animation binder.')
     folder = bridge_folder(preferences)
     if folder is None:
         raise ValueError('The Animation Bridge was not found. Start its UI once, or set its folder in the add-on preferences.')
@@ -132,7 +153,8 @@ def start(context, settings, preferences=None):
         request = dict(mode='write', motionJson=str(motion), outputHKX=str(output), writer=str(writer),
                        format=settings.export_format, quantization=settings.export_quantization,
                        tolerance=f'{settings.export_tolerance:g}', verify=settings.export_verify,
-                       force=settings.export_replace, exportGame=settings.export_game, oodle=ui_settings().get('oodle', ''))
+                       force=settings.export_replace, exportGame=settings.export_game, oodle=ui_settings().get('oodle', ''),
+                       addToBinder=bool(binder), binder=binder, binderMember=settings.export_member.strip())
         (scratch / 'request.json').write_text(json.dumps(request), encoding='utf-8')
         return Job([writer, '-E', '-X', 'utf8', folder / 'bridge_runtime.py', '--request', scratch / 'request.json'],
                    scratch, sampled)
@@ -155,5 +177,12 @@ def summary(job):
         text += f"; readback max {readback['maxRotationDegrees']:.3f}°, {readback.get('maxTranslation', 0) * 1000:.2f} mm"
     root = report.get('rootMotion') or job.sampled.get('rootMotion', '')
     text += f"; root motion: {root}" if root else ''
+    binder = report.get('binder')
+    if binder:
+        text += (f"; {'replaced' if binder['replaced'] else 'added as a new clip'} {Path(binder['member'].replace(chr(92), '/')).name} "
+                 f"in {Path(binder['binder']).name}")
+        text += f", the binder before kept as {Path(binder['backup']).name}" if binder.get('backup') else ''
+        if not binder['replaced']:
+            text += '. A new animation ID needs a TAE entry before the game plays it'
     warnings = report.get('warnings') or job.sampled.get('warnings') or []
     return text + '.' + ''.join(' ' + warning for warning in warnings)

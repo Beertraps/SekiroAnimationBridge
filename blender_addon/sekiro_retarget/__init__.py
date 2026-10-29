@@ -1,8 +1,9 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 8, 0), 'blender': (4, 5, 0),
-    'location': '3D View > Sidebar > Retarget', 'category': 'Animation',
-    'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, add a control rig with fixes and export HKX',
+    'version': (0, 9, 0), 'blender': (4, 5, 0),
+    'location': '3D View > Sidebar > Retarget and Animate', 'category': 'Animation',
+    'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, mirror and join animations, '
+                   'add a control rig with fixes and export HKX',
 }
 
 import json
@@ -17,7 +18,7 @@ from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProp
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from mathutils import Matrix
-from . import control_rig, export, figure, fixes, mapping, mirror, retarget
+from . import control_rig, export, figure, fixes, join, mapping, mirror, retarget
 
 
 def armature_poll(self, obj):
@@ -44,6 +45,13 @@ def source_changed(self, context):
 def preferences(context):
     addon = context.preferences.addons.get(__package__)
     return addon.preferences if addon else None
+
+
+def tell(operator, context, message, alert=False):
+    """Report a result in Blender's status bar and keep it in the add-on's Log panels."""
+    settings = context.scene.sekiro_retarget
+    settings.status, settings.status_alert = message, alert
+    operator.report({'WARNING'} if alert else {'INFO'}, message)
 
 
 class SKR_Preferences(AddonPreferences):
@@ -97,6 +105,12 @@ def held_items(self,context):
 
 def grip_offset(settings,weapon):
     return next((item for item in settings.grip_offsets if item.weapon==weapon),None)
+
+
+def binder_changed(self,context):
+    """Turning on Add to animation binder fills in the clip's own archive, or a copy of it, where the scene records it."""
+    if self.export_binder and not self.export_binder_path:
+        self.export_binder_path=export.default_binder(self.target,self.export_path)
 
 
 class SKR_Settings(PropertyGroup):
@@ -234,7 +248,20 @@ class SKR_Settings(PropertyGroup):
         description='Decode the written HKX again and report the largest difference')
     export_replace: BoolProperty(name='Replace existing', default=False,
         description='Write over the output .hkx and its .motion.json sidecar if they exist')
+    export_binder: BoolProperty(name='Add to animation binder', default=False, update=binder_changed,
+        description='Also put the HKX into an animation binder (.anibnd.dcx): it replaces the clip of the same name, or '
+                    'is added as a new clip with the ID that the binder\'s clips follow. The binder is kept as .bak before '
+                    'its first change')
+    export_binder_path: StringProperty(name='Binder', subtype='FILE_PATH',
+        description='The .anibnd.dcx to add the HKX to; at first the archive the clip came from. The game\'s own files '
+                    'are protected: for a clip from the game folder, a copy of its archive beside the HKX, made from the '
+                    'game\'s archive the first time')
+    export_member: StringProperty(name='Name in binder',
+        description='The clip\'s member name, such as a050_002000.hkx. Empty: the clip\'s own name, which replaces the '
+                    'original clip. A name the binder does not hold yet adds a new animation, which needs a TAE entry '
+                    'before the game plays it')
     status: StringProperty(default='Open the receiving character first, then append a source.')
+    status_alert: BoolProperty()  # The last message warned or failed.
 
 
 FIX_LIMBS=[]  # Blender keeps only references to the strings of dynamic enum items.
@@ -297,6 +324,21 @@ class SKR_Fix(PropertyGroup):
     poses: CollectionProperty(type=SKR_FixPose)
     pose_rig: StringProperty()
     status: StringProperty()
+
+
+def second_poll(self,action):
+    rig=control_rig.target(bpy.context)
+    current=rig.animation_data.action if rig and rig.animation_data else None
+    return action!=current and join.joinable(action,rig)
+
+
+class SKR_Join(PropertyGroup):
+    second: PointerProperty(name='Then',type=bpy.types.Action,poll=second_poll,
+        description='The animation that plays after the armature\'s own: an action of this armature\'s bones, such as '
+                    'one brought in with Load clip from .blend')
+    blend: FloatProperty(name='Blend',default=.2,min=0,soft_max=1,step=5,precision=2,unit='TIME_ABSOLUTE',
+        description='How long the end of the first animation and the start of the second play at once, the pose '
+                    'easing from the one to the other. 0 cuts from the one to the other')
 
 
 def fix_limb(rig,fix):
@@ -508,6 +550,7 @@ def run_bake(operator,context):
         source=('the full body' if result['bake_method']=='BODY' else f"{result['mapped']} mapped bones")
         settings.status=(f"Baked {result['frames']} frames from {source}; travel scale {result['scale']:.3f}; "
                          f"root motion {result['root_motion'].lower()}."+''.join(' '+line for line in result['notes']+result['warnings']))
+        settings.status_alert=bool(result['warnings'])
         if not settings.export_path and bpy.data.filepath:
             clip=(retarget.read_motion(settings.target) or {}).get('clip','')
             if clip:settings.export_path='//'+Path(clip).stem+'.hkx'
@@ -617,6 +660,9 @@ class SKR_OT_export_target(Operator):
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 
+EXPORTING=set()  # Scenes whose HKX export is running, so that its panel shows the progress.
+
+
 class SKR_OT_export_hkx(Operator):
     bl_idname='sekiro_retarget.export_hkx'
     bl_label='Export HKX'
@@ -629,7 +675,8 @@ class SKR_OT_export_hkx(Operator):
             self.job=export.start(context,settings,preferences(context))
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
-        settings.status='Writing HKX...'
+        settings.status,settings.status_alert='Writing HKX...',False
+        EXPORTING.add(context.scene.name)
         self._timer=context.window_manager.event_timer_add(.25,window=context.window)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
@@ -641,7 +688,8 @@ class SKR_OT_export_hkx(Operator):
             settings.status=f'{self.job.message} ({self.job.progress}%). Esc cancels.'
         else:
             context.window_manager.event_timer_remove(self._timer)
-            settings.status=export.summary(self.job)
+            settings.status,settings.status_alert=export.summary(self.job),self.job.failed
+            EXPORTING.discard(context.scene.name)
         for area in context.screen.areas:
             if area.type=='VIEW_3D':area.tag_redraw()
         if not self.job.done:return {'PASS_THROUGH'}
@@ -748,7 +796,55 @@ class SKR_OT_mirror_animation(Operator):
     def execute(self,context):
         try:
             result=mirror.mirror(context,control_rig.target(context))
-            self.report({'WARNING'} if result['warnings'] else {'INFO'},mirror.summary(result))
+            tell(self,context,mirror.summary(result),bool(result['warnings']))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_join_load(Operator,ImportHelper):
+    bl_idname='sekiro_retarget.join_load'
+    bl_label='Load clip from .blend'
+    bl_description=('Bring in the animations of another bridge scene of the same skeleton, with their root motion, '
+                    'without its objects, to join one after the armature\'s own')
+    bl_options={'REGISTER','UNDO'}
+    filename_ext='.blend'
+    filter_glob: StringProperty(default='*.blend',options={'HIDDEN'})
+    def execute(self,context):
+        try:
+            rig=control_rig.target(context)
+            if rig is None:raise ValueError('Select the armature whose animations to join.')
+            actions=join.load(self.filepath,rig)
+            context.scene.sekiro_join.second=actions[0]
+            tell(self,context,f'Loaded {mirror.listed([action.name for action in actions])} from {Path(self.filepath).name}; '
+                              f'{actions[0].name} plays after {rig.name}\'s own animation when you join them.')
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_join(Operator):
+    bl_idname='sekiro_retarget.join_animations'
+    bl_label='Join animations'
+    bl_description=('Add one animation that plays the armature\'s own and then the one under Then, blended over the '
+                    'blend, with root motion that goes on from where the first leaves it, and play it. Both originals '
+                    'are kept')
+    bl_options={'REGISTER','UNDO'}
+    @classmethod
+    def poll(cls,context):
+        rig=control_rig.target(context)
+        if control_rig.present(rig):
+            cls.poll_message_set('Remove the control rig first; you can add it again after joining.');return False
+        if not context.scene.sekiro_join.second:
+            cls.poll_message_set('Choose the animation that comes after it under Then.');return False
+        return rig is not None
+    def execute(self,context):
+        try:
+            rig=control_rig.target(context);data=rig.animation_data
+            result=join.join(context,rig,data.action if data else None,context.scene.sekiro_join.second,
+                             context.scene.sekiro_join.blend)
+            context.scene.sekiro_join.second=None
+            tell(self,context,join.summary(result),bool(result['warnings']))
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -1211,8 +1307,17 @@ class SKR_PT_export(SidebarPanel,Panel):
         if not bridge_target(settings):
             text(layout,context,'Export needs a target imported by the bridge.',icon='INFO');return
         layout.prop(settings,'export_path');layout.prop(settings,'export_replace')
-        row=layout.row();row.enabled=bool(settings.export_path);row.scale_y=1.3
+        layout.prop(settings,'export_binder')
+        if settings.export_binder:
+            column=layout.column(align=True)
+            column.prop(settings,'export_binder_path');column.prop(settings,'export_member')
+            clip=(retarget.read_motion(settings.target) or {}).get('clip','')
+            if not settings.export_member and clip:column.label(text='Uses '+clip,icon='INFO')
+            if not settings.export_binder_path:
+                text(layout,context,'This scene does not record the archive its clip came from. Choose the binder.',icon='INFO')
+        row=layout.row();row.enabled=bool(settings.export_path) and context.scene.name not in EXPORTING;row.scale_y=1.3
         row.operator('sekiro_retarget.export_hkx',icon='EXPORT')
+        if context.scene.name in EXPORTING:text(layout,context,settings.status,icon='SORTTIME')
         if not settings.export_path:text(layout,context,'Choose the Output file first.',icon='INFO')
         layout.operator('sekiro_retarget.set_export_target',icon='FILE_BLEND')
 
@@ -1233,27 +1338,71 @@ class SKR_PT_export_settings(SidebarPanel,Panel):
         layout.prop(settings,'export_verify')
 
 
-class SKR_PT_status(SidebarPanel,Panel):
-    bl_label='Status'
-    bl_idname='SKR_PT_retarget_status'
-    bl_options={'HIDE_HEADER'}
+class LogPanel:
+    """The last result of the add-on, closed at first; its header shows whether it warned."""
+    bl_label='Log'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_options={'DEFAULT_CLOSED'}
     @classmethod
     def poll(cls,context):
         return bool(context.scene.sekiro_retarget.status)
+    def draw_header_preset(self,context):
+        alert=context.scene.sekiro_retarget.status_alert
+        row=self.layout.row();row.alert=alert
+        row.label(text='Warnings' if alert else '',icon='ERROR' if alert else 'INFO')
     def draw(self,context):
-        text(self.layout.box(),context,context.scene.sekiro_retarget.status,boxed=True)
+        text(self.layout,context,context.scene.sekiro_retarget.status)
+
+
+class SKR_PT_status(LogPanel,Panel):
+    bl_idname='SKR_PT_retarget_status'
+    bl_category='Retarget'
+
+
+ANIMATE='Animate'  # The sidebar tab of the tools that edit an armature's own animation.
+
+
+class SKR_PT_clip(Panel):
+    bl_label='Animation'
+    bl_idname='SKR_PT_animate_clip'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category=ANIMATE
+    def draw(self,context):
+        layout=self.layout;rig=control_rig.target(context)
+        if not rig:
+            text(layout,context,'Select the armature to animate, such as the target after a bake.',icon='INFO');return
+        data=rig.animation_data
+        layout.label(text=rig.name,icon='ARMATURE_DATA')
+        text(layout,context,data.action.name if data and data.action else 'No action',icon='ACTION')
+        layout.operator('sekiro_retarget.mirror_animation',icon='MOD_MIRROR')
+
+
+class SKR_PT_join(Panel):
+    bl_label='Join animations'
+    bl_idname='SKR_PT_animate_join'
+    bl_parent_id='SKR_PT_animate_clip'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category=ANIMATE
+    @classmethod
+    def poll(cls,context):
+        return control_rig.target(context) is not None
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_join
+        text(layout,context,'Plays the armature\'s own animation, then another one, as one clip; the root motion goes on '
+                            'from where the first leaves it.')
+        column=layout.column(align=True);column.label(text='Then')
+        row=column.row(align=True);row.prop(settings,'second',text='')
+        row.operator('sekiro_retarget.join_load',text='',icon='FILE_FOLDER')
+        layout.prop(settings,'blend')
+        row=layout.row();row.scale_y=1.3;row.operator('sekiro_retarget.join_animations',icon='NLA_PUSHDOWN')
 
 
 class SKR_PT_control_rig(Panel):
     bl_label='Control rig'
     bl_idname='SKR_PT_control_rig'
-    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Retarget'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category=ANIMATE
     def draw(self,context):
         layout=self.layout;rig=control_rig.target(context)
         if not rig:
             text(layout,context,'Select the armature to pose, such as the target after a bake.',icon='INFO');return
         layout.label(text=rig.name,icon='ARMATURE_DATA')
-        layout.operator('sekiro_retarget.mirror_animation',icon='MOD_MIRROR')
         if not control_rig.present(rig):
             text(layout,context,'Adds controls to pose the arms and legs, in FK or with IK that keeps hands and feet in '
                                 'place. The game bones follow the controls, so export works as before.')
@@ -1291,7 +1440,7 @@ class SKR_PT_fixes(Panel):
     bl_label='Fixes'
     bl_idname='SKR_PT_control_rig_fixes'
     bl_parent_id='SKR_PT_control_rig'
-    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Retarget'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category=ANIMATE
     @classmethod
     def poll(cls,context):
         return control_rig.present(control_rig.target(context))
@@ -1331,12 +1480,20 @@ class SKR_PT_fixes(Panel):
         if fix.status:text(layout.box(),context,fix.status,boxed=True)
 
 
-CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_GripOffset,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_OT_match,SKR_OT_use_active,SKR_OT_append,
-    SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,SKR_OT_grip_adjust,SKR_OT_grip_apply,SKR_OT_grip_cancel,
-    SKR_OT_grip_reset,SKR_OT_save_map,
-    SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_mirror_animation,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
+class SKR_PT_animate_log(LogPanel,Panel):
+    bl_idname='SKR_PT_animate_log'
+    bl_category=ANIMATE
+
+
+CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_GripOffset,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_Join,SKR_OT_match,SKR_OT_use_active,
+    SKR_OT_append,SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,
+    SKR_OT_grip_adjust,SKR_OT_grip_apply,SKR_OT_grip_cancel,SKR_OT_grip_reset,SKR_OT_save_map,
+    SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_mirror_animation,SKR_OT_join_load,SKR_OT_join,
+    SKR_OT_control_rig_switch,SKR_OT_fix_frame,
     SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_OT_figure_create,SKR_OT_figure_save,SKR_OT_figure_remove,
-    SKR_OT_figure_forget,SKR_UL_bones,SKR_PT_panel,SKR_PT_control_rig,SKR_PT_fixes)
+    SKR_OT_figure_forget,SKR_UL_bones,SKR_PT_panel)
+# The Animate tab's panels, in the order they are shown.
+CLASSES+=(SKR_PT_clip,SKR_PT_join,SKR_PT_control_rig,SKR_PT_fixes,SKR_PT_animate_log)
 # The steps of the retarget panel, after it and in the order they are shown.
 CLASSES+=(SKR_PT_rigs,SKR_PT_figures,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_biped,
           SKR_PT_bake_arms,SKR_PT_bake_weapons,SKR_PT_bake_grip,
@@ -1347,6 +1504,7 @@ def register():
     for cls in CLASSES:bpy.utils.register_class(cls)
     bpy.types.Scene.sekiro_retarget=PointerProperty(type=SKR_Settings)
     bpy.types.Scene.sekiro_fix=PointerProperty(type=SKR_Fix)
+    bpy.types.Scene.sekiro_join=PointerProperty(type=SKR_Join)
     from . import imported_pair
     imported_pair.register()
 
@@ -1354,6 +1512,7 @@ def register():
 def unregister():
     from . import imported_pair
     imported_pair.unregister()
+    del bpy.types.Scene.sekiro_join
     del bpy.types.Scene.sekiro_fix
     del bpy.types.Scene.sekiro_retarget
     for cls in reversed(CLASSES):bpy.utils.unregister_class(cls)

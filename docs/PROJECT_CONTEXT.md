@@ -1,3 +1,15 @@
+# Current work: export into the animation binder, Join animations, Animate tab (retarget add-on 0.9.0)
+
+- State: uncommitted on main, on top of the work below. Not released, not checked in game.
+- The user asked: "Actually what I was thinking is appending two animations into one clip instead of needing to play the two clips after another through the game. But in your interpretation I would like the export option to simply choose a dcx file add the new hkx file too. In this the default name of the hkx file would be the original clips name and the dcx file would be the dcx file the clip came from. Add both. At the same time can you think of a place to add the log output to that is less obstructive? Can our extension use multiple panels instead of putting everything under "Retarget"? The Control rig at least feels like its own thing and the log output takes up a lot of space."
+- This replaces the standing decision "Use WitchyBND separately ... Do not add binder packing" (see User decisions).
+- `standalone/binder_members.py` (new): its own BND4 reader and writer, because Soulstruct's `Binder.to_bytes()` does not align member data. It keeps the header and entry layout FromSoftware writes (entry size 0x24, format 0x74, extended 4 with the path hash table: groups = first prime >= count // 7, hash h*37+c of the lowercased `/` path, header `<qIi` with 0x00080810), 16-aligned data. On the 34 Sekiro `.anibnd.dcx` of the game folder, parse and rewrite gave identical bytes. `add_member` replaces a member of the same name or adds one with ID 1000000000 + category*1000000 + number in the folder of the clip it came from (or the most common clip folder), in ID order, then compresses with Soulstruct's `compress` in the same DCX type and reads back.
+- `bridge_runtime.py`: folder-mode import records `archive` and `member` in the motion document. `binder_request`, `binder_member` and `add_to_binder` run with export; `protect_output` refuses binders in the game folder, so the default for a game archive is a copy beside the HKX, made from the archive the first time. `backup` keeps one `.bak`. The UI (`addToBinder`, `binder`, `binderMember`), the CLI (`-Binder`, `-BinderMember`) and the add-on (`export_binder`, `export_binder_path`, `export_member`; `export.default_binder`) pass the same request.
+- `blender_addon/sekiro_retarget/join.py` (new): samples both actions through `mirror.channels`/`pose_at`, blends over `round(blend*fps)` frames with smoothstep (lerp location and scale, slerp rotation), and continues root motion as `A_root(start) @ B_root(b0)^-1 @ B_root(t)`. The second clip starts at `a1 + 1 - overlap`. `load()` imports actions and the metadata texts from another .blend, pairs root actions as `<action> RootMotion`, records `sekiro_frame_rate`, and removes the data it does not keep.
+- `__init__.py`: tabs `Retarget` and `Animate` (`bl_category`). Animate holds `SKR_PT_clip` (Animation, with Mirror), its child `SKR_PT_join`, `SKR_PT_control_rig` and `SKR_PT_fixes`. A `LogPanel` mixin (closed, header shows Warnings via `status_alert`) is the last panel of each tab. `tell()` sets status and reports.
+- Checked: on the real `c0000_a05x.anibnd.dcx` through the CLI, into a copy beside the HKX, adding a050_999000 made 181 members from 180 and replacing a050_002000 changed only that member, each equal to the exported HKX; the game file was not written. See VERIFICATION.md.
+- Open: in-game playback of a joined clip, of a replaced member and of a new-ID member with a TAE entry; TAE events of the second joined clip; the panels in Blender's UI beyond the drawn outline.
+
 # Current work after 0.12.0 — Wolf's katana, alternate model meshes, c1070 skin
 
 - Wolf outfit selection now includes `wp_a_0300` when available, both in source selection and manual folder scans. It is optional for missing-part checks.
@@ -612,7 +624,7 @@ Elsewhere:
 - Keep CLI and UI modes. Make handing the prototype to another experienced modder easy.
 - Blender add-ons are not required. Modders edit the imported animation themselves.
 - Freeze-legs behavior was a test and is not a tool action.
-- Use WitchyBND separately for animation binder replacement. Do not add binder packing to this process.
+- ~~Use WitchyBND separately for animation binder replacement. Do not add binder packing to this process.~~ Replaced on 2026-10-29: the user asked for an export option that adds the HKX to a chosen `.anibnd.dcx`, by default the archive the clip came from, under the clip's own name. The game's own files stay protected. Weapon part clips still go beside the HKX only.
 - Keep interleaved output and optional spline output; support importing both.
 - Assemble Wolf's separate character parts and their textures on the editable rig.
 - The user authorized a complete UI redesign and tool review.

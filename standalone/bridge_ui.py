@@ -29,7 +29,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme','donor',
-        'partAnimations','exportParts','modelMasks'}
+        'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember'}
 
 
 def find_blender():
@@ -62,7 +62,7 @@ def defaults():
         exportAction='', frameRange='scene', frameStart='', frameEnd='', frameRate='', trackSet='original', rootMotion='auto',
         rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
         sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, theme='auto',
-        partAnimations=True, exportParts=False)
+        partAnimations=True, exportParts=False, addToBinder=False, binder='', binderMember='')
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)
     if SETTINGS.is_file():

@@ -8,8 +8,8 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 - **[Soulstruct Havok](https://github.com/Grimrukh/soulstruct-havok)** by Scott Mooney (Grimrukh) — the Havok packfile and tagfile classes that write each game's animation HKX and read it back for the export check. The bridge's `havok_compat.py` adjusts some of them at run time; the installed package is not modified. GPL-3.0-or-later (package metadata).
 - **CompressAnim.exe**, distributed with Soulstruct Havok — spline compression of exported animations. SoulsAssetPipeline's build places another copy next to the decoder; release ZIPs leave it out because decoding does not use it.
 - **[SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline)** by Meowmaritus — Havok animation and skeleton decoding in the C# decoder. Its repository includes **Havoc** and a copy of **SoulsFormats**. GPL-3.0. Release ZIPs include the decoder that the release workflow builds from a pinned commit; `tools\SekiroMotionDecoder\build_decoder.cmd` builds the same.
-- **[SoulsFormats](https://github.com/JKAnderson/SoulsFormats)** by JKAnderson — the .NET format library at the core of SoulsAssetPipeline. GPL-3.0.
-- **[WitchyBND](https://github.com/ividyon/WitchyBND)** by ividyon — recommended for packing exported HKX files into game binders. Not used by the bridge itself. GPL-3.0.
+- **[SoulsFormats](https://github.com/JKAnderson/SoulsFormats)** by JKAnderson — the .NET format library at the core of SoulsAssetPipeline. `standalone/binder_members.py` writes BND4 binders in the layout SoulsFormats documents, path hash included; no SoulsFormats code is copied. GPL-3.0.
+- **[WitchyBND](https://github.com/ividyon/WitchyBND)** by ividyon — recommended for unpacking game binders and for packing exported weapon part clips. Not used by the bridge itself. GPL-3.0.
 
 ## Runtimes and libraries
 

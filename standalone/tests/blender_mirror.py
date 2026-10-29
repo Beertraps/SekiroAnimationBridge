@@ -450,7 +450,7 @@ def main():
 
     # Mirroring twice, through the operator and its panel row, gives the original back.
     drawn = []
-    sekiro_retarget.SKR_PT_control_rig.draw(SimpleNamespace(layout=Layout(drawn)), SimpleNamespace(object=rig, scene=scene, region=SimpleNamespace(width=300)))
+    sekiro_retarget.SKR_PT_clip.draw(SimpleNamespace(layout=Layout(drawn)), SimpleNamespace(object=rig, scene=scene, region=SimpleNamespace(width=300)))
     assert 'sekiro_retarget.mirror_animation' in drawn, drawn
     rig.select_set(True)
     bpy.context.view_layer.objects.active = rig

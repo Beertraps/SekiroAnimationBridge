@@ -7,6 +7,21 @@
 - Sekiro stencil skin materials use the base skin albedo before their tiling detail maps and ignore a damage normal map stored in an emissive slot. This corrects Resurrection `c1070`'s body preview.
 - The scene checklist says **No animation compendium** when that field is empty, instead of **Self-contained types**.
 
+## Export into the animation binder
+
+- New **Also add it to an animation binder** on the export page, **Add to animation binder** in the add-on's step 4, and `-Binder` / `-BinderMember` on the CLI. The export also puts the written HKX into an `.anibnd.dcx`, so WitchyBND is no longer needed for the main clip. The binder starts as the archive the clip came from, which import from a source now records in the scene. The name starts as the clip's own name, which replaces that clip; another `aXXX_YYYYYY.hkx` name adds a new clip with the member ID (1000000000 + category × 1000000 + number) and folder that the binder's clips follow, kept in ID order. A new clip needs a TAE entry before the game plays it, and the log says so.
+- The game's own files stay protected: for a clip from the game folder, the binder is a copy of its archive beside the output HKX, made from the game's archive on the first export. The binder is kept as `.bak` before its first change.
+- The binder is rewritten as FromSoftware lays out BND4 files, with its path hash table and data on 16-byte boundaries, and compressed with the same DCX type. The other members stay byte for byte. The result is read back before it is written. Weapon part clips still go beside the HKX only.
+
+## Retarget add-on 0.9.0: Join animations, an Animate tab, and a Log
+
+Install `SekiroRetargetAssistant-0.9.0.zip` over 0.8.0.
+
+- New **Join animations**: one action that plays the armature's own animation and then another one, such as an attack and its recovery, so the game plays both as one clip. **Blend** sets how long one eases into the other (0.2 s by default; 0 cuts). The root motion of the second clip goes on from where the first leaves the character. A second clip keyed at another frame rate plays at its own speed. **Load clip from .blend** brings in the animations and root motion of another bridge scene of the same skeleton, without its objects. Both originals are kept. TAE events of the second clip are not carried over.
+- The sidebar now has two tabs. **Retarget** keeps the four retarget steps. The new **Animate** tab holds **Animation** (the armature, its action, **Mirror animation** and **Join animations**), then **Control rig** and **Fixes**. **Mirror animation** moved there from the control rig panel.
+- The result box under step 4 is now a **Log** panel at the bottom of each tab. It starts closed; its header says **Warnings** when the last result warned. Export progress shows under **Export HKX** while it runs.
+- New Blender test `blender_join.py`; `blender_panels.py` checks both tabs and the new states. New unit test `test_binder_members.py`. The add-on package includes the new module `join.py`.
+
 ## Retarget: body figures and Biped-style feet, jumps and props
 
 - New **Body figures** panel under **1. Choose rigs**, as 3ds Max's Biped fits a figure to each character. **Create figure** places a stick figure with Biped's parts (Pelvis, Spine, Neck, Head, and per side Clavicle, UpperArm, Forearm, Hand, Thigh, Calf, Foot, Toe and Heel) on the joints that the add-on finds, with the head's top, the heels and the toe tips from the meshes. The rig shows its rest pose while the figure is open. You move the ends in Edit Mode (only their places count, not how parts are rotated), choose another skeleton bone for a part where needed, and click **Save figure**, which closes the figure and shows the rig's pose again. Baking and exporting wait while a figure is open. It is kept on the rig and in a figure folder, one file per skeleton, so other scenes with the same skeleton find it. The full-body bake then takes the body's bones, leg length, hip joints, height, limbs and feet from the figure. The figure only measures the character: it is not animated or constrained, and export is unchanged. Without a saved figure the bake works as before.

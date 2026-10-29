@@ -1,22 +1,27 @@
-# Sekiro Retarget Assistant 0.8.0
+# Sekiro Retarget Assistant 0.9.0
 
-An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, and can [mirror an animation](#mirror-animation) left to right. The bridge's own import and export need no add-on.
+An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, can [mirror an animation](#mirror-animation) left to right, and can [join two animations](#join-animations) into one clip. The bridge's own import and export need no add-on.
 
 ## Install
 
-In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.8.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N and open **Retarget**.
+In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.9.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N. They sit in two tabs on the sidebar's edge:
+
+- **Retarget** holds the four retarget steps below.
+- **Animate** holds the tools that change an armature's own animation: **Animation**, with [Mirror animation](#mirror-animation) and [Join animations](#join-animations), then the [Control rig](#control-rig) and its [Fixes](#fixes).
+
+At the bottom of each tab, a **Log** panel holds the result of the last action, such as a match, bake, export, mirror or join. It starts closed. Its header says **Warnings**, with a warning sign, when that result warned; click the header to read it. Blender's status bar shows the same message for a few seconds.
 
 The add-on needs no external Python libraries, account or network connection. To export HKX from Blender it uses the Animation Bridge on this computer and finds it by itself: the bridge records its folder each time its UI or CLI runs, and the conversion Python comes from the bridge's settings. The add-on preferences show what was found and can override both paths. This version was exercised in Blender 4.5.14; other Blender versions have not been run.
 
 ## Workflow
 
-The **Sekiro Retarget Assistant** panel leads through four steps, each a sub-panel that you can close once it is done. A greyed-out button says under it what it needs first. The box under step 4 shows the result of the last match, bake or export.
+The **Sekiro Retarget Assistant** panel leads through four steps, each a sub-panel that you can close once it is done. A greyed-out button says under it what it needs first. The **Log** under step 4 holds the result of the last match, bake or export.
 
 1. Open the bridge `.blend` of the receiving character, the target.
 2. In **1. Choose rigs**, set **Target (receives the motion)** to its armature: choose it in the field, or select it in the viewport or Outliner and click the arrow button beside the field. Click **Append source .blend** and choose the donor animation scene. The add-on brings in its rig, meshes, action, root-motion object and embedded HKX metadata, sets it as **Source (gives the motion)** and matches the bones. Two rigs already in the scene can be chosen directly instead.
 3. In **2. Match bones**, click **Match bones automatically** if no list shows yet, and review the list. The line above it counts the matched bones and the bones to review: rows without a source bone, switched off, or matched below 94%. Those rows have a question mark instead of a check mark, and **Show unmatched / uncertain only** lists just them. The small triangle under the list opens a filter that finds target and source bones by name, and an A–Z sort. Assign a source bone through a row's search field, use a suggestion, or **Accept all suggestions**. **Mirror L → R** and **Mirror R → L** copy corrections to the other side. Switch off rows you do not want. The eye on a weapon row hides that weapon in the bake; see [Weapons](#weapons). **Save map** and **Load map** reuse a reviewed list. Once a list exists, the button reads **Match bones again**: it makes a new list, which replaces your changes.
 4. In **3. Bake motion**, click **Bake motion onto target**. **Bake method** above it stays at *Bone by bone* for most clips; *Full body (experimental)* needs no bone list for the body, see [Full-body bake](#full-body-bake-experimental). The closed groups under the button hold the bake options (see below). By default the bake is raw: the weapon keeps the source's grip, and the corrections for hands, arms and a second hand on the weapon are off until you turn them on. The bake creates a new action and keeps the original one. Bake again at any time with other options or a corrected map: each bake starts from the original clip, not from the previous result.
-5. In **4. Export HKX**, choose an **Output** `.hkx` and click **Export HKX**. **Export settings**, closed at first, hold the game, the format and the other options; see [Export](#export). Export runs in the background; the status box shows progress and the result, and Esc cancels. The bridge writes the HKX with a `.motion.json` sidecar beside it. Pack the HKX into the game's animation binder with a binder tool such as WitchyBND.
+5. In **4. Export HKX**, choose an **Output** `.hkx` and click **Export HKX**. **Export settings**, closed at first, hold the game, the format and the other options; see [Export](#export). Export runs in the background; its progress shows under the button, the result goes to the **Log**, and Esc cancels. The bridge writes the HKX with a `.motion.json` sidecar beside it. To put the HKX into the game's animation binder too, turn on **Add to animation binder**; see [Export](#export). Otherwise pack it with a binder tool such as WitchyBND.
 
 **Only bones the clip animates**, in step 2 and on by default, matches only the bones that a bridge rig's HKX clip animates, its tracks; the model's other bones, such as cloth and helper bones, follow their parents. Switch it off to match every bone of the model. It takes effect at the next match.
 
@@ -206,9 +211,17 @@ Under **3. Bake motion onto target** > **Feet, jumps and props (Biped)**, all of
 - **Frames.** The scene range (set by the bake), the action's key range, or the clip's frame count.
 - **Root motion.** *As baked* writes the target's root-motion object; *None* writes no root motion.
 
+### Add to animation binder
+
+**Add to animation binder**, in step 4 under **Replace existing**, also puts the written HKX into an animation binder (`.anibnd.dcx`), so no binder tool is needed:
+
+- **Binder** starts as the archive the clip came from, as the bridge recorded it at import (bridge 0.13 and later; choose it for older scenes). The game's own files are protected: when that archive is in the game folder, **Binder** names a copy of it beside the **Output** HKX instead. The first export makes that copy from the game's archive; later exports change the copy. Put the copy into your mod's `chr` folder.
+- **Name in binder** starts empty, which uses the clip's own name (the panel shows it under the field, such as *Uses a050_002000.hkx*). That replaces the original clip. Another name of the form `aXXX_YYYYYY.hkx` adds a new clip with the ID that the binder's clips follow; the game plays it only once a TAE entry of that animation ID points at it, and the **Log** says so.
+- Before its first change the binder is kept as `.bak` beside it. The other members stay byte for byte as they were.
+
 ## Control rig
 
-An imported rig has one short bone per game bone, each oriented however the game stores it, which is awkward to animate by hand. The **Control rig** panel, below the retarget panel, adds animator controls to it:
+An imported rig has one short bone per game bone, each oriented however the game stores it, which is awkward to animate by hand. The **Control rig** panel, in the **Animate** tab, adds animator controls to it:
 
 1. Select the armature, or let the panel use the scene's bridge rig, and click **Add control rig**. Mute the armature's NLA tracks first if it has any.
 2. The armature switches to Pose Mode and its controls draw in front of the mesh. In a file opened again in Object Mode, the panel says that the controls are posed in Pose Mode, and its **Pose Mode** button switches.
@@ -250,7 +263,7 @@ Between posed frames a fix interpolates the relation or the change; before the f
 
 ## Mirror animation
 
-**Mirror animation**, under the armature's name in the **Control rig** panel, makes a left-right mirrored copy of the armature's action, so that a right-handed slash becomes a left-handed one. Select the armature, or let the panel use the scene's bridge rig, and click it. The copy, "*clip* Mirrored", plays at once with its root motion, "*clip* Mirrored RootMotion"; the original action and root motion are kept. Export the copy like any other action: **Export HKX** writes the active action, and the bridge's export page and CLI can choose it by name and pair its root motion by that name. Mirroring the copy gives the original back.
+**Mirror animation**, under the armature's name in the **Animate** tab's **Animation** panel, makes a left-right mirrored copy of the armature's action, so that a right-handed slash becomes a left-handed one. Select the armature, or let the panel use the scene's bridge rig, and click it. The copy, "*clip* Mirrored", plays at once with its root motion, "*clip* Mirrored RootMotion"; the original action and root motion are kept. Export the copy like any other action: **Export HKX** writes the active action, and the bridge's export page and CLI can choose it by name and pair its root motion by that name. Mirroring the copy gives the original back.
 
 The mirror runs across the character's middle plane:
 
@@ -265,6 +278,20 @@ With a control rig on the armature, the game bones follow the controls, so the b
 
 On an owned test rig whose left and right bones rest at random turns, the mirrored clip was the exact reflection of the original, mirroring twice gave the original back, and the export read back as the mirrored clip. On clips of Isshin, Wolf and c5100, the mirror took under 1.4 s and the export read back within 0.000°. The mirror swaps motion, not meshes: an uneven costume, such as Wolf's prosthetic arm, stays on its side, and a pair whose rests are not mirror images keeps its rest places.
 
+## Join animations
+
+**Join animations**, in the **Animate** tab under **Animation**, makes one clip that plays the armature's own animation and then another one, such as an attack followed by its recovery, so the game plays both as one animation. The root motion goes on from where the first clip leaves the character, so the second clip does not jump back to the start.
+
+1. Open the bridge `.blend` with the first animation. Open the **Animate** tab; the **Animation** panel names the armature and its action. Select the armature if the panel shows another one.
+2. Under **Join animations** > **Then**, choose the second animation. To take it from another bridge scene of the same skeleton, click the folder button beside the field and choose that scene's `.blend`. **Load clip from .blend** brings in its animations and root motion, without its objects, and sets **Then** to its animation.
+3. Set **Blend**: how long, in seconds, the end of the first animation and the start of the second play at once, the pose easing from one to the other. 0.2 s is the default; 0 cuts from one to the other on the frame after the first ends.
+4. Click **Join animations**. The new action, "*first* + *second*", plays at once with its root motion, "*first* + *second* RootMotion", and the scene's frame range becomes its range. Both originals are kept.
+5. Export it like any other action, for example with **Export HKX** in the **Retarget** tab.
+
+The blend shortens the clip: with 0.2 s at 30 fps, the second clip starts 6 frames before the first ends. A second clip keyed at another frame rate plays at its own speed, and the **Log** says so. Bones that only the second clip keys are joined too; the **Log** names any that are no track of the original clip, so export them with **Tracks** > *Original tracks + keyed bones*. With a control rig on the armature, the button is greyed out: remove the control rig, keeping the edited motion, join, and add the control rig again. Mute the armature's NLA tracks first, if it has any.
+
+On owned test clips, frames outside the blend matched each clip's pose exactly, the blend eased from one to the other, and the root moved on without a jump.
+
 ## Current scope
 
 The retarget bake transfers humanoid FK animation. It aligns held weapons and holds them by a grip, puts the second hand on a two-handed weapon, keeps hands out of the torso and keeps arms as close to the body as the source's, but bone by bone it does not solve foot contacts, a hand reaching for anything else, cloth or facial animation. The experimental full-body bake keeps planted feet and hands that meet each other, at the cost of the limbs' directions; it does not handle toes, the ground or other contacts. The control rig's [fixes](#fixes) keep the second hand where you put it on the grip, a weapon in its sheath and the feet on the ground over the frames you choose, and its IK limbs and swivel rings help with the rest by hand. Different proportions can still need pose cleanup. Non-humanoid rigs need manual mapping and review.
@@ -272,3 +299,5 @@ The retarget bake transfers humanoid FK animation. It aligns held weapons and ho
 Mapped target bones must have no active constraints, and target NLA tracks must be muted. The bake adds no live constraints or handlers; the control rig adds constraints and drivers to its armature, and **Remove control rig** takes them away again. The fixes add keys only. Source timing can change the clip's duration; TAE events are not retimed. In-game playback of a retargeted clip has not been verified.
 
 **Mirror animation** mirrors the bones and the root motion only: TAE events, such as a hand an effect comes from, and weapon part clips stay as they are. A weapon that Wolf's TAE event 715 moves to another dummy, such as the katana into its sheath, keeps its side there, as do the sheath and the prosthetic tools. In the game, a blend from a mirrored clip into an unmirrored one moves the weapons across the body. In-game playback of a mirrored clip has not been verified.
+
+**Join animations** joins the bones and the root motion only. The joined clip keeps the TAE events of the animation ID it is exported as, which were made for the first clip alone: the events of the second clip, such as its attack hits and sounds, need TAE entries added at their new times. In-game playback of a joined clip, and of a clip that **Add to animation binder** added under a new name, has not been verified.

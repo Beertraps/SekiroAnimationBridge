@@ -317,7 +317,8 @@ def panels():
     for cls in classes:
         parent = getattr(cls, 'bl_parent_id', '')
         assert not parent or parent in ids, (cls.__name__, 'has no parent panel', parent)
-        assert cls.bl_space_type == 'VIEW_3D' and cls.bl_region_type == 'UI' and cls.bl_category == 'Retarget', cls
+        assert cls.bl_space_type == 'VIEW_3D' and cls.bl_region_type == 'UI' and cls.bl_category in ('Retarget', 'Animate'), cls
+        assert not parent or ids[parent].bl_category == cls.bl_category, (cls.__name__, 'is in another tab than its parent')
         assert set(getattr(cls, 'bl_options', set())) <= {'DEFAULT_CLOSED', 'HIDE_HEADER', 'INSTANCED', 'HEADER_LAYOUT_EXPAND'}, cls
 
     def tree(parent, depth):
@@ -325,14 +326,21 @@ def panels():
             if getattr(cls, 'bl_parent_id', '') == parent:
                 yield cls, depth
                 yield from tree(getattr(cls, 'bl_idname', cls.__name__), depth + 1)
-    return list(tree('', 0))
+    # Each sidebar tab shows its own panels: the Retarget tab's, then the Animate tab's.
+    return sorted(tree('', 0), key=lambda item: TABS.index(item[0].bl_category))
+
+
+TABS = ('Retarget', 'Animate')
 
 
 def outline(context):
     """Every panel of the add-on as rows of text, in drawing order; sub-panels whose poll fails are left out."""
-    lines, hidden = [], set()
+    lines, hidden, tab = [], set(), None
     blf.size(0, bpy.context.preferences.ui_styles[0].widget.points)
     for cls, depth in panels():
+        if cls.bl_category != tab:
+            tab = cls.bl_category
+            lines.append(f'[{tab} tab]')
         if getattr(cls, 'bl_parent_id', '') in hidden or (hasattr(cls, 'poll') and not cls.poll(context)):
             hidden.add(getattr(cls, 'bl_idname', cls.__name__))
             continue
@@ -340,8 +348,9 @@ def outline(context):
         options = set(getattr(cls, 'bl_options', set()))
         if 'HIDE_HEADER' not in options:
             header = Layout('row')
-            if hasattr(cls, 'draw_header'):
-                cls.draw_header(Self(cls, header), context)
+            for name in ('draw_header', 'draw_header_preset'):
+                if hasattr(cls, name):
+                    getattr(cls, name)(Self(cls, header), context)
             extra = '  '.join(render(header))
             lines.append(indent + ('> ' if 'DEFAULT_CLOSED' in options else 'v ') + cls.bl_label +
                          (' (starts closed)' if 'DEFAULT_CLOSED' in options else '') + (f'  {extra}' if extra else ''))
@@ -476,6 +485,14 @@ def states():
     bpy.ops.object.mode_set(mode='OBJECT')  # As after opening the file again.
     yield 'Control rig in Object Mode'
 
+    assert bpy.ops.sekiro_retarget.remove_control_rig(keep='EDITED') == {'FINISHED'}
+    scene.sekiro_join.second = bpy.data.actions['a000_000401_Sekiro']
+    yield 'Join chosen'
+
+    assert bpy.ops.sekiro_retarget.join_animations() == {'FINISHED'}, settings.status
+    settings.export_binder = True
+    yield 'Joined, export to a binder'
+
 
 # What each state's outline must show and must not show, in the words of its rows, however they wrap; a row
 # starting with ! is an alert's first line.
@@ -514,6 +531,10 @@ EXPECTED = {
     'Fix: adjust over frames with auto keying on': (['! Auto keying is on.', 'Turn it off before you pose'], []),
     'Fix applied': (['Left arm follows R_Weapon on frames 8–16'], ['Posed frames']),
     'Control rig in Object Mode': (['The controls are posed in Pose Mode.', '(Pose Mode)'], []),
+    'Join chosen': (['Then', '[a000_000401_Sekiro]', '(Join animations)'], ['(Join animations) (greyed out)']),
+    'Joined, export to a binder': (['Joined ', '[x] Add to animation binder',
+                                    'Uses a000_000401.hkx',
+                                    'This scene does not record the archive its clip came from. Choose the binder.'], []),
 }
 
 
@@ -554,10 +575,11 @@ def main():
             assert row in (text if row.startswith('!') else words(text)), (state, 'does not show', row)
         for row in absent:
             assert row not in words(text), (state, 'shows', row)
-        # The target comes first, and the status after the last step, above the control rig.
+        # The target comes first, and the log, closed, after the last step; the Animate tab has its own.
         assert text.index('Target (receives the motion)') < text.index('Source (gives the motion)'), state
-        status = text.rfind('\n        | ', 0, text.index('v Control rig'))
-        assert status > text.index('v 4. Export HKX'), (state, 'has no status after step 4')
+        animate = text.index('[Animate tab]')
+        assert text.index('v 4. Export HKX') < text.index('> Log (starts closed)') < animate, (state, 'has no log after step 4')
+        assert text.index('v Animation', animate) < text.index('v Control rig', animate) < text.rindex('> Log'), state
         if state == 'Bones matched':
             check_list(bpy.context.scene.sekiro_retarget)
     assert set(drawn) == set(EXPECTED), set(EXPECTED) ^ set(drawn)

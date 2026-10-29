@@ -189,6 +189,61 @@ def part_outputs(blender, blend, motion, output, force, temp):
     return pairs
 
 
+def binder_request(request):
+    """(the animation binder that export adds the HKX to, the member name or '' for the clip's own), checked before
+    anything is written; None without addToBinder."""
+    if not request.get('addToBinder'):
+        return None
+    binder = str(request.get('binder') or '').strip()
+    if not binder:
+        raise ValueError('Choose the animation binder to add the HKX to, such as c0000_a05x.anibnd.dcx.')
+    path = Path(binder).resolve()
+    if not path.name.lower().endswith(('.anibnd', '.anibnd.dcx')):
+        raise ValueError(f'Choose an animation binder, a file ending in .anibnd.dcx, to add the HKX to.\n{path}')
+    from dcx_codec import protect_output
+    protect_output(path)
+    from binder_members import CLIP
+    name = str(request.get('binderMember') or '').strip()
+    if name and not CLIP.fullmatch(name):
+        raise ValueError(f'Name the HKX in the binder like the game\'s clips, aXXX_YYYYYY.hkx, such as a050_002000.hkx: {name}')
+    return path, name
+
+
+def binder_member(into, motion):
+    """The member name and the archive to start a new binder from, for the sampled motion; checked before writing."""
+    binder, name = into
+    name = name or Path(str(motion.get('clip') or '')).name
+    from binder_members import CLIP
+    if not CLIP.fullmatch(name):
+        raise ValueError(f'The clip\'s own name, {name or "unknown"}, is not one the game uses. Name the HKX in the binder, '
+                         'such as a050_002000.hkx.')
+    base = motion.get('archive') or ''
+    if not binder.is_file() and not (base and Path(base).is_file()):
+        raise ValueError('The binder does not exist yet, and the scene does not record the archive its clip came from '
+                         f'to start it from. Choose an existing binder.\n{binder}')
+    return name, base
+
+
+def add_to_binder(into, name, base, motion, hkx, temp):
+    """Add the written HKX to the binder, keeping a .bak of the binder the first time. Returns the report."""
+    from binder_members import add_member, backup
+    binder = into[0]
+    event('write', f'Adding {name} to {binder.name}', 92)
+    data, report = add_member(binder, name, hkx.read_bytes(), base or None, motion.get('member', ''))
+    report['backup'] = backup(binder)
+    staging = temp / 'binder.dcx'
+    staging.write_bytes(data)
+    binder.parent.mkdir(parents=True, exist_ok=True)
+    atomic_copy(staging, binder)
+    print(f"{'Replaced' if report['replaced'] else 'Added'} {report['member']} (ID {report['id']}) in {binder}"
+          + (f", from {report['base']}" if report['base'] != str(binder) else '')
+          + (f"; the binder before it is kept as {Path(report['backup']).name}" if report['backup'] else ''), flush=True)
+    if not report['replaced']:
+        print('NOTICE: A new animation ID needs a TAE entry of its own, and something that plays it, before the game uses it.',
+              flush=True)
+    return report
+
+
 def donor_request(request):
     """Input options of the retarget donor, with the tools and weapon settings it shares with the target.
 
@@ -253,6 +308,14 @@ def convert(request):
             event('blender', 'Reading actions and frame ranges', 30)
             run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'inspect', '--output-json', info_path])
             info = json.loads(info_path.read_text(encoding='utf-8'))
+            if info.get('archive'):
+                # Export adds the clip to this archive, or to a copy of it where the game's own files are protected.
+                from dcx_codec import protect_output
+                try:
+                    protect_output(info['archive'])
+                    info['archiveWritable'] = True
+                except ValueError:
+                    info['archiveWritable'] = False
             for action in info['actions']:
                 print(f"  {'*' if action['active'] else ' '} {action['name']}: frames {action['frameStart']:g}-{action['frameEnd']:g}, "
                       f"{action['keyedBones']} keyed bones" + (f", {len(action['untracked'])} outside the clip's tracks" if action['untracked'] else ''))
@@ -263,7 +326,7 @@ def convert(request):
         def prepare(request, temp, event=event):
             """Decode one clip into temp and prepare its character. A retarget donor passes an event that names it."""
             refreshed = False
-            tae_binder, tae_character = None, ''
+            tae_binder, tae_character, origin = None, '', {}
             if request.get('inputMethod') == 'folder':
                 from asset_discovery import load_catalog, selection, inventory_character, refresh_clip
                 cache, character, clip = HOME/'work/asset-cache', request.get('assetCharacter', ''), request.get('assetClip')
@@ -300,6 +363,8 @@ def convert(request):
                 from part_animations import character_binder
                 chosen = next(c for c in catalog['clips'] if c['id'] == clip or c['name'].lower() == str(clip).lower())
                 tae_binder, tae_character = character_binder(catalog, chosen), chosen.get('character', '')
+                # Export can add the edited clip to the archive it came from, beside the member it came from.
+                origin = dict(archive=chosen.get('archive', ''), member=chosen.get('member', ''))
             animation = existing(request.get('animation'), 'Animation HKX')
             skeleton = existing(request.get('skeleton'), 'Skeleton HKX')
             compendium = existing(request['compendium'], 'Compendium') if request.get('compendium') else '-'
@@ -334,7 +399,7 @@ def convert(request):
                 decoder_args.append(existing(skeleton_compendium, 'Skeleton compendium'))
             run(decoder_args)
             document = json.loads(motion.read_text(encoding='utf-8-sig'))
-            document.update(game=source_game, sourceHavok=source_info, clip=Path(animation).name)
+            document.update(game=source_game, sourceHavok=source_info, clip=Path(animation).name, **origin)
             motion.write_text(json.dumps(document), encoding='utf-8')
             report = dict(clip=Path(animation).name, frames=document['frameCount'], tracks=document['trackCount'],
                           game=GAMES[source_game], compression=document.get('compression', 'spline'), parts=0, textures=0, warnings=[],
@@ -403,6 +468,7 @@ def convert(request):
         else:
             blend = existing(request.get('inputBlend'), 'Edited Blender scene')
         output = output_file(request.get('outputHKX'), '.hkx', force)
+        into = binder_request(request)
         sidecar = output.with_suffix('.motion.json')
         if sidecar.exists() and not force:
             raise ValueError(f'Motion sidecar already exists. Choose another name or enable Replace existing output.\n{sidecar}')
@@ -420,6 +486,8 @@ def convert(request):
             event('blender', 'Sampling the edited animation in Blender', 25)
             run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export', '--output-json', motion, *sampling])
         parts = part_outputs(blender, blend, motion, output, force, temp) if mode == 'export' and request.get('exportParts') else []
+        doc = json.loads(motion.read_text(encoding='utf-8'))
+        member, base = binder_member(into, doc) if into else ('', '')
         event('write', f'Writing {fmt} HKX' + (' and part clips' if parts else '') + (' and reading it back' if '--verify' in writing else ''), 70)
         run([writer, '-E', '-X', 'utf8', HERE / 'build_animation.py', motion, staged_hkx, *writing])
         for entry, target in parts:
@@ -435,15 +503,15 @@ def convert(request):
             written.append(dict(model=entry['name'], clip=entry['clip'], output=str(target), frames=entry['frames'],
                                 frameRate=entry['frameRate'], bytes=part_stats['bytes'], readback=part_stats.get('readback')))
             print(f"Part clip {entry['clip']} of {entry['name']}: {target}", flush=True)
-        doc = json.loads(motion.read_text(encoding='utf-8'))
+        binder = add_to_binder(into, member, base, doc, staged_hkx, temp) if into else None
         stats = json.loads(stats_path.read_text(encoding='utf-8'))
         sampled = doc.get('export', {})
-        event('done', 'HKX animation ready for WitchyBND', 100, output=str(output),
+        event('done', f"HKX animation added to {into[0].name}" if binder else 'HKX animation ready for WitchyBND', 100, output=str(output),
               report=dict(frames=doc['frameCount'], tracks=doc['trackCount'], frameRate=doc['frameRate'], compression=fmt,
                           sidecar=str(sidecar), bytes=stats['bytes'], quantization=stats['quantization'],
                           tolerance=stats['tolerance'], readback=stats.get('readback'), action=sampled.get('action', ''),
                           rootMotion=sampled.get('rootMotion', ''), addedTracks=len(sampled.get('addedTracks', [])),
-                          warnings=sampled.get('warnings', []), parts=written))
+                          warnings=sampled.get('warnings', []), parts=written, binder=binder))
         return str(output)
 
 

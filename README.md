@@ -14,7 +14,7 @@ flowchart LR
     A["Game archives<br/>.anibnd · .chrbnd · .partsbnd"] -- import --> B["Blender scene<br/>rig, model, textures"]
     B -- edit --> C["Edited action"]
     C -- export --> D["Raw .hkx"]
-    D -- WitchyBND --> E["Your mod's binder"]
+    D -- "add to binder" --> E["Your mod's binder"]
 ```
 
 ## What it does
@@ -60,20 +60,20 @@ For retargeting and the control rig, also install **`SekiroRetargetAssistant-<ve
 2. On **Import animation**, pick the character and an animation, check where the scene is saved and click **Create Blender scene**.
 3. Edit the animation in Blender and save.
 4. **Export animation**: choose the scene, click **Read actions**, set the options and click **Export HKX animation**. You get a raw `.hkx` and a `.motion.json` sidecar.
-5. Replace the animation in a copy of the game's binder with [WitchyBND](https://github.com/ividyon/WitchyBND).
+5. To put it into the binder too, tick **Also add it to an animation binder** before exporting. The binder defaults to a copy of the archive the clip came from, beside the HKX; the game's own file is not changed. Otherwise replace the animation in a copy of the game's binder with [WitchyBND](https://github.com/ividyon/WitchyBND).
 
 ## Documentation
 
 - [User guide](docs/USER_GUIDE.md): sources and layouts, import, textures, weapons, export options and the command line
 - [Other FromSoftware games](docs/OTHER_GAMES.md): the files each game needs, materials and weapon placement
-- [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig and export
+- [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig, mirror, joining two animations and export
 - [Changelog](CHANGELOG.md), [verification log](docs/VERIFICATION.md) and [credits](CREDITS.md)
 
 ## Limitations
 
 - This is a prototype. So far only Sekiro's interleaved export has been confirmed in game.
 - Skeletal transform tracks only: float tracks, additive animations and TAE events are not edited.
-- The bridge writes raw HKX. Packing it into a binder is a separate WitchyBND step.
+- The bridge writes raw HKX and can put it into the character's animation binder. Weapon part clips still need WitchyBND, and a clip added under a new ID needs a TAE entry before the game plays it.
 - Materials are a preview, not the game's shaders. Windows only.
 
 ## Build from source

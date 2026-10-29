@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const token=new URLSearchParams(location.hash.slice(1)).get('token')||'';
 try{const theme=localStorage.getItem('bridge-theme');if(theme==='light'||theme==='dark')document.documentElement.dataset.theme=theme;}catch(e){}
 const ROW=36;
-let config={}, parts=[], job=null, toastTimer, saveTimer, pollTimer, resolveTimer, activePicker=null, sceneInfo=null, lastSuggestedBlend='', autoMaterial='', jobKey='', startJobId='', jobStarting=false;
+let config={}, parts=[], job=null, toastTimer, saveTimer, pollTimer, resolveTimer, activePicker=null, sceneInfo=null, lastSuggestedBlend='', autoMaterial='', autoBinder='', jobKey='', startJobId='', jobStarting=false;
 let inputMethod='folder', sources=[], activeId='', catalog=null, catalogPath='', catalogLoading=false, characterId='', clipId='', clipView=[], archiveFor='', selection=null, resolving=false, resolveSequence=0, painting=false, extrasOpen=null;
 let scanProblem=null, inventoryProblem=null;
 let editing=null, detection=null, detectSequence=0, nameTouched=false, scenesTouched=false, dialogLayout='auto', dialogFolders={}, missingFolders=new Set(), removeTimer;
@@ -53,13 +53,16 @@ const help={
  outputHKX:['HKX output','Export writes a raw HKX and an adjacent .motion.json sidecar. Use WitchyBND to replace the animation member in a copy of your binder. Model geometry, TAE events and unrelated HKX metadata are not exported.\n\nRead the HKX back decodes the written file again and reports the largest rotation and translation differences from the sampled pose.'],
  partAnimations:['Animate weapon parts','Some weapons animate their own bones: the Loaded Umbrella opens, the Loaded Axe and Loaded Spear move, the Mortal Blade’s sheath turns. Their part binder holds an animation binder for the model, such as WP_A_0760_1.anibnd, with clips named after the character’s animation IDs.\n\nThe import keys each chosen weapon with the clip of the same ID. Where the character’s TAE gives several IDs one body clip, such as a076_412000 playing a070_412000, the part plays the clip of the ID in its own category. A part without a clip for the animation keeps its rest pose. The preview lists which clip each part plays.\n\nTAE events that hide a weapon or move it to another dummy are not applied.'],
  partView:['Part animations','Starts from a Sekiro weapon part: choose one on the left to list its clips, then one of its clips to list the player animations it plays in, each with the reason. The reason is the same animation ID, an ID that the part’s own TAE gives that clip, or an ID that the player’s TAE gives the same body clip, such as a076_412000 playing a070_412000. This is the import’s own pairing, read the other way round.\n\nChoosing an animation selects it and the weapon part for import, and turns on Animate weapon parts, so the scene keys the part with that clip. A part holds its rest pose, a999_000000, in every animation without a clip of its own; the rest pose is not listed.\n\nA game folder reads the player’s archives the first time. This view is shown for Sekiro sources only.'],
+ addToBinder:['Add to an animation binder','Also puts the written HKX into an animation binder (ANIBND), so you need no WitchyBND step. The HKX and its .motion.json are still written under Save HKX as.\n\nWhen the binder holds a clip of the same name, that clip is replaced. Otherwise the HKX is added as a new clip, with the ID and folder that the binder’s other clips follow. A new animation ID needs a TAE entry and something that plays it before the game uses it.\n\nBefore its first change, the binder is copied to a .bak file beside it. Weapon part clips are not added; they are written beside the HKX.'],
+ binder:['Animation binder','The .anibnd.dcx to add the HKX to. Read actions fills in the archive that the clip was imported from. Files in the game installation are protected, so for a clip from the game folder it suggests a copy of that archive in the HKX’s folder, made from the game’s archive the first time. Point it at the same file in your mod folder to change your mod directly.\n\nScenes imported before bridge 0.13 do not record their archive; choose it yourself.'],
+ binderMember:['Name in the binder','The clip’s member name, such as a050_002000.hkx. Empty: the clip’s own name, which replaces the original clip. A name the binder does not hold yet adds a new animation.'],
  exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. Each file keeps the part clip’s member name, such as a076_405010_1.hkx, and its own frame rate; the format and settings follow the character’s HKX.\n\nReplace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. The bridge does not repack archives. Part clips are not yet tested in game.'],
  blender:['Blender executable','Choose blender.exe from your Blender installation. Version 4.5.14 is checked locally. The scripts use Blender’s built-in Python APIs and require no add-on. Compatibility with 5.2 still needs a run on that version.'],
  writer:['Conversion Python','Choose python.exe from the writer environment, normally %LOCALAPPDATA%\\SekiroAnimationBridge\\writer-env\\Scripts\\python.exe. The bridge creates it on the first start with Soulstruct, Soulstruct Havok and NumPy; tools/setup_writer.cmd repeats that setup. Blender’s bundled Python stays separate.'],
  decoder:['HKX decoder','Release ZIPs include SekiroMotionDecoder.exe in their decoder folder, and the bridge selects it automatically. In a source checkout, build it with tools/SekiroMotionDecoder/build_decoder.cmd; that path is under %LOCALAPPDATA%\\SekiroAnimationBridge\\decoder. Version 0.5 handles tagfiles, native PC packfiles, spline/interleaved animations and separate animation/skeleton compendiums.']
 };
 const pickTitles={models:'Model files','src-path':'Source folder','src-scenes':'Scenes folder',folder:'Folder'};
-const filters={animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
+const filters={animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
 
 async function api(path,data,signal){
  const response=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'X-Bridge-Token':token,...(data===undefined?{}:{'Content-Type':'application/json'})},body:data===undefined?undefined:JSON.stringify(data),signal});
@@ -133,10 +136,25 @@ function renderScene(){
   $('scene-info').classList.toggle('warn',!info.game);
   $('bone-names').innerHTML=info.bones.map(name=>`<option value="${escape(name)}">`).join('');
   $('rootBone').placeholder=info.defaultRootBone;
+  $('binderMember').placeholder=info.clip||'The clip’s own name';
+  const binder=suggestedBinder();
+  if(binder&&(!$('binder').value.trim()||$('binder').value.trim()===autoBinder)){$('binder').value=binder;autoBinder=binder;saveSoon();}
  }
  renderActions();updateExportOptions();
 }
 function forgetScene(){sceneInfo=null;renderActions('');renderScene();}
+// The archive the clip came from, or a copy of it beside the HKX where the game's own files are protected.
+function suggestedBinder(){
+ const archive=sceneInfo?.archive;if(!archive)return '';
+ const output=$('outputHKX').value.trim();
+ return sceneInfo.archiveWritable?archive:output?joinPath(output.replace(/[\\/][^\\/]*$/,''),basename(archive)):'';
+}
+function binderNote(){
+ const binder=$('binder').value.trim(),name=$('binderMember').value.trim()||sceneInfo?.clip||'the clip’s own name',archive=sceneInfo?.archive||'';
+ if(!binder)return sceneInfo&&!archive?'This scene does not record the archive its clip came from. Choose the binder.':'Choose the binder to add the HKX to.';
+ const copy=archive&&!sceneInfo.archiveWritable&&!samePath(binder,archive)&&basename(binder).toLowerCase()===basename(archive).toLowerCase();
+ return `${name} replaces the clip of that name in ${basename(binder)}, or is added with a new ID.`+(copy?` The first export makes ${basename(binder)} as a copy of the game’s archive, which stays unchanged.`:'')+' The binder is kept as a .bak before its first change.';
+}
 function rangeNote(){
  const info=sceneInfo,mode=$('frameRange').value;
  if(!info)return mode==='clip'?'Samples frame 1 to the imported clip’s frame count.':'Read actions to preview the frames and list the scene’s actions.';
@@ -149,6 +167,7 @@ function rangeNote(){
 function updateExportOptions(){
  const root=$('rootMotion').value,tracks=$('trackSet').value,range=$('frameRange').value;
  $('parts-note').hidden=!$('exportParts').checked;
+ $('binder-fields').hidden=!$('addToBinder').checked;$('binder-note').textContent=binderNote();
  document.querySelectorAll('#range-buttons [data-range]').forEach(b=>{const on=b.dataset.range===range;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on));});
  $('custom-range').hidden=range!=='custom';$('root-bone-fields').hidden=root!=='bone';
  $('spline-options').hidden=document.querySelector('[name="format"]:checked')?.value!=='spline';
@@ -954,6 +973,12 @@ async function start(mode){
    const rate=$('frameRate').value.trim(),tolerance=$('tolerance').value.trim();
    if(rate&&!(+rate>=1&&+rate<=240)){$('sampling-options').open=true;throw Error('Choose an output frame rate between 1 and 240 fps, or leave it empty for the source rate.');}
    if(!$('spline-options').hidden&&tolerance&&!(+tolerance>=1e-6&&+tolerance<=.1))throw Error('Spline tolerance must be between 0.000001 and 0.1.');
+   if($('addToBinder').checked){
+    if(!$('binder').value.trim()&&suggestedBinder())$('binder').value=suggestedBinder();
+    requireFields(['binder']);
+    const name=$('binderMember').value.trim();
+    if(name&&!/^a\d{3}_\d{6}\.hkx$/i.test(name))throw Error('Name the HKX in the binder like the game’s clips, aXXX_YYYYYY.hkx, such as a050_002000.hkx.');
+   }
   }
   const extra={mode};if(mode!=='inspect')extra.force=$(mode+'-force').checked;
   await startJob(extra);toast({import:'Creating your Blender scene…',export:'Exporting your animation…',inspect:'Reading the scene in Blender…'}[mode]);
@@ -995,6 +1020,7 @@ function renderResult(value){
   if(readback)details+=` · readback max ${readback.maxRotationDegrees.toFixed(3)}°, ${(readback.maxTranslation*1000).toFixed(2)} mm${readback.maxRotationDegrees>.5||readback.maxTranslation>.005?' (may be visible; lower the spline tolerance)':''}`;
  }
  details+=partSummary(value.mode,r);
+ if(r.binder)details+=` · ${r.binder.replaced?'replaced':'added as new clip'} ${basename(r.binder.member)} in ${basename(r.binder.binder)}`;
  const warnings=r.warnings?.length?` · ${r.warnings.length} ${value.mode==='import'?'material':'export'} notice${r.warnings.length===1?'':'s'} (see Activity)`:'';
  box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(details+warnings)}</p></div>${value.mode==='import'?`<button type="button" class="secondary" data-open="blender">${icon('play')}Open Blender</button>`:''}<button type="button" class="secondary" data-open="reveal">${icon('folder')}Show file</button>`;
  box.querySelectorAll('[data-open]').forEach(el=>el.addEventListener('click',()=>openOutput(el.dataset.open,value.output)));
@@ -1159,7 +1185,7 @@ document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('chan
  }
  if(id==='game'&&folder)$('game').value=activeSource()?.game||'auto';
  if(id==='inputBlend')forgetScene();
- if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts'].includes(id))updateExportOptions();
+ if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts','addToBinder','binder','binderMember','outputHKX'].includes(id))updateExportOptions();
  if(['blender','writer','decoder','oodle'].includes(id))checkEnvironment();
  renderSceneHead();saveSoon();
 }));
