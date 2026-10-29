@@ -32,7 +32,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme','donor',
-        'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember'}
+        'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember','previewCache'}
 
 
 def find_blender():
@@ -65,7 +65,7 @@ def defaults():
         exportAction='', frameRange='scene', frameStart='', frameEnd='', frameRate='', trackSet='original', rootMotion='auto',
         rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
         sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, theme='auto',
-        partAnimations=True, exportParts=False, addToBinder=False, binder='', binderMember='')
+        partAnimations=True, exportParts=False, addToBinder=False, binder='', binderMember='', previewCache='standard')
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)
     if SETTINGS.is_file():
@@ -154,6 +154,50 @@ def clean_cache():
     return clean(CACHE,settings,CACHE_LOCK,lambda:not job_running())
 
 
+# Clips waiting for a background preview, nearest to the selected clip first: (catalog, folder, clip, preset).
+PREFETCH = []
+PREFETCH_WAKE = threading.Condition()
+
+
+def prefetch(data):
+    """Replace the clips that the background decodes next; an empty list stops it."""
+    clips = data.get('clips') or []
+    items = []
+    if clips:
+        path=Path(data['path']).resolve()
+        if path.parent != (CACHE/'catalogs').resolve(): raise ValueError('Invalid folder catalog.')
+        items=[(str(path),str(data['folder']),str(c['id']),str(c.get('preset') or 'auto')) for c in clips[:5000]]
+    with PREFETCH_WAKE:
+        PREFETCH[:]=items; PREFETCH_WAKE.notify_all()
+
+
+def prefetcher(index):
+    """Decode the waiting clips' previews into the cache, one at a time per worker.
+
+    Standard caching has one worker and aggressive caching two; none works while a conversion runs.
+    """
+    from asset_discovery import load_catalog, selection
+    from clip_preview import preview
+    catalogs={}
+    while True:
+        with PREFETCH_WAKE:
+            while True:
+                with LOCK: workers=2 if CONFIG.get('previewCache')=='aggressive' else 1
+                if PREFETCH and index<workers and not job_running(): break
+                PREFETCH_WAKE.wait(5)
+            path,folder,clip,preset=PREFETCH.pop(0)
+        try:
+            stamp=os.stat(path).st_mtime_ns
+            if catalogs.get(path,(None,))[0]!=stamp: catalogs={path:(stamp,load_catalog(path,folder))}
+            chosen=selection(catalogs[path][1],clip,preset)
+            with LOCK: decoder=CONFIG.get('decoder') or str(default_decoder()); oodle=CONFIG.get('oodle','')
+            preview({k:str(chosen.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
+                    decoder,CACHE/'previews',oodle)
+        except Exception:
+            # A clip that cannot be previewed shows its error when it is selected.
+            pass
+
+
 def snapshot():
     with LOCK:
         if not JOB: return None
@@ -201,6 +245,11 @@ class Handler(BaseHTTPRequestHandler):
     def send_json(self, obj, status=200):
         data=json.dumps(obj).encode(); self.send_response(status)
         self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store')
+        self.send_header('X-Content-Type-Options','nosniff'); self.end_headers(); self.wfile.write(data)
+    def send_gzip(self, data):
+        """Gzipped JSON as the cache stores it; the browser unpacks it."""
+        self.send_response(200); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Encoding','gzip')
+        self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff'); self.end_headers(); self.wfile.write(data)
     def authorized(self):
         host=f'127.0.0.1:{self.server.server_port}'
@@ -268,8 +317,11 @@ class Handler(BaseHTTPRequestHandler):
                 # The configured decoder only; the request names the clip's files.
                 from clip_preview import preview
                 decoder=CONFIG.get('decoder') or str(default_decoder())
-                return self.send_json(preview({k:str(data.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
-                                              decoder,CACHE/'previews',CONFIG.get('oodle',''),bool(data.get('storedOnly'))))
+                result=preview({k:str(data.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
+                               decoder,CACHE/'previews',CONFIG.get('oodle',''),bool(data.get('storedOnly')))
+                return self.send_json(None) if result is None else self.send_gzip(result)
+            if self.path=='/api/prefetch':
+                prefetch(data); return self.send_json({'ok':True})
             if self.path=='/api/part-clips':
                 from clip_preview import part_rows
                 catalog=None
@@ -397,6 +449,7 @@ def main():
     # The clip preview needs numpy; loading it now spares the first preview half a second.
     threading.Thread(target=lambda:__import__('numpy'),daemon=True).start()
     threading.Thread(target=clean_cache,daemon=True).start()
+    for index in range(2): threading.Thread(target=prefetcher,args=(index,),daemon=True).start()
     if not args.no_browser:
         open_browser(url)
         def stop_when_closed():

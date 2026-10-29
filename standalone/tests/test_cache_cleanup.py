@@ -62,11 +62,21 @@ class CacheCleanupTests(unittest.TestCase):
         folder = self.cache / 'previews'
         folder.mkdir()
         for index, name in enumerate(('newest', 'older', 'oldest')):
-            path = folder / f'{name}.json'
+            path = folder / f'{name}.json.gz'
             path.write_bytes(b'x' * 60)
             os.utime(path, (OLD - index, OLD - index))
         with unittest.mock.patch.object(cache_cleanup, 'PREVIEW_LIMIT', 130):
-            self.assertEqual([p.name for p in unused(self.cache, {})['previews']], ['oldest.json'])
+            self.assertEqual([p.name for p in unused(self.cache, {})['previews']], ['oldest.json.gz'])
+            # Aggressive caching keeps more.
+            self.assertEqual(unused(self.cache, dict(previewCache='aggressive'))['previews'], [])
+
+    def test_previews_of_an_older_bridge_and_staging_files_go(self):
+        folder = self.cache / 'previews'
+        folder.mkdir()
+        for name, age in (('old.json', OLD), ('left.json.gz.1-2.tmp', OLD), ('writing.json.gz.3-4.tmp', time.time()), ('kept.json.gz', OLD)):
+            (folder / name).write_bytes(b'x')
+            os.utime(folder / name, (age, age))
+        self.assertEqual(sorted(p.name for p in unused(self.cache, {})['previews']), ['left.json.gz.1-2.tmp', 'old.json'])
 
     def test_cleanup_stops_when_it_is_no_longer_allowed(self):
         self.archive('e' * 24)

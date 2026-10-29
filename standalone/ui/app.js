@@ -106,7 +106,14 @@ function setValues(data){
  document.querySelectorAll('[data-config]').forEach(el=>{if(el.type==='checkbox')el.checked=!!data[el.id];else el.value=data[el.id]||selectDefaults[el.id]||'';});
  document.querySelectorAll('[name="format"]').forEach(el=>el.checked=el.value===data.format);
  $('import-force').checked=!!data.force;$('export-force').checked=!!data.force;
- applyTheme(data.theme||'auto');toggleCharacter();updateExportOptions();
+ applyTheme(data.theme||'auto');applyCacheMode(data.previewCache);toggleCharacter();updateExportOptions();
+}
+function applyCacheMode(mode){
+ mode=mode==='aggressive'?mode:'standard';
+ document.querySelectorAll('[data-cache-choice]').forEach(b=>{const on=b.dataset.cacheChoice===mode;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on));});
+ $('cache-mode-note').textContent=mode==='aggressive'
+  ?'Prepares every clip of the list, two at a time, nearest to the selection first. Keeps up to 2 GB of previews. Uses more processor time while the list is open.'
+  :'Prepares the two clips on each side of the selected one. Keeps up to 256 MB of previews.';
 }
 function applyTheme(theme){
  if(theme==='light'||theme==='dark')document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme;
@@ -364,6 +371,11 @@ function selectClip(id,delay=0){
  selection=null;resolving=!!clip?.ready;resolveSequence++;renderSceneHead();
  clearTimeout(resolveTimer);resolveTimer=setTimeout(()=>resolveClip(false),delay);
 }
+// Wolf keeps a chosen Wolf preset; other characters take the player or NPC preset.
+function clipPreset(clip,current){
+ const wolf=clip.character==='c0000'&&clip.game==='sekiro';
+ return wolf?(['wolf','tutorial','mortal'].includes(current)?current:'wolf'):clip.character==='c0000'?'player':'npc';
+}
 async function resolveClip(restore=false){
  const clip=inputMethod==='folder'?currentClip():null,seq=++resolveSequence,weapon=pendingWeapon;pendingWeapon='';
  if(!clip||!clip.ready){
@@ -375,9 +387,7 @@ async function resolveClip(restore=false){
  resolving=true;renderSceneHead();
  try{
   const state=activeSource()?.state||{},current=restore?state.preset||$('preset').value:$('preset').value;
-  const wolf=clip.character==='c0000'&&clip.game==='sekiro';
-  const preset=wolf?(['wolf','tutorial','mortal'].includes(current)?current:'wolf'):clip.character==='c0000'?'player':'npc';
-  const resolved=await api('resolve',{path:catalogPath,folder:catalog.folder,clip:clip.id,preset});
+  const resolved=await api('resolve',{path:catalogPath,folder:catalog.folder,clip:clip.id,preset:clipPreset(clip,current)});
   if(seq!==resolveSequence)return;
   selection=resolved;
   for(const key of ['animation','skeleton','compendium','skeletonCompendium','characterSource','preset'])$(key).value=resolved[key]||'';
@@ -629,21 +639,32 @@ function schedulePreview(){
  const key=!ready?'wait:'+waiting:$('preview-block').open?JSON.stringify(inputs):'closed';
  if(key===previewKey)return;
  previewKey=key;clearTimeout(previewTimer);const seq=++previewSequence;
- if(!ready){ClipPreview.clear(waiting);$('preview-summary').textContent='The clip’s skeleton, before import';return;}
- if(key==='closed'){ClipPreview.pause();return;}
+ if(!ready){ClipPreview.clear(waiting);$('preview-summary').textContent='The clip’s skeleton, before import';prefetchClips(false);return;}
+ if(key==='closed'){ClipPreview.pause();prefetchClips(false);return;}
  ClipPreview.clear('Reading the clip…');
  let shown=false;
  const show=data=>{
   if(seq!==previewSequence||shown)return;shown=true;clearTimeout(previewTimer);
   ClipPreview.show(data);
   $('preview-summary').textContent=`${data.skeleton} · ${plural(data.bones.length,'bone')} · ${plural(data.frameCount,'frame')} at ${formatNumber(data.frameRate)} fps${data.root?' · root motion':''}`;
+  prefetchClips(folder);
  };
  // A clip previewed before shows at once from the cache; decoding waits until the selection settles.
  api('preview',{...inputs,storedOnly:true}).then(data=>{if(data)show(data);},()=>{});
  previewTimer=setTimeout(async()=>{
   try{show(await api('preview',inputs));}
-  catch(e){if(seq!==previewSequence||shown)return;previewKey='';ClipPreview.clear(e.message,'error');}
+  catch(e){if(seq!==previewSequence||shown)return;previewKey='';ClipPreview.clear(e.message,'error');prefetchClips(folder);}
  },300);
+}
+// Once the selected clip shows, the bridge decodes the clips around it in the background, nearest first:
+// two on each side, or with aggressive caching the whole list.
+let prefetchKey='';
+function prefetchClips(on){
+ const index=on?clipView.findIndex(c=>c.id===clipId):-1,aggressive=config.previewCache==='aggressive',order=[];
+ if(index>=0)for(let d=1;d<=(aggressive?clipView.length:2)&&order.length<5000;d++)for(const i of [index+d,index-d])if(clipView[i]?.ready)order.push(clipView[i]);
+ const current=$('preset').value,clips=order.map(c=>({id:c.id,preset:clipPreset(c,current)}));
+ const key=JSON.stringify([catalogPath,clips]);if(key===prefetchKey)return;prefetchKey=key;
+ api('prefetch',clips.length?{path:catalogPath,folder:catalog.folder,clips}:{clips}).catch(()=>{prefetchKey='';});
 }
 function schedulePartClips(){
  const folder=inputMethod==='folder',clip=folder?currentClip():null,animation=$('animation').value.trim();
@@ -1106,6 +1127,8 @@ document.addEventListener('click',event=>{
  if((el=hit('[data-action]'))){$('exportAction').value=el.dataset.action;renderActions();updateExportOptions();return saveSoon();}
  if((el=hit('[data-range]'))){$('frameRange').value=el.dataset.range;updateExportOptions();return saveSoon();}
  if((el=hit('[data-theme-choice]'))){config.theme=el.dataset.themeChoice;applyTheme(config.theme);return saveSoon();}
+ if((el=hit('[data-cache-choice]'))){config.previewCache=el.dataset.cacheChoice;applyCacheMode(config.previewCache);saveSoon();
+  prefetchClips(inputMethod==='folder'&&$('preview-block').open&&!!selection);return setTimeout(measureCache,700);}
  if((el=hit('[data-input]')))return el.dataset.input!==(partView&&inputMethod==='folder'?'parts':inputMethod)&&setInputMethod(el.dataset.input);
  if((el=hit('[data-layout]'))){setDialogLayout(el.dataset.layout);return checkFolders();}
  if((el=hit('[data-nested]'))){$('src-path').value=el.dataset.nested;nameTouched=false;return detectPath();}

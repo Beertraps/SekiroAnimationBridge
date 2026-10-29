@@ -4,23 +4,32 @@ The part view asks the other way round: the clips of a Sekiro weapon part, each
 with the player clips that it plays with.
 
 The HKX decoder reads the clip; each bone's world position per frame is sent to
-the page in game space (Y up), rounded to 0.1 mm, with the root motion. Nothing is
-written beside the inputs: decoded files go to a temporary folder, and results are
-cached in the bridge's work folder by input file and decoder.
+the page in game space (Y up), rounded to 0.1 mm, with the root motion. A decoder
+with a preview mode (0.6.0 and later) computes them itself; for an older one they
+are computed here from its motion JSON. Nothing is written beside the inputs:
+decoded files go to a temporary folder, and results are cached gzipped in the
+bridge's work folder by input file and decoder, ready to send as they are.
 """
 from __future__ import annotations
+import gzip
 import hashlib
 import json
 import math
 import os
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 # Joint samples per preview; a longer clip keeps only every second (third, ...) frame.
 LIMIT = 250_000
-VERSION = 2
+VERSION = 3
 _OODLE = []
+_MODES = {}
+# Previews being decoded, by cache file: a second request for one waits for it.
+_RUNNING = {}
+_RUNNING_LOCK = threading.Lock()
+HIDDEN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 
 def use_oodle(path=''):
@@ -61,15 +70,17 @@ def joint_positions(motion):
     import numpy as np
     bones = motion['skeleton']['bones']
     parents = [int(bone['parent']) for bone in bones]
-    tracks = [int(index) for index in motion['trackBoneIndices']]
+    # A track that no bone takes (-1) is left out.
+    mapped = [(track, int(bone)) for track, bone in enumerate(motion['trackBoneIndices']) if 0 <= int(bone) < len(bones)]
     frames = motion['frames']
     if not frames:
         return []
     rest = matrices(*(np.array([bone[key] for bone in bones], dtype=float) for key in ('rotation', 'scale', 'translation')))
     local = np.repeat(rest[None], len(frames), axis=0)
-    if tracks:
-        local[:, tracks] = matrices(*(np.array([[sample[key] for sample in frame] for frame in frames], dtype=float)
-                                      for key in ('rotation', 'scale', 'translation')))
+    if mapped:
+        tracks, targets = zip(*mapped)
+        local[:, list(targets)] = matrices(*(np.array([[frame[track][key] for track in tracks] for frame in frames], dtype=float)
+                                             for key in ('rotation', 'scale', 'translation')))
     world = np.empty_like(local)
     for index, parent in enumerate(parents):
         if parent < 0:
@@ -103,32 +114,68 @@ def cache_key(paths, decoder):
     return hashlib.sha1(json.dumps(parts).encode('utf-8')).hexdigest()[:24]
 
 
-def decode(paths, decoder, oodle=''):
-    """Decode a clip with its skeleton into the bridge's motion JSON, through a temporary folder."""
+def preview_mode(decoder):
+    """Whether the decoder writes the preview itself, asked once per decoder file."""
+    stat = Path(decoder).stat()
+    key = (str(decoder), stat.st_size, stat.st_mtime_ns)
+    if key not in _MODES:
+        try:
+            run = subprocess.run([str(decoder), '--version'], capture_output=True, text=True, timeout=30, creationflags=HIDDEN)
+            _MODES[key] = 'preview' in run.stdout
+        except (OSError, subprocess.TimeoutExpired):
+            _MODES[key] = False
+    return _MODES[key]
+
+
+def decode(paths, decoder, oodle='', samples=0):
+    """The decoder's output for a clip with its skeleton, read through a temporary folder.
+
+    That is the bridge's motion JSON, or with samples the finished preview of at
+    most that many joint samples.
+    """
     animation, skeleton, compendium, skeleton_compendium = paths
     with tempfile.TemporaryDirectory(prefix='SekiroBridgePreview-') as scratch:
         temp = Path(scratch)
+        (temp / 'clip').mkdir()
         inputs = []
-        for path, name in ((animation, 'clip.hkx'), (skeleton, 'skeleton.hkx')):
+        # The clip keeps its name, which the decoder writes into the preview.
+        for path, target in ((animation, temp / 'clip' / Path(animation).name), (skeleton, temp / 'skeleton.hkx')):
             data = Path(path).read_bytes()
             if data[:4] in (b'DCX\0', b'DCP\0'):
                 from dcx_codec import unwrap
                 use_oodle(oodle)
                 data = unwrap(data)[0]
-            (temp / name).write_bytes(data)
-            inputs.append(temp / name)
+            target.write_bytes(data)
+            inputs.append(target)
         output = temp / 'motion.json'
-        args = [decoder, inputs[0], compendium or '-', inputs[1], output] + ([skeleton_compendium] if skeleton_compendium else [])
-        run = subprocess.run([str(a) for a in args], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120,
-                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        args = (['--preview', samples] if samples else []) + [inputs[0], compendium or '-', inputs[1], output]
+        args += [skeleton_compendium] if skeleton_compendium else []
+        run = subprocess.run([str(a) for a in [decoder, *args]], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                             timeout=120, creationflags=HIDDEN)
         if run.returncode or not output.is_file():
             lines = [line for line in (run.stdout + '\n' + run.stderr).splitlines() if line.strip()]
             raise ValueError('The decoder could not read this clip for the preview' + (': ' + lines[-1] if lines else '.'))
-        return json.loads(output.read_text(encoding='utf-8-sig'))
+        return output.read_bytes()
+
+
+def computed(paths, decoder, oodle=''):
+    """The preview JSON computed here from the motion of a decoder without a preview mode."""
+    motion = json.loads(decode(paths, decoder, oodle).decode('utf-8-sig'))
+    bones = motion['skeleton']['bones']
+    count = int(motion['frameCount'])
+    step = max(1, math.ceil(count * len(bones) / LIMIT))
+    positions = joint_positions(dict(motion, frames=motion['frames'][::step]))
+    root = motion.get('rootMotion')
+    result = dict(clip=Path(paths[0]).name, skeleton=motion['skeletonName'], frameCount=count,
+                  frameRate=float(motion['frameRate']), duration=float(motion.get('duration') or (count - 1) / float(motion['frameRate'])),
+                  frameStep=step, bones=[bone['name'] for bone in bones], parents=[int(bone['parent']) for bone in bones],
+                  tracks=len(motion['trackBoneIndices']), positions=positions, detached=detached(positions, len(bones)),
+                  root=[[round(float(v), 4) for v in sample[:4]] for sample in root[::step]] if root else None)
+    return json.dumps(result, separators=(',', ':')).encode('utf-8')
 
 
 def preview(selection, decoder, cache, oodle='', stored_only=False):
-    """Joint positions of a clip for the UI's skeleton preview, cached by its inputs.
+    """Joint positions of a clip for the UI's skeleton preview as gzipped JSON, cached by its inputs.
 
     With stored_only, only a cached preview is returned, and None when there is none.
     """
@@ -142,33 +189,37 @@ def preview(selection, decoder, cache, oodle='', stored_only=False):
     if not decoder or not Path(decoder).is_file():
         raise ValueError('The HKX decoder is missing. Open Setup to choose it.')
     cache = Path(cache)
-    stored = cache / (cache_key(paths, decoder) + '.json')
-    if stored.is_file():
+    stored = cache / (cache_key(paths, decoder) + '.json.gz')
+    for attempt in range(2):
         try:
-            result = json.loads(stored.read_text(encoding='utf-8'))
+            data = stored.read_bytes()
             # Cache cleanup removes the previews shown least recently first.
             os.utime(stored)
-            return result
-        except (OSError, ValueError):
+            return data
+        except OSError:
             pass
-    if stored_only:
-        return None
-    motion = decode(paths, decoder, oodle)
-    bones = motion['skeleton']['bones']
-    count = int(motion['frameCount'])
-    step = max(1, math.ceil(count * len(bones) / LIMIT))
-    positions = joint_positions(dict(motion, frames=motion['frames'][::step]))
-    root = motion.get('rootMotion')
-    result = dict(clip=Path(paths[0]).name, skeleton=motion['skeletonName'], frameCount=count,
-                  frameRate=float(motion['frameRate']), duration=float(motion.get('duration') or (count - 1) / float(motion['frameRate'])),
-                  frameStep=step, bones=[bone['name'] for bone in bones], parents=[int(bone['parent']) for bone in bones],
-                  tracks=len(motion['trackBoneIndices']), positions=positions, detached=detached(positions, len(bones)),
-                  root=[[round(float(v), 4) for v in sample[:4]] for sample in root[::step]] if root else None)
-    cache.mkdir(parents=True, exist_ok=True)
-    staging = stored.with_suffix('.tmp')
-    staging.write_text(json.dumps(result, separators=(',', ':')), encoding='utf-8')
-    staging.replace(stored)
-    return result
+        if stored_only:
+            return None
+        with _RUNNING_LOCK:
+            running = _RUNNING.get(stored)
+            if running is None:
+                _RUNNING[stored] = threading.Event()
+                break
+        # Prefetch or another request decodes this clip already: use its result.
+        running.wait(150)
+    else:
+        raise ValueError('The preview of this clip could not be read. Try again.')
+    try:
+        data = decode(paths, decoder, oodle, LIMIT) if preview_mode(decoder) else computed(paths, decoder, oodle)
+        data = gzip.compress(data, compresslevel=1)
+        cache.mkdir(parents=True, exist_ok=True)
+        staging = stored.with_name(f'{stored.name}.{os.getpid()}-{threading.get_ident()}.tmp')
+        staging.write_bytes(data)
+        staging.replace(stored)
+        return data
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING.pop(stored).set()
 
 
 def part_rows(catalog, clip_id, animation, models, oodle=''):

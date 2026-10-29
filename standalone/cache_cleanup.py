@@ -19,6 +19,8 @@ from contextlib import nullcontext
 from pathlib import Path
 
 PREVIEW_LIMIT = 256 * 1024 * 1024
+# Aggressive preview caching decodes whole clip lists ahead, and keeps more of them.
+AGGRESSIVE_LIMIT = 2 * 1024 * 1024 * 1024
 RECENT = 600
 ARCHIVE = re.compile(r'archives[\\/]+([0-9a-f]{24})[\\/]')
 
@@ -61,6 +63,10 @@ def catalogs_in_use(settings):
     return {Path(name).name.lower() for name in names if name}
 
 
+def preview_limit(settings):
+    return AGGRESSIVE_LIMIT if settings.get('previewCache') == 'aggressive' else PREVIEW_LIMIT
+
+
 def unused(cache, settings, now=None):
     """The catalogs, archive folders and previews that cleanup would remove."""
     cache, now = Path(cache), time.time() if now is None else now
@@ -73,11 +79,14 @@ def unused(cache, settings, now=None):
             catalogs.append(path)
     folders = sorted(p for p in (cache / 'archives').glob('*') if p.is_dir()) if (cache / 'archives').is_dir() else []
     archives = [p for p in folders if p.name not in listed and old(p)]
-    previews, kept = [], 0
-    stored = sorted((cache / 'previews').glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True) if (cache / 'previews').is_dir() else []
+    previews, kept, limit = [], 0, preview_limit(settings)
+    stored = sorted((p for p in (cache / 'previews').glob('*') if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True) \
+        if (cache / 'previews').is_dir() else []
     for path in stored:
-        kept += path.stat().st_size
-        if kept > PREVIEW_LIMIT and old(path):
+        # Previews of an older bridge (.json) are never read again, nor is a staging file left by a crash.
+        current = path.name.endswith('.json.gz')
+        kept += path.stat().st_size if current else 0
+        if (kept > limit or not current) and old(path):
             previews.append(path)
     return dict(catalogs=catalogs, archives=archives, previews=previews)
 
