@@ -1,3 +1,26 @@
+# Unreleased — import from other games: Devil May Cry 5 — 2026-10-29
+
+## Registry, adapters and source spaces
+
+- `test_interchange.py` (13 tests): the motion, manifest and preview schemas accept the bridge's own documents of versions 1, 2, 4 and 5 and reject broken ones; `Space` maps vectors, quaternions, scales and matrices both ways, and the FromSoftware space gives the 0.13 Y/Z swap exactly.
+- `test_adapters.py` (15 tests), with a stand-in decoder and a made-up natives tree: the registry's IDs, engines and capabilities; `games.foreign()` sends RE Engine catalogs, selections and motions to the RE adapter and keeps FromSoftware documents; detection of a natives folder by file versions (chosen as the folder, `natives` or `natives/x64`) and of a game folder by `DevilMayCry5.exe` with its PAKs in patch order; scan, inventory, selection (body, first head, first hair) and decode through `asset_discovery`; loose files replace packed ones; DMC5 material slots, Null textures, hidden eye layers and channel-packed alpha; requests with unknown games, export of import-only games and sampled RE Engine clips are refused.
+- `test_retarget_mapping.py`: the new RE Engine naming fixture (`humanoids.re_engine`: `Hip`, `Waist`/`Stomach`/`Chest`, `L_Shin`, `L_IndexF1`, a palm bone, `_SS`/`_SR`/`_offset` helpers) pairs every core bone and finger with every other convention, and its body is found by name.
+- `blender_source_spaces.py`, new: on 200 random samples, `game_to_bl_trs` and `bl_to_game_trs` give the 0.13 results exactly. An RE Engine clip, and one with `unitScale` 0.01, import with bone rests and poses equal to `C · M · C⁻¹` within 1e-4, root motion in the source's space, and export with the same frames, root motion and basis. A version 5 manifest builds its mesh in the RE space without reversed winding, its model-only bone from quaternions, no bind adapter for a matching bind pose, `Devil May Cry 5 / …` materials, an opacity texture channel, a fixed opacity and channel-packed alpha.
+- All 171 unit tests pass in the writer environment, and Blender 4.5.14 with `--factory-startup` passes all 22 scripts.
+
+## Devil May Cry 5, on the game's own files
+
+Steam install, read only, with `DMC5_STM_Release.list` and the RE Engine decoder 0.1.0 built from REE-Lib `383be0b`:
+
+- Detection takes 0.2 s and counts 471 motlists, 288 meshes and 1040 mdf2 files listed in the PAKs. The scan lists 47 characters, among them Nero, Dante, V, Vergil, Lady and Trish. Reading Dante's 29 motlists gives 968 clips, 855 of them with bone animation, in 4.8 s. The preview of `pl0100_Idle_Normal` has 89 bones and 259 frames at 60 fps.
+- Import of `pl0100_Idle_Normal` with body, head and hair: 127,260 vertices, 173,258 triangles and 32 textures; 36 s the first time, 14.5 s once the files are in the cache. The rig has 458 bones: the body's 339 and 119 that head and hair add. No part needed a bind adapter. The decoder notes 14 coat and shoulder helper bones that the clip animates and the body mesh lacks.
+- In the scene: 1.93 m tall with the hair, the `Head` bone at 1.74 m; the `L_` bones lie at +0.215 m X on average and the `R_` bones at −0.198 m, so the character is not mirrored; toes point to −Y, Blender's front; the body's face normals point outward. An EEVEE render shows the red coat, skin, gloves, boots and white hair. Before `packedAlpha`, every non-metal surface rendered black, because the ALBM alpha (metalness) acted as opacity of the color.
+- Retarget: Wolf (`c0000`, `a000_000000`) from the Sekiro install with Dante's idle as the donor imports in 21.7 s. **Match bones automatically** pairs 56 of Wolf's 114 rows, body and fingers (32 before the RE finger names were read). The bake keeps upper arm, forearm, thigh and shin directions equal to Dante's on every 16th frame (0.00°), and the spine-to-neck line within 3.5°. The add-on's export gives Sekiro motion JSON (version 1, no basis) with 259 frames at 60 fps and 114 tracks; the bridge wrote it as interleaved HKX and read it back with at most 2.4e-6° rotation error.
+- Exporting the DMC5 scene itself stops after sampling with the message that the bridge cannot write DMC5's format and should retarget first.
+- Two defects found this way and fixed: the add-on's bake stopped on an unmapped finger (`None in source.data.bones`), and a DMC5 donor had no `animation` path for the same-clip check.
+
+Not checked: game playback of the retargeted HKX; DMC5's normal-map green direction (DirectX assumed; the render looks right but was not compared with the game); mirrored clips; enemy models; an extracted natives folder with real files (synthetic only); Resident Evil 2; the release workflow's new decoder step, which runs only on GitHub; the UI beyond `node --check` and the API checks listed in the commit.
+
 # 0.13.0 — export into the animation binder, join animations, Wolf's katana, alternate model meshes, and c1070 skin
 
 ## Export into the animation binder, Join animations, Animate tab

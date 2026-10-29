@@ -247,6 +247,29 @@ def fromsoftware(arm_angle=45.0, layout='elden'):
     return build(joints, names, parents, extra)
 
 
+def re_engine(arm_angle=0.0):
+    """RE Engine (Devil May Cry 5) style: root > Null_Offset > Hip, Waist/Stomach/Chest, Shin for the calf, fingers named
+    IndexF1-F3 with ring and pinky below a palm bone, and _SS/_SR/_offset helpers beside the joints."""
+    joints = base(arm_angle)
+    names = {'hips': 'Hip', 'spine.first': 'Waist', 'spine.mid': 'Stomach', 'spine.last': 'Chest', 'neck': 'Neck', 'head': 'Head'}
+    extra = [('root', '', (0, 0, 0)), ('Null_Offset', 'root', (0, 0, 0)), ('Neck_SR', 'Chest', joints['neck'][1])]
+    parents = {'hips': 'Null_Offset'}
+    for side in 'LR':
+        names.update({f'{side}.clavicle': f'{side}_Shoulder', f'{side}.upperarm': f'{side}_UpperArm', f'{side}.forearm': f'{side}_Forearm',
+                      f'{side}.hand': f'{side}_Hand', f'{side}.thigh': f'{side}_Thigh', f'{side}.calf': f'{side}_Shin',
+                      f'{side}.foot': f'{side}_Foot', f'{side}.toe': f'{side}_Toe'})
+        for finger in FINGERS:
+            for segment in (1, 2, 3):
+                names[f'{side}.{finger}.{segment}'] = f'{side}_{finger.title()}F{segment}'
+        palm = between(joints, f'{side}.hand', f'{side}.ring.1', .4)
+        extra += [(f'{side}_Palm', f'{side}_Hand', palm),
+                  (f'{side}_RingF1_SS', f'{side}_RingF1', joints[f'{side}.ring.1'][1]),
+                  (f'{side}_UpperArm_twistX1_offset', f'{side}_UpperArm', between(joints, f'{side}.upperarm', f'{side}.forearm')),
+                  (f'{side}_Shin_SR', f'{side}_Thigh', joints[f'{side}.calf'][1])]
+        parents.update({f'{side}.ring.1': f'{side}_Palm', f'{side}.pinky.1': f'{side}_Palm'})
+    return build(joints, names, parents, extra)
+
+
 def proportioned(spine=3, clavicles=True, twists=False, legs=1.0, thighs=None, arms=(1.0, 1.0), hips=1.0, arm_angle=0.0):
     """A humanoid of other proportions and bone counts than base(), for the full-body bake.
 
@@ -333,7 +356,8 @@ def with_foot_targets(bones):
 
 
 CONVENTIONS = dict(mixamo=mixamo, unreal=unreal, biped=biped, vroid=vroid, character_creator=character_creator,
-                   rigify=rigify, daz=daz, elden=lambda: fromsoftware(45, 'elden'), souls=lambda: fromsoftware(0, 'souls'))
+                   rigify=rigify, daz=daz, elden=lambda: fromsoftware(45, 'elden'), souls=lambda: fromsoftware(0, 'souls'),
+                   re_engine=re_engine)
 
 
 def scrambled(bones, seed=1, prefix='Bone'):

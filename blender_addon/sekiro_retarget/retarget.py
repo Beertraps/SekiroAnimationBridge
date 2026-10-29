@@ -2209,9 +2209,9 @@ def bake(scene, settings):
                 # stance, too, which would otherwise turn them toward the source's rest pose.
                 other = target_body.get(('L' if hand == target_body.get(('R', 'hand')) else 'R', 'hand'))
                 item['hands'] = []
-                for holder in [hand] + ([other] if other and bone_map.get(other) in source.data.bones else []):
+                for holder in [hand] + ([other] if other and bone_map.get(other, '') in source.data.bones else []):
                     digits = sorted((bone for bone in subtree(bones, holder) - subtree(bones, name) if bone in models[target].fingers
-                                     and bone_map.get(bone) in source.data.bones), key=lambda bone: len(bones[bone].parent_recursive))
+                                     and bone_map.get(bone, '') in source.data.bones), key=lambda bone: len(bones[bone].parent_recursive))
                     item['hands'].append((holder, bone_map[holder], target_rest[holder].to_quaternion().inverted() @ rotation @
                                           source_rest_rotation[bone_map[holder]],
                                           [(bone, bone_map[bone], source_rest_rotation[bone_map[bone]].inverted() @ rotation.inverted() @

@@ -421,6 +421,11 @@ class Rig:
                 role = None
             if role:
                 candidates.setdefault((info.side if role in LIMBS else '', role), []).append(info.name)
+        if ('', 'hips') not in candidates:
+            # RE Engine calls its pelvis Hip, without a side. Daz's hip above its pelvis stays a helper.
+            centre = [info.name for info in self.bones.values() if info.letters == 'hip' and not info.side]
+            if centre:
+                candidates[('', 'hips')] = centre
         for key, names in candidates.items():
             chosen = self.shallowest(names)
             if chosen:
@@ -473,7 +478,8 @@ class Rig:
             value = digits[0]
             return int(value[0]), 1 if len(value) == 1 else int(value[1:]) + 1
         if letters and letters[0] in FINGERS:
-            if letters[1:] in ([], ['proximal'], ['intermediate'], ['distal'], ['metacarpal']):
+            # RE Engine names its segments IndexF1 to IndexF3.
+            if letters[1:] in ([], ['f'], ['proximal'], ['intermediate'], ['distal'], ['metacarpal']):
                 segment = {'proximal': 1, 'intermediate': 2, 'distal': 3, 'metacarpal': 0}.get(
                     letters[1] if len(letters) > 1 else '', int(digits[0]) if digits else 1)
                 return FINGERS[letters[0]], segment
