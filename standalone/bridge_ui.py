@@ -34,7 +34,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'textureDirectory','preset','outputBlend','inputBlend','outputHKX','format','includeCharacter','openWhenDone','force','models','previewTexture','lastImportedBlend',
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
-        'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','theme','donor',
+        'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','theme','donor',
         'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember','previewCache'}
 
 
@@ -67,7 +67,7 @@ def defaults():
         outputHKX=str(HOME/'work/wolf_animation_edited.hkx'), format='interleaved',
         exportAction='', frameRange='scene', frameStart='', frameEnd='', frameRate='', trackSet='original', rootMotion='auto',
         rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
-        sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, theme='auto',
+        sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, sourceFileList='', theme='auto',
         partAnimations=True, exportParts=False, addToBinder=False, binder='', binderMember='', previewCache='standard')
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)

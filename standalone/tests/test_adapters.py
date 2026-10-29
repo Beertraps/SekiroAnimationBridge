@@ -97,6 +97,33 @@ class GameChecks(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Retarget the animation'):
                 refuse_import_only(document)
 
+    def test_the_workspace_passes_the_file_list_to_its_jobs(self):
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        import bridge_ui
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        started = []
+        for name, value in (('SETTINGS', Path(temp.name) / 'ui-settings.json'), ('SOURCES', Path(temp.name) / 'ui-sources.json'),
+                            ('CONFIG', {}), ('JOB', None), ('worker', lambda job, request: started.append(request))):
+            patcher = mock.patch.object(bridge_ui, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), bridge_ui.Handler)
+        server.token = 'token'
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=30)
+        self.addCleanup(connection.close)
+        request = dict(mode='discover', assetFolder=r'C:\Games\Devil May Cry 5', writer='python.exe', game='auto',
+                       sourceFileList=r'C:\Lists\DMC5_STM_Release.list')
+        connection.request('POST', '/api/job', json.dumps(request).encode(), {'Content-Type': 'application/json', 'X-Bridge-Token': 'token'})
+        self.assertEqual(connection.getresponse().status, 200)
+        # A PAK source scans only with its file list, so the server must keep it in the job's request.
+        self.assertEqual([r.get('sourceFileList') for r in started], [request['sourceFileList']])
+
 
 class ReEngineSource(unittest.TestCase):
     def setUp(self):

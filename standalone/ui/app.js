@@ -256,7 +256,7 @@ async function activateSource(id,restore=false){
 async function scanSource(source=activeSource()){
  if(!source)return openSourceDialog();
  try{
-  await startJob({mode:'discover',assetFolder:source.path,assetCatalog:'',sourceLayout:source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,game:source.game||'auto'},{source:source.id});
+  await startJob({mode:'discover',assetFolder:source.path,assetCatalog:'',sourceLayout:source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,sourceFileList:source.fileList||'',game:source.game||'auto'},{source:source.id});
   if(scanProblem?.source===source.id)scanProblem=null;
   renderLibrary();toast(`Scanning ${source.name}. Progress is shown below.`);
  }catch(e){toast(e.message,true);}
@@ -617,7 +617,7 @@ function renderSceneHead(){
 }
 
 /* Retarget donor: a pinned second animation that the import places beside the selected one */
-const donorKeys=['inputMethod','assetFolder','assetCatalog','sourceLayout','sourceFolders','sourceRecursive','game','assetCharacter','assetClip',
+const donorKeys=['inputMethod','assetFolder','assetCatalog','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','game','assetCharacter','assetClip',
  'animation','compendium','skeleton','skeletonCompendium','characterSource','preset','models','modelMasks','includeCharacter','materialBinder','textureDirectory','referenceModel','weaponAttachments'];
 function donorIsCurrent(){
  const d=config.donor,source=activeSource();if(!d)return false;
