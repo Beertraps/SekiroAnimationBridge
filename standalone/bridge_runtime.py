@@ -113,7 +113,8 @@ def writer_arguments(request, fmt, stats):
 def discover_source(request, notify=event):
     from asset_discovery import discover
     return discover(request.get('assetFolder', ''), HOME/'work/asset-cache', notify, request.get('oodle', ''), request.get('game', 'auto'),
-                    request.get('sourceLayout') or 'folder', request.get('sourceFolders'), request.get('sourceRecursive', True))
+                    request.get('sourceLayout') or 'folder', request.get('sourceFolders'), request.get('sourceRecursive', True),
+                    request.get('sourceFileList', ''))
 
 
 def catalog_file(request):
@@ -268,8 +269,29 @@ def add_donor_report(report, donor):
     return report
 
 
+def check_games(request):
+    """The request's games come from the registry; export needs a game whose animation format the bridge writes.
+
+    The CLI passes its game options through unchecked, so the registry is the one list of games.
+    """
+    from games import BY_ID
+    supported = ', '.join(['auto', *BY_ID])
+    for key in ('game', 'exportGame'):
+        value = request.get(key) or 'auto'
+        if value != 'auto' and value not in BY_ID:
+            raise ValueError(f'Unknown game {value!r} in {key}. Supported: {supported}.')
+    donor = request.get('donor')
+    if isinstance(donor, dict) and (donor.get('game') or 'auto') not in ('auto', *BY_ID):
+        raise ValueError(f"Unknown donor game {donor['game']!r}. Supported: {supported}.")
+    export = request.get('exportGame') or 'auto'
+    if request.get('mode') in ('export', 'write') and export != 'auto' and not BY_ID[export].capabilities.export:
+        from build_animation import export_refusal
+        raise ValueError(export_refusal(export))
+
+
 def convert(request):
     mode = request.get('mode', 'import')
+    check_games(request)
     from dcx_codec import configure_oodle
     configure_oodle(request.get('oodle', ''))
     if mode == 'discover':
@@ -342,6 +364,11 @@ def convert(request):
                     if catalog['layout'] != 'folder':
                         # A mod's archive may change between imports; read it again instead of using stale members.
                         catalog, clip = refresh_clip(path, catalog, clip, cache, event, request.get('oodle', ''))
+                from games import foreign
+                if other := foreign(catalog):
+                    # Another engine's game: its adapter decodes the clip and prepares the character.
+                    request['assetClip'] = clip
+                    return other.prepare(request, path, catalog, temp, event)
                 if not any(c['id'] == clip for c in catalog['clips']):
                     catalog = character_clips(catalog, character)
                 resolved = selection(catalog, clip, request.get('preset', 'auto'))
@@ -527,10 +554,12 @@ def atomic_copy(source, target):
 
 
 def remember_location():
-    """Record this installation so the Blender retarget add-on can find the exporter."""
+    """Record this installation and its games so the Blender retarget add-on can find the exporter."""
     try:
         APP.mkdir(parents=True, exist_ok=True)
         (APP / 'bridge-location.json').write_text(json.dumps(dict(folder=str(HERE))), encoding='utf-8')
+        from games import write_registry
+        write_registry(APP / 'games.json')
     except OSError:
         pass
 

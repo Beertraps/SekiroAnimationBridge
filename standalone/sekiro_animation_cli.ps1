@@ -7,8 +7,11 @@ param(
     [string]$Animation,[string]$Compendium,[string]$Skeleton,[string]$SkeletonCompendium,
     [string]$AssetFolder,[string]$AssetCatalog,[string]$AssetClip,[string]$AssetCharacter,[string]$OodleDll,
     [ValidateSet('auto','folder','game','custom')][string]$SourceLayout='folder',[string]$SourceLayoutFile,
+    # A packed RE Engine game reads its PAK archives by the names in the game's file list (DMC5_STM_Release.list).
+    [string]$SourceFileList,
     [switch]$RigOnly,
-    [ValidateSet('auto','sekiro','ds1','ds1r','ds3','er')][string]$Game='auto',
+    # A game ID from the registry (standalone/games): auto, sekiro, ds1, ds1r, ds3, er, dmc5, re2. The bridge checks it.
+    [string]$Game='auto',
     [string]$CharacterSource,
     [Alias('CharacterPreset')][ValidateSet('auto','npc','player','wolf','tutorial','mortal')][string]$WolfPreset='auto',
     [Alias('ModelFiles')][string[]]$PreviewModels,
@@ -20,7 +23,7 @@ param(
     [string]$DonorAssetFolder,[string]$DonorAssetCatalog,[string]$DonorAssetClip,[string]$DonorAssetCharacter,
     [ValidateSet('auto','folder','game','custom')][string]$DonorSourceLayout,[string]$DonorSourceLayoutFile,
     [switch]$DonorRigOnly,
-    [ValidateSet('auto','sekiro','ds1','ds1r','ds3','er')][string]$DonorGame,
+    [string]$DonorGame,[string]$DonorSourceFileList,
     [string]$DonorCharacterSource,
     [ValidateSet('auto','npc','player','wolf','tutorial','mortal')][string]$DonorPreset,
     [string[]]$DonorModels,
@@ -60,7 +63,7 @@ $request=@{
     mode=$Mode; game=$Game; exportGame=$Game; blender=$BlenderExe; decoder=$DecoderExe; writer=$WriterPython;
     animation=$Animation; compendium=$Compendium; skeleton=$Skeleton; skeletonCompendium=$SkeletonCompendium;
     assetFolder=$AssetFolder; assetCatalog=$AssetCatalog; assetClip=$AssetClip; assetCharacter=$AssetCharacter; oodle=$OodleDll;
-    sourceLayout=$SourceLayout; sourceFolders=$sourceFolders; sourceRecursive=$true;
+    sourceLayout=$SourceLayout; sourceFolders=$sourceFolders; sourceRecursive=$true; sourceFileList=$SourceFileList;
     inputMethod=$(if($AssetFolder){'folder'}else{'manual'});
     characterSource=$CharacterSource; preset=$WolfPreset; models=@($models);
     includeCharacter=[bool](($CharacterSource -or $models.Count -or $AssetFolder) -and !$RigOnly);
@@ -93,6 +96,7 @@ if(@($PSBoundParameters.Keys | Where-Object {$_ -like 'Donor*'}).Count){
         assetFolder=$donorFolder; assetCatalog=$(if($DonorAssetCatalog){$DonorAssetCatalog}elseif($shared){$AssetCatalog}else{''});
         assetClip=$DonorAssetClip; assetCharacter=$DonorAssetCharacter;
         sourceLayout=$donorLayout; sourceFolders=$donorFolders; sourceRecursive=$true;
+        sourceFileList=$(if($DonorSourceFileList){$DonorSourceFileList}elseif($shared){$SourceFileList}else{''});
         inputMethod=$(if($donorFolder){'folder'}else{'manual'});
         characterSource=$DonorCharacterSource; preset=$(if($DonorPreset){$DonorPreset}else{'auto'}); models=@($donorModels);
         includeCharacter=[bool](($DonorCharacterSource -or $donorModels.Count -or $donorFolder) -and !$DonorRigOnly);

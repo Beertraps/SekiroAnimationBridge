@@ -178,7 +178,11 @@ def preview(selection, decoder, cache, oodle='', stored_only=False):
     """Joint positions of a clip for the UI's skeleton preview as gzipped JSON, cached by its inputs.
 
     With stored_only, only a cached preview is returned, and None when there is none.
+    A clip of another engine's game is previewed by that engine's adapter.
     """
+    from games import foreign
+    if other := foreign(dict(engine=selection.get('engine', ''))):
+        return other.preview(selection, cache, stored_only=stored_only)
     paths = [selection.get(key, '') for key in ('animation', 'skeleton', 'compendium', 'skeletonCompendium')]
     for path, label in ((paths[0], 'animation'), (paths[1], 'skeleton')):
         if not path or not Path(path).is_file():

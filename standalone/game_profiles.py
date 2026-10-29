@@ -1,10 +1,9 @@
 """Identify the supported PC games and preserve their native Havok container."""
 from __future__ import annotations
-GAMES = {
-    'sekiro': 'Sekiro', 'ds1': 'Dark Souls: Prepare to Die',
-    'ds1r': 'Dark Souls Remastered', 'ds3': 'Dark Souls III', 'er': 'Elden Ring',
-}
-SDK_GAMES = {'20100100': 'ds1', '20150100': 'ds1r', '20160200': 'sekiro', '20180100': 'er'}
+from games import games as registered
+# The Havok games. Other engines' games are in the registry (standalone/games) only.
+GAMES = {p.id: p.name for p in registered('fromsoft')}
+SDK_GAMES = {p.formats['sdk']: p.id for p in registered('fromsoft') if 'sdk' in p.formats}
 
 
 def path_game(path):

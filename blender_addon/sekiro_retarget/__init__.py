@@ -113,6 +113,17 @@ def binder_changed(self,context):
         self.export_binder_path=export.default_binder(self.target,self.export_path)
 
 
+# Blender keeps only references to the item strings of a dynamic enum, so the list lives here.
+EXPORT_GAMES = []
+
+
+def export_game_items(self, context):
+    """The games the bridge exports, from its registry (games.json), after 'Stored in scene'."""
+    EXPORT_GAMES[:] = [('auto', 'Stored in scene', 'The game recorded when the clip was imported (bridge 0.5 and later)')] + \
+        [(g['id'], g['name'], '') for g in export.registry() if g.get('capabilities', {}).get('export')]
+    return EXPORT_GAMES
+
+
 class SKR_Settings(PropertyGroup):
     source: PointerProperty(name='Source rig', type=bpy.types.Object, poll=armature_poll, update=pair_changed,
         description='The armature whose animation is copied, such as the donor of a two-character import')
@@ -236,10 +247,7 @@ class SKR_Settings(PropertyGroup):
         ('scene','Scene range','The scene start and end frames (set by Bake)'),
         ('action','Action range','The keyframe range of the action'),
         ('clip','Clip length','Frames 1 to the clip\'s frame count')], default='scene')
-    export_game: EnumProperty(name='Game', items=[
-        ('auto','Stored in scene','The game recorded when the clip was imported (bridge 0.5 and later)'),
-        ('sekiro','Sekiro',''),('ds1','Dark Souls: Prepare to Die',''),('ds1r','Dark Souls Remastered',''),
-        ('ds3','Dark Souls III',''),('er','Elden Ring','')], default='auto',
+    export_game: EnumProperty(name='Game', items=export_game_items, default=0,
         description='Game of the target clip; choose it for scenes imported before the bridge recorded it')
     export_root: EnumProperty(name='Root motion', description='The root motion that the HKX gets', items=[
         ('AUTO','As baked','The target\'s HKX_RootMotion object, when it has one'),

@@ -8,6 +8,7 @@ Detection only lists folders; reading archives is left to asset_discovery.
 from __future__ import annotations
 import re
 from pathlib import Path
+from games import games as registered
 
 KINDS = ('animations', 'characters', 'parts', 'textures', 'materials')
 LAYOUTS = ('auto', 'folder', 'game', 'custom')
@@ -19,8 +20,7 @@ SUFFIXES = {
     'materials': ('.mtdbnd', '.mtdbnd.dcx', '.matbinbnd', '.matbinbnd.dcx'),
 }
 # Executables next to the data folders, or one or two folders above a mod folder.
-EXECUTABLES = {'sekiro.exe': 'sekiro', 'darksoulsiii.exe': 'ds3', 'eldenring.exe': 'er',
-               'darksoulsremastered.exe': 'ds1r', 'darksouls.exe': 'ds1'}
+EXECUTABLES = {name: p.id for p in registered('fromsoft') for name in p.executables}
 # DS3 and Elden Ring keep their data in Game; Prepare to Die (UDSFM) in DATA.
 DATA_FOLDERS = ('', 'Game', 'DATA')
 KIND_FOLDERS = ('chr', 'parts', 'mtd', 'material')

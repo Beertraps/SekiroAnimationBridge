@@ -195,16 +195,22 @@ def probe_game(folders):
     return (hint, f'{archive.name} (authoring paths)') if hint and hint != 'ds1' else ('', '')
 
 
-def detect_source(path, oodle=''):
-    """Folder detection for the UI, with one small archive read when no executable names the game."""
-    def probe(root):
-        configure_oodle(oodle)
-        return probe_game([Path(root) / 'chr'])
-    found = detect(path, probe)
+def detect_source(path, oodle='', file_list=''):
+    """Folder detection for the UI: another engine's adapter when one recognises the folder, else FromSoftware's."""
+    from games import detect as detect_other
+    found = detect_other(path, file_list) or detect_fromsoft(path, oodle)
     found['scenes'] = default_scenes(found)
     # The UI can switch the layout before saving; both defaults are offered.
     found['sceneFolders'] = {layout: default_scenes(dict(found, layout=layout)) for layout in ('folder', 'game')}
     return found
+
+
+def detect_fromsoft(path, oodle=''):
+    """FromSoftware folder detection, with one small archive read when no executable names the game."""
+    def probe(root):
+        configure_oodle(oodle)
+        return probe_game([Path(root) / 'chr'])
+    return dict(detect(path, probe), engine='fromsoft')
 
 
 def default_scenes(found):
@@ -215,7 +221,9 @@ def default_scenes(found):
     return str(Path.home() / 'Documents' / 'Animation Bridge' / name)
 
 
-def discover(source, cache, notify=lambda *args: None, oodle='', game='auto', layout='folder', folders=None, recursive=True):
+def discover(source, cache, notify=lambda *args: None, oodle='', game='auto', layout='folder', folders=None, recursive=True,
+             file_list=''):
+    """List a source's characters. A folder of another engine's game goes to that engine's adapter."""
     root = Path(source).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f'Choose a folder containing the character’s DCX archives.\n{root}')
@@ -224,6 +232,14 @@ def discover(source, cache, notify=lambda *args: None, oodle='', game='auto', la
         raise ValueError('Choose your original assets folder rather than the bridge cache.')
     if layout not in LAYOUTS:
         raise ValueError('Choose the source layout: auto, folder, game or custom.')
+    from games import adapter, detect as detect_other, engine_of, profile
+    requested = engine_of(game) if game not in ('', 'auto') else ''
+    other = detect_other(root) if requested != 'fromsoft' and layout in ('auto', 'game') else None
+    if requested and requested != 'fromsoft' and not other:
+        raise ValueError(f'This folder does not look like a {profile(game).name} source. '
+                         'Choose the game folder, or a folder that holds the extracted natives folder.')
+    if other:
+        return adapter(other['engine']).discover(root, cache, notify, other, game, file_list)
     configure_oodle(oodle)
     if layout == 'auto':
         notify('inventory', 'Detecting the folder layout', 3)
@@ -470,6 +486,9 @@ def inventory_character(catalog_path, character, cache, notify=lambda *args: Non
     """Read one character's animation archives in a structured source and match its clips."""
     catalog_path = Path(catalog_path)
     catalog = json.loads(catalog_path.read_text(encoding='utf-8'))
+    from games import foreign
+    if other := foreign(catalog):
+        return other.inventory_character(catalog_path, catalog, character, cache, notify)
     if catalog.get('layout') not in STRUCTURED:
         raise ValueError('Only game and custom layouts load characters separately. Scan the folder instead.')
     entry = next((c for c in catalog['characters'] if c['id'] == character or c['character'] == str(character).lower()), None)
@@ -526,6 +545,9 @@ def inventory_character(catalog_path, character, cache, notify=lambda *args: Non
 
 def refresh_clip(catalog_path, catalog, clip_id, cache, notify=lambda *args: None, oodle=''):
     """Reload a structured source's character when the clip's archives changed since they were read."""
+    from games import foreign
+    if other := foreign(catalog):
+        return other.refresh_clip(catalog_path, catalog, clip_id, cache, notify)
     clip = next((c for c in catalog['clips'] if c['id'] == clip_id), None)
     if not clip or catalog.get('layout') not in STRUCTURED:
         return catalog, clip_id
@@ -542,6 +564,9 @@ def refresh_clip(catalog_path, catalog, clip_id, cache, notify=lambda *args: Non
 
 def load_catalog(path, folder, check_sources=False):
     catalog = json.loads(Path(path).read_text(encoding='utf-8'))
+    from games import foreign
+    if other := foreign(catalog):
+        return other.load_catalog(catalog, folder, check_sources)
     if catalog.get('schema') not in (2, CATALOG_SCHEMA):
         raise ValueError('This scan was created by an older bridge version. Click Scan folder to rebuild it with game-aware matching.')
     catalog.setdefault('layout', 'folder')
@@ -565,6 +590,9 @@ def ui_catalog(catalog):
 
 
 def selection(catalog, clip_id, preset='auto'):
+    from games import foreign
+    if other := foreign(catalog):
+        return other.selection(catalog, clip_id, preset)
     matches = [c for c in catalog['clips'] if c['id'] == clip_id or c['name'].lower() == str(clip_id).lower()]
     if len(matches) > 1:
         raise ValueError('Several archives contain that animation name. Choose its unique clip ID from the folder catalog.')

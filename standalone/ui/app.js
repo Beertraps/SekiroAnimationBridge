@@ -21,12 +21,16 @@ const formatBytes=n=>n>=1e9?(n/1e9).toFixed(1)+' GB':n>=1e6?Math.round(n/1e6)+' 
 const ago=time=>{const minutes=Math.round((Date.now()-time)/60000);return !time?'':minutes<1?'just now':minutes<60?minutes+' min ago':minutes<1440?Math.round(minutes/60)+' h ago':new Date(time).toLocaleDateString();};
 const gameNames={sekiro:'Sekiro',ds1:'Dark Souls: Prepare to Die',ds1r:'Dark Souls Remastered',ds3:'Dark Souls III',er:'Elden Ring'};
 const gameShort={sekiro:'SEK',ds1:'DS1',ds1r:'DSR',ds3:'DS3',er:'ER'};
+// The bridge's game registry (standalone/games), from /api/state. The tables above are its FromSoftware games.
+let gameProfiles={};
+const exportable=game=>!!gameProfiles[game]?.capabilities?.export||(!Object.keys(gameProfiles).length&&game in gameShort);
 const layoutNames={auto:'Detect',game:'Game folder',folder:'Collected folder',custom:'Custom layout'};
 const kinds=[['animations','Animations','ANIBND'],['characters','Character models','CHRBND · FLVER'],['parts','Parts','PARTSBND'],['textures','Textures','TEXBND · TPF'],['materials','Material library','MTDBND · MATBINBND']];
 const help={
  source:['Sources','A source is a folder the bridge reads game files from: an unpacked game, a mod folder in the game’s own structure, or a folder of archives you collected. Add as many as you like and switch between them; each one remembers its layout, game and your last selection.\n\nSource files are only read. Extracted animation inputs are cached in the bridge’s work folder, and scenes are saved where you choose.'],
  sourceGame:['Source game','Auto detect identifies the game by its executable (sekiro.exe, DarkSoulsIII.exe, eldenring.exe, DarkSoulsRemastered.exe or DarkSouls.exe), by Elden Ring’s MATBIN library, or by the authoring paths and Havok version inside one small animation archive. Choose the game yourself for a mod folder without an executable.\n\nA game folder or custom layout holds one game. A collected folder can mix games and keeps each game’s characters apart.'],
  layout:['Layout','Detect looks for the game’s own structure: a chr folder with ANIBND archives in the chosen folder, in its Game or DATA subfolder, or above a chosen chr, parts, mtd or material folder. Otherwise it reads the folder as a collected folder.\n\nGame folder reads chr for animations and character models, parts for outfits and weapons, chr and parts for textures, and mtd or material for the material library. Characters are listed by archive name at once; a character’s archives are read when you choose it, and again when they change.\n\nCollected folder reads every archive below the folder. Files that share a folder belong together.\n\nCustom layout names the folders for each kind yourself, relative to the source or absolute, for example animations from a mod and models from the unpacked game. When folders of one kind hold a file of the same name, the first folder wins, the way a mod overrides the game: add the mod’s folders first.'],
+ fileList:['File list','RE Engine games such as Devil May Cry 5 keep their files in PAK archives, which store a number for each file instead of its name. A file list gives the names back: it is a text file with one path per line, such as DMC5_STM_Release.list from the community’s RE Engine file lists. The bridge reads only the character files it needs from the archives and keeps them in its cache; the game folder is never changed.\n\nA folder that holds an extracted natives folder needs no list.'],
  scenes:['Scenes folder','New Blender scenes are suggested here as character_animation.blend. A collected folder suggests its own Blender subfolder; a game or mod folder suggests Documents\\Animation Bridge\\<source name>. Scenes cannot be saved inside a game installation. You can still type any path in Save scene as.'],
  game:['Source game','Auto detect reads the actual Havok version and original archive paths. For a loose DS3 packfile, select Dark Souls III explicitly because other games share Havok 2014. Havok 2015 tagfiles are identified as Dark Souls Remastered. Sources in the library have their own game setting.'],
  exportGame:['Export source game','Normally leave this on Stored in scene. Version 0.5 remembers the original game and writes its native Havok version. Older scenes lack this information: select the game they came from, or import them again. This selector cannot convert a new scene into another game’s skeleton; use the retargeting workflow for that.'],
@@ -61,8 +65,21 @@ const help={
  writer:['Conversion Python','Choose python.exe from the writer environment, normally %LOCALAPPDATA%\\SekiroAnimationBridge\\writer-env\\Scripts\\python.exe. The bridge creates it on the first start with Soulstruct, Soulstruct Havok and NumPy; tools/setup_writer.cmd repeats that setup. Blender’s bundled Python stays separate.'],
  decoder:['HKX decoder','Release ZIPs include SekiroMotionDecoder.exe in their decoder folder, and the bridge selects it automatically. In a source checkout, build it with tools/SekiroMotionDecoder/build_decoder.cmd; that path is under %LOCALAPPDATA%\\SekiroAnimationBridge\\decoder. Version 0.5 handles tagfiles, native PC packfiles, spline/interleaved animations and separate animation/skeleton compendiums.']
 };
-const pickTitles={models:'Model files','src-path':'Source folder','src-scenes':'Scenes folder',folder:'Folder'};
-const filters={animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
+const pickTitles={models:'Model files','src-path':'Source folder','src-scenes':'Scenes folder','src-list':'File list',folder:'Folder'};
+// The game selects and the source-game help come from the registry, so a new game needs no change here.
+function applyGames(list){
+ if(!Array.isArray(list)||!list.length)return;
+ gameProfiles=Object.fromEntries(list.map(g=>[g.id,g]));
+ for(const g of list){gameNames[g.id]=g.name;gameShort[g.id]=g.short;}
+ const options=(games,suffix='')=>games.map(g=>`<option value="${escape(g.id)}">${escape(g.name+(g.verified?'':' · untested')+suffix)}</option>`).join('');
+ const first=id=>$(id).querySelector('option[value="auto"]').outerHTML;
+ // Individual files are Havok files; export writes the games whose format the bridge writes.
+ $('game').innerHTML=first('game')+options(list.filter(g=>g.engine==='fromsoft'));
+ $('exportGame').innerHTML=first('exportGame')+options(list.filter(g=>g.capabilities?.export),' · legacy scene');
+ $('src-game').innerHTML=first('src-game')+options(list);
+ help.sourceGame[1]='Auto detect identifies the game by what the folder holds:\n'+list.map(g=>`• ${g.name}: ${g.hint}`).join('\n')+'\n\nChoose the game yourself for a mod folder without an executable. A game folder or custom layout holds one game. A collected folder can mix FromSoftware games and keeps each game’s characters apart.'+(list.some(g=>!g.verified)?'\n\nGames marked untested are supported by their engine but were not yet checked with the game’s own files.':'');
+}
+const filters={'src-list':'File list (*.list)|*.list|All files (*.*)|*.*',animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
 
 async function api(path,data,signal){
  const response=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'X-Bridge-Token':token,...(data===undefined?{}:{'Content-Type':'application/json'})},body:data===undefined?undefined:JSON.stringify(data),signal});
@@ -90,7 +107,7 @@ function values(){
  result.inputMethod=inputMethod;result.sources=sources;result.activeSource=activeId;
  const source=activeSource();
  if(inputMethod==='folder'&&source){
-  Object.assign(result,{assetFolder:source.root||source.path,assetCatalog:source.catalog||'',sourceLayout:source.resolved||source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,game:source.game||'auto',assetCharacter:characterId,assetClip:clipId});
+  Object.assign(result,{assetFolder:source.root||source.path,assetCatalog:source.catalog||'',sourceLayout:source.resolved||source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,sourceFileList:source.fileList||'',game:source.game||'auto',assetCharacter:characterId,assetClip:clipId});
  }
  return result;
 }
@@ -185,8 +202,10 @@ function updateExportOptions(){
  const untracked=selectedAction()?.untracked||[];
  $('track-note').hidden=!(untracked.length&&tracks==='original');
  const gameMissing=!!sceneInfo&&!sceneInfo.game&&$('exportGame').value==='auto';
- $('game-note').hidden=!gameMissing;
+ const importOnly=!!sceneInfo?.game&&!exportable(sceneInfo.game);
+ $('game-note').hidden=!gameMissing&&!importOnly;
  if(gameMissing)$('game-note').textContent='This scene was imported before the bridge recorded its game. Choose the game it came from.';
+ if(importOnly)$('game-note').textContent=`The bridge imports ${gameNames[sceneInfo.game]||sceneInfo.game} but cannot write its animation format. To use this motion in a game the bridge exports, import a character from that game with this clip as the retarget donor, bake it in Blender with the Retarget add-on, and export that scene.`;
  if(untracked.length)$('track-note').textContent=`${untracked.length} keyed bone${untracked.length===1?' is':'s are'} not a track of the source clip: ${untracked.slice(0,6).join(', ')}${untracked.length>6?', …':''}. Choose “Source tracks + keyed bones” to export ${untracked.length===1?'it':'them'}.`;
 }
 
@@ -629,7 +648,12 @@ function removeDonor(){
 
 /* Clip preview: the clip's skeleton on a canvas, and the part clips that play with it */
 let previewKey='',previewTimer,previewSequence=0,partKey='',partTimer,partSequence=0,partRows=null;
-function previewInputs(){const v=key=>$(key).value.trim();return {animation:v('animation'),skeleton:v('skeleton'),compendium:v('compendium'),skeletonCompendium:v('skeletonCompendium')};}
+function previewInputs(){
+ const v=key=>$(key).value.trim(),inputs={animation:v('animation'),skeleton:v('skeleton'),compendium:v('compendium'),skeletonCompendium:v('skeletonCompendium')};
+ // Another engine's clip is a motion inside its file: the adapter needs the engine and the motion's index.
+ if(inputMethod==='folder'&&selection?.engine&&selection.engine!=='fromsoft')Object.assign(inputs,{engine:selection.engine,game:selection.game,motion:String(selection.motion??'')});
+ return inputs;
+}
 function schedulePreview(){
  schedulePartClips();
  const folder=inputMethod==='folder',clip=folder?currentClip():null,inputs=previewInputs();
@@ -843,7 +867,7 @@ function openSourceDialog(source=null){
  $('source-dialog-title').textContent=source?'Edit source':'Add a source';
  $('src-path').value=source?.path||'';$('src-path').closest('.path-row').classList.remove('invalid');
  $('src-name').value=source?.name||'';$('src-game').value=source?.game||'auto';
- $('src-recursive').checked=source?.recursive!==false;$('src-scenes').value=source?.scenes||'';
+ $('src-recursive').checked=source?.recursive!==false;$('src-scenes').value=source?.scenes||'';$('src-list').value=source?.fileList||'';$('src-list-field').hidden=!source?.fileList;
  dialogFolders=JSON.parse(JSON.stringify(source?.folders||{}));
  clearTimeout(removeTimer);$('src-remove').hidden=!source;$('src-remove').dataset.armed='';$('src-remove').textContent='Remove source';
  $('src-save').textContent=source?'Save':'Save and scan';$('src-detect').hidden=true;
@@ -859,6 +883,7 @@ function setDialogLayout(layout){
 }
 function layoutNote(){
  const d=detection,found=d?(d.layout==='game'?`a game folder${d.game?' ('+gameNames[d.game]+')':''}`:'a collected folder'):'';
+ if(d?.engine&&d.engine!=='fromsoft'&&['auto','game'].includes(dialogLayout)){$('src-layout-note').textContent=d.container==='pak'?`Reads ${gameNames[d.game]||'the game'}’s PAK archives by the names in its file list.`:'Reads the extracted natives folder.';return;}
  $('src-layout-note').textContent={auto:d?`Detect reads this as ${found}.`:'Detect chooses Game folder or Collected from what is inside.',game:'Reads chr, parts and mtd or material, like the game’s own data folder.',folder:'Reads every archive below the folder. Files that share a folder belong together.',custom:'Name the folders for each kind yourself, relative to the source folder or absolute.'}[dialogLayout];
 }
 function suggestScenes(){
@@ -883,18 +908,19 @@ async function detectPath(){
  if(!path){detection=null;$('src-detect').hidden=true;layoutNote();return;}
  $('src-detect').hidden=false;$('src-detect').className='detect';$('src-detect').innerHTML=`${icon('search')}<div><b>Looking at the folder…</b></div>`;
  try{
-  const found=await api('detect',{path,folders:dialogLayout==='custom'?dialogFolders:{},recursive:$('src-recursive').checked});
+  const found=await api('detect',{path,folders:dialogLayout==='custom'?dialogFolders:{},recursive:$('src-recursive').checked,fileList:$('src-list').value.trim()});
   if(seq!==detectSequence)return;
   detection=found;missingFolders=new Set(found.missing||[]);
   // A chosen chr, parts or Game folder stands for the game folder that holds it.
   if(found.layout==='game'&&!samePath(found.root,path)&&dialogLayout!=='folder'){$('src-path').value=found.root;if(dialogLayout==='custom')return detectPath();}
   if(!nameTouched)$('src-name').value=found.name||basename(found.root);
   renderDetection();layoutNote();suggestScenes();if(dialogLayout==='custom')renderFolders();
- }catch(e){if(seq!==detectSequence)return;detection=null;$('src-detect').className='detect warn';$('src-detect').innerHTML=`${icon('warn')}<div><b>The bridge cannot read this folder</b>${escape(e.message)}</div>`;layoutNote();}
+ }catch(e){if(seq!==detectSequence)return;detection=null;$('src-list-field').hidden=!$('src-list').value.trim();$('src-detect').className='detect warn';$('src-detect').innerHTML=`${icon('warn')}<div><b>The bridge cannot read this folder</b>${escape(e.message)}</div>`;layoutNote();}
 }
 function renderDetection(){
  // A custom layout is described by its own folders, not by what the source folder holds.
  const d=detection,custom=dialogLayout==='custom'&&d.custom,c=(custom?d.custom.counts:d.counts)||{},game=!custom&&d.layout==='game';
+ $('src-list-field').hidden=!d.needsFileList;
  const chips=[[c.animations,'animation archive'],[c.characters,'model'],[c.parts,'part'],[c.textures,'texture package'],[c.materials,'material library','material libraries']].filter(([n])=>n).map(([n,w,m])=>`<span class="chip">${escape(plural(n,w,m))}</span>`).join('');
  const nested=custom?'':(d.nested||[]).map(n=>`<button type="button" class="text-button" data-nested="${escape(n.path)}">${icon('arrow')}${escape(n.name)}${n.game?' · '+escape(gameNames[n.game]):''}</button>`).join('');
  const title=custom?'Custom layout':game?`Game folder · ${gameNames[d.game]||'game not identified'}`:c.animations?'Collected folder':nested?'A folder of games':'No animation archives here';
@@ -912,9 +938,10 @@ async function saveSource(){
  const finalPath=$('src-path').value.trim(),folders=dialogLayout==='custom'?Object.fromEntries(kinds.map(([k])=>[k,dialogFolders[k]||[]])):{};
  const effective=dialogLayout==='auto'?detection.layout:dialogLayout;
  const draft={name:$('src-name').value.trim()||basename(finalPath)||finalPath,path:finalPath,layout:dialogLayout,game:$('src-game').value,folders,recursive:$('src-recursive').checked,
+  fileList:detection.needsFileList?$('src-list').value.trim():'',
   scenes:$('src-scenes').value.trim()||detection.sceneFolders?.[effective==='folder'?'folder':'game']||joinPath(finalPath,'Blender')};
  let source=editing;
- const changed=!source||['path','layout','game','recursive'].some(k=>source[k]!==draft[k])||JSON.stringify(source.folders||{})!==JSON.stringify(folders);
+ const changed=!source||['path','layout','game','recursive','fileList'].some(k=>(source[k]||'')!==(draft[k]||''))||JSON.stringify(source.folders||{})!==JSON.stringify(folders);
  if(source)Object.assign(source,draft);else{source={id:crypto.randomUUID().slice(0,8),...draft,catalog:'',state:{}};sources.push(source);}
  if(changed)Object.assign(source,{catalog:'',root:'',resolved:'',detectedGame:'',stats:null});
  $('source-dialog').close();
@@ -934,7 +961,7 @@ function removeSource(){
 async function pick(key,{multiple=false,apply}={}){
  if(activePicker)return toast('A Browse window is already open. Finish or cancel that selection first.');
  const picker={id:crypto.randomUUID(),controller:new AbortController(),timedOut:false};activePicker=picker;
- const buttons=[...document.querySelectorAll('[data-pick],#add-models,#src-browse,#src-scenes-browse,[data-browse-folder]')].map(button=>({button,disabled:button.disabled}));
+ const buttons=[...document.querySelectorAll('[data-pick],#add-models,#src-browse,#src-scenes-browse,#src-list-browse,[data-browse-folder]')].map(button=>({button,disabled:button.disabled}));
  buttons.forEach(({button})=>button.disabled=true);
  const title=help[key]?.[0]||pickTitles[key]||'Files';
  layer($('picker-status'));$('picker-status').hidden=false;$('picker-message').textContent=`Choosing ${title.toLowerCase()}…`;$('cancel-picker').disabled=false;
@@ -1257,6 +1284,8 @@ $('src-from-game').addEventListener('click',fillGameFolders);
 $('src-remove').addEventListener('click',removeSource);
 $('src-browse').addEventListener('click',()=>pick('src-path',{apply:paths=>{$('src-path').value=paths[0];$('src-path').closest('.path-row').classList.remove('invalid');nameTouched=!!editing&&nameTouched;return detectPath();}}));
 $('src-scenes-browse').addEventListener('click',()=>pick('src-scenes',{apply:paths=>{$('src-scenes').value=paths[0];scenesTouched=true;}}));
+$('src-list-browse').addEventListener('click',()=>pick('src-list',{apply:paths=>{$('src-list').value=paths[0];return detectPath();}}));
+$('src-list').addEventListener('change',()=>checkFolders());
 $('source-dialog').addEventListener('close',()=>{detectSequence++;layer($('toast'));});
 $('use-import').addEventListener('click',()=>{const path=job?.mode==='import'&&job.status==='success'?job.output:(config.lastImportedBlend||$('inputBlend').value);if(!path)return toast('Import an animation first, or browse to an existing scene.');if(!samePath($('inputBlend').value.trim(),path))forgetScene();$('inputBlend').value=path;saveSoon();toast('Imported scene selected.');});
 $('shutdown').addEventListener('click',async()=>{try{await api('shutdown',{});clearTimeout(pollTimer);toast('Workspace closed. You can close this window.');$('connection-text').textContent='Workspace closed';document.querySelectorAll('button').forEach(b=>b.disabled=true);}catch(e){toast(e.message,true);}});
@@ -1265,6 +1294,7 @@ document.querySelectorAll('[data-help]').forEach(b=>{const entry=help[b.dataset.
  try{
   const state=await api('state');
   $('app-version').textContent=state.version?'v'+state.version:'';
+  applyGames(state.games);
   setValues(state.config);
   if(state.job&&state.job.status!=='running')startJobId=state.job.id;
   setInputMethod(state.config.inputMethod,false);renderSources();

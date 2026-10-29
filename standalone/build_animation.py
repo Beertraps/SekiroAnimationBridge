@@ -13,6 +13,8 @@ from game_profiles import animation_class, GAMES
 from soulstruct.havok.utilities.maths.trs_transform import TRSTransform
 from hkx_compression import QUANTIZATION, DEFAULT_QUANTIZATION, DEFAULT_TOLERANCE
 from havok_compat import interleaved_animation, pad_packfile_sections, readable
+from games.interchange import readable_motion
+from games.space import FROMSOFT, Space
 
 # Readback differences above these limits are reported as visible.
 ROTATION_WARNING_DEGREES, TRANSLATION_WARNING = 0.5, 0.005
@@ -46,10 +48,18 @@ def compare(expected: np.ndarray, decoded: np.ndarray, track_names: list[str]) -
                 worstTrack=track_names[track], worstFrame=int(frame) + 1)
 
 
+def export_refusal(game):
+    """Why a game's clip cannot be exported: the bridge writes Havok for the FromSoftware games only."""
+    from games import BY_ID
+    name = BY_ID[game].name if game in BY_ID else game
+    return (f'The bridge imports {name} but cannot write its animation format. Retarget the animation onto a character '
+            'imported from a game the bridge exports (Sekiro, Dark Souls or Elden Ring) and export that scene.')
+
+
 def build(input_json: Path, output_hkx: Path, output_format: str, game='auto', quantization=DEFAULT_QUANTIZATION,
           tolerance=DEFAULT_TOLERANCE, verify=False) -> dict:
     document = json.loads(input_json.read_text(encoding="utf-8"))
-    if document.get("format") != "sekiro-animation-bridge" or document.get("formatVersion") != 1:
+    if not readable_motion(document):
         raise ValueError("Unsupported JSON. Import and export it with Animation Bridge.")
     recorded = document.get('game', '')
     if game in ('auto', ''): game = recorded
@@ -57,6 +67,8 @@ def build(input_json: Path, output_hkx: Path, output_format: str, game='auto', q
         raise ValueError('This older scene has no source-game metadata. Select its source game in the UI (or CLI -Game), or import the original animation again with version 0.5.')
     if recorded and recorded != game:
         raise ValueError(f'This scene was imported from {GAMES.get(recorded, recorded)}. Export using its original game; retarget onto a scene imported from another game to change skeletons.')
+    if game not in GAMES or Space.of(document) != FROMSOFT:
+        raise ValueError(export_refusal(game))
     AnimationHKX = animation_class(game)
 
     frames_json = document["frames"]

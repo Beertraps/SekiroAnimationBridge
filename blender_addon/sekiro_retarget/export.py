@@ -57,7 +57,35 @@ def load_exporter(folder):
     return module
 
 
-GAME_EXECUTABLES = ('sekiro.exe', 'DarkSouls.exe', 'DarkSoulsRemastered.exe', 'DarkSoulsIII.exe', 'eldenring.exe')
+# The bridge writes its game registry here (bridge_runtime.remember_location); these are the games known before it did.
+GAMES_FILE = APP / 'games.json'
+KNOWN_GAMES = [dict(id=key, name=name, executables=[exe], capabilities=dict(export=True))
+               for key, name, exe in (('sekiro', 'Sekiro', 'sekiro.exe'), ('ds1', 'Dark Souls: Prepare to Die', 'DarkSouls.exe'),
+                                      ('ds1r', 'Dark Souls Remastered', 'DarkSoulsRemastered.exe'),
+                                      ('ds3', 'Dark Souls III', 'DarkSoulsIII.exe'), ('er', 'Elden Ring', 'eldenring.exe'))]
+
+
+def registry():
+    """The bridge's games: its registry when it has run on this computer, else the games every bridge exports."""
+    try:
+        games = json.loads(GAMES_FILE.read_text(encoding='utf-8'))['games']
+        if isinstance(games, list) and all(isinstance(g, dict) and 'id' in g for g in games):
+            return games
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return KNOWN_GAMES
+
+
+def exportable(game):
+    """Whether the bridge writes this game's animation format."""
+    return any(g['id'] == game and g.get('capabilities', {}).get('export') for g in registry())
+
+
+def game_name(game):
+    return next((g['name'] for g in registry() if g['id'] == game), game)
+
+
+GAME_EXECUTABLES = tuple(sorted({exe for g in KNOWN_GAMES + registry() for exe in g.get('executables', [])}))
 
 
 def in_game_folder(path):
@@ -125,9 +153,14 @@ def start(context, settings, preferences=None):
     """Sample the target into motion JSON and start writing the HKX. Returns the running Job."""
     scene, target = context.scene, settings.target
     retarget.set_export_target(scene, target)
-    if settings.export_game == 'auto' and not (retarget.read_motion(target) or {}).get('game'):
+    recorded = (retarget.read_motion(target) or {}).get('game')
+    if settings.export_game == 'auto' and not recorded:
         raise ValueError('This scene was imported before the bridge recorded the game. Choose the Game under '
                          '4. Export HKX > Export settings.')
+    game = recorded if settings.export_game == 'auto' else settings.export_game
+    if not exportable(game):
+        raise ValueError(f'The bridge imports {game_name(game)} but cannot write its animation format. Make a character from '
+                         'Sekiro, Dark Souls or Elden Ring the target, bake onto it and export that.')
     if not settings.export_path:
         raise ValueError('Choose an output .hkx file.')
     output = Path(bpy.path.abspath(settings.export_path)).resolve()

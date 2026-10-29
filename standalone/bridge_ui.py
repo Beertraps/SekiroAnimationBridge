@@ -17,6 +17,9 @@ from urllib.parse import urlparse
 from bridge_runtime import APP, HERE, HOME, EVENT_PREFIX, default_decoder, remember_location
 from character_assets import scan_character, asset_id, ROLES
 
+from games import public as public_games
+# The selection keys a skeleton preview reads: the HKX files, or another engine's clip.
+PREVIEW_KEYS = ('animation','skeleton','compendium','skeletonCompendium','engine','game','motion')
 SETTINGS = APP / 'ui-settings.json'
 # Sources have their own file: an older bridge rewrites ui-settings.json with only the keys it knows.
 SOURCES = APP / 'ui-sources.json'
@@ -191,7 +194,7 @@ def prefetcher(index):
             if catalogs.get(path,(None,))[0]!=stamp: catalogs={path:(stamp,load_catalog(path,folder))}
             chosen=selection(catalogs[path][1],clip,preset)
             with LOCK: decoder=CONFIG.get('decoder') or str(default_decoder()); oodle=CONFIG.get('oodle','')
-            preview({k:str(chosen.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
+            preview({k:str(chosen.get(k) if chosen.get(k) is not None else '') for k in PREVIEW_KEYS},
                     decoder,CACHE/'previews',oodle)
         except Exception:
             # A clip that cannot be previewed shows its error when it is selected.
@@ -262,8 +265,9 @@ class Handler(BaseHTTPRequestHandler):
             if not self.authorized(): return self.send_json({'error':'This workspace session is not authorized. Reopen the UI launcher.'},403)
             if self.path=='/api/state':
                 version=(HOME/'VERSION').read_text(encoding='utf-8').strip() if (HOME/'VERSION').is_file() else ''
-                return self.send_json(dict(config=CONFIG,job=snapshot(),root=str(HOME),version=version))
+                return self.send_json(dict(config=CONFIG,job=snapshot(),root=str(HOME),version=version,games=public_games()['games']))
             if self.path=='/api/environment': return self.send_json(environment())
+            if self.path=='/api/games': return self.send_json(public_games())
             return self.send_json({'error':'Unknown route'},404)
         routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/app.js':('ui/app.js','text/javascript'),
                 '/preview.js':('ui/preview.js','text/javascript'),
@@ -291,7 +295,7 @@ class Handler(BaseHTTPRequestHandler):
                 persist(data); return self.send_json({'ok':True})
             if self.path=='/api/detect':
                 from asset_discovery import detect_source
-                found=detect_source(data.get('path',''),CONFIG.get('oodle',''))
+                found=detect_source(data.get('path',''),CONFIG.get('oodle',''),str(data.get('fileList') or ''))
                 # Custom layout folders are relative to the chosen folder unless absolute.
                 folders=data.get('folders') if isinstance(data.get('folders'),dict) else {}
                 base=Path(found['path'])
@@ -317,7 +321,7 @@ class Handler(BaseHTTPRequestHandler):
                 # The configured decoder only; the request names the clip's files.
                 from clip_preview import preview
                 decoder=CONFIG.get('decoder') or str(default_decoder())
-                result=preview({k:str(data.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
+                result=preview({k:str(data.get(k) or '') for k in PREVIEW_KEYS},
                                decoder,CACHE/'previews',CONFIG.get('oodle',''),bool(data.get('storedOnly')))
                 return self.send_json(None) if result is None else self.send_gzip(result)
             if self.path=='/api/prefetch':
