@@ -460,7 +460,7 @@ function applyView(){
  $('parts-tab').hidden=!sekiro;
  document.querySelectorAll('[data-input]').forEach(b=>{const on=b.dataset.input===view;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on));});
  $('characters-pane').hidden=!folder||shown;$('clips-pane').hidden=!folder||shown;$('weapons-pane').hidden=!shown;$('part-clips-pane').hidden=!shown;$('files-pane').hidden=folder;
- document.querySelector('.import-grid').classList.toggle('files',!folder);
+ document.querySelector('.import-grid').classList.toggle('files',!folder);placeSplitters();
  $('import-note').textContent=shown?'Pick a weapon part and one of its clips, then an animation that it plays in. Both are imported together.'
   :folder?'Pick a character and an animation. The scene settings follow your choice.':'Choose extracted HKX files. The animation, skeleton and compendium must come from the same character.';
 }
@@ -1253,6 +1253,72 @@ $('clip-filter').addEventListener('input',()=>{$('clip-list').scrollTop=0;render
 $('archive-filter').addEventListener('change',()=>{$('clip-list').scrollTop=0;renderClips();scrollToClip();});
 $('clip-list').addEventListener('scroll',()=>{if(!painting){painting=true;requestAnimationFrame(()=>{painting=false;paintClips();});}},{passive:true});
 new ResizeObserver(()=>paintClips()).observe($('clip-list'));
+
+/* Pane borders: drag the gap beside the left list or the scene panel to resize it, or focus it and use the arrow
+   keys; a double-click resets it. The sizes are kept in this browser and shrink to fit a smaller window. */
+const SCENE_MIN=280,CHARS_MIN=160,CHARS_HEIGHT_MIN=120,CLIPS_MIN=300,PANE_STEP=16;
+let paneSizes={};
+try{paneSizes=JSON.parse(localStorage.getItem('bridge-pane-sizes')||'{}')||{};}catch(e){}
+function paneTracks(){
+ const grid=document.querySelector('.import-grid'),style=getComputedStyle(grid);
+ return {grid,cols:style.gridTemplateColumns.split(' ').map(parseFloat),rows:style.gridTemplateRows.split(' ').map(parseFloat),gap:parseFloat(style.columnGap)||12};
+}
+function clampPaneSizes(sizes){
+ const {grid,cols,gap}=paneTracks(),width=grid.clientWidth,height=grid.clientHeight,result={...sizes};
+ if(cols.length<2||!width)return result;
+ const three=cols.length===3,chars=three?(result.chars??cols[0]):0;
+ if(result.scene!=null)result.scene=Math.round(Math.max(SCENE_MIN,Math.min(result.scene,width-(three?chars+gap:0)-CLIPS_MIN-gap)));
+ if(three&&result.chars!=null)result.chars=Math.round(Math.max(CHARS_MIN,Math.min(result.chars,width-(result.scene??cols[2])-CLIPS_MIN-2*gap)));
+ if(result.charsHeight!=null)result.charsHeight=Math.round(Math.max(CHARS_HEIGHT_MIN,Math.min(result.charsHeight,height-CHARS_HEIGHT_MIN-gap)));
+ return result;
+}
+function applyPaneSizes(){
+ const grid=document.querySelector('.import-grid'),sizes=clampPaneSizes(paneSizes);
+ for(const [key,name] of [['chars','--chars-w'],['scene','--scene-w'],['charsHeight','--chars-h']])grid.style.setProperty(name,sizes[key]!=null?sizes[key]+'px':'');
+ placeSplitters();
+}
+function savePaneSizes(){try{localStorage.setItem('bridge-pane-sizes',JSON.stringify(paneSizes));}catch(e){}}
+// The left border lies between the character and animation lists when they are stacked beside the scene panel.
+function placeSplitters(){
+ const {grid,cols,rows,gap}=paneTracks(),files=grid.classList.contains('files');
+ for(const handle of grid.querySelectorAll('.pane-splitter')){
+  const left=handle.dataset.split==='chars',across=left&&cols.length===2;
+  handle.hidden=cols.length<2||!grid.clientWidth||(left&&files);
+  handle.classList.toggle('across',across);handle.setAttribute('aria-orientation',across?'horizontal':'vertical');
+  if(handle.hidden)continue;
+  if(across)Object.assign(handle.style,{left:'0px',top:rows[0]+'px',width:cols[0]+'px',height:gap+'px'});
+  else Object.assign(handle.style,{left:(left?cols[0]:cols.slice(0,-1).reduce((a,b)=>a+b,0)+gap*(cols.length-2))+'px',top:'0px',width:gap+'px',height:grid.clientHeight+'px'});
+ }
+}
+// Only the dragged size is stored as clamped; the other pane keeps the size it was given for a larger window.
+function resizePane(handle,size){
+ const key=handle.classList.contains('across')?'charsHeight':handle.dataset.split;
+ paneSizes={...paneSizes,[key]:clampPaneSizes({...paneSizes,[key]:size})[key]};applyPaneSizes();
+}
+for(const handle of document.querySelectorAll('.pane-splitter')){
+ handle.addEventListener('pointerdown',event=>{
+  if(event.button!==0)return;
+  const box=handle.parentElement.getBoundingClientRect(),across=handle.classList.contains('across'),half=handle.offsetWidth/2;
+  event.preventDefault();handle.setPointerCapture(event.pointerId);handle.classList.add('dragging');
+  document.body.classList.add(across?'resizing-rows':'resizing');
+  const move=e=>resizePane(handle,across?e.clientY-box.top-handle.offsetHeight/2:handle.dataset.split==='chars'?e.clientX-box.left-half:box.right-e.clientX-half);
+  const end=()=>{handle.removeEventListener('pointermove',move);handle.classList.remove('dragging');document.body.classList.remove('resizing','resizing-rows');savePaneSizes();};
+  handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end,{once:true});handle.addEventListener('pointercancel',end,{once:true});
+ });
+ handle.addEventListener('keydown',event=>{
+  const across=handle.classList.contains('across'),step={ArrowLeft:-PANE_STEP,ArrowRight:PANE_STEP,ArrowUp:-PANE_STEP,ArrowDown:PANE_STEP}[event.key];
+  if(!step||across!==(event.key==='ArrowUp'||event.key==='ArrowDown'))return;
+  event.preventDefault();
+  const {cols,rows}=paneTracks();
+  resizePane(handle,across?rows[0]+step:handle.dataset.split==='chars'?cols[0]+step:cols[cols.length-1]-step);savePaneSizes();
+ });
+ handle.addEventListener('dblclick',()=>{
+  delete paneSizes[handle.classList.contains('across')?'charsHeight':handle.dataset.split];
+  applyPaneSizes();savePaneSizes();
+ });
+}
+applyPaneSizes();
+new ResizeObserver(()=>applyPaneSizes()).observe(document.querySelector('.import-grid'));
 $('clip-list').addEventListener('keydown',event=>{
  const page=Math.max(1,Math.floor($('clip-list').clientHeight/ROW)-1),index=clipView.findIndex(c=>c.id===clipId);
  const target={ArrowDown:index+1,ArrowUp:index-1,PageDown:index+page,PageUp:index-page,Home:0,End:clipView.length-1}[event.key];

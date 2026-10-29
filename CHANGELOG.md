@@ -20,6 +20,10 @@
 - DMC5 sources scanned before need one new scan.
 - The skeleton preview hands a package the whole selection it made for the clip, as the import does, so a package that needs more than the clip's file (DOOM Eternal needs its game folder) can preview. `tools\check_package.cmd` asks for the preview the way the page does.
 
+## Import page
+
+- Drag the border beside the character list or the scene panel to resize it, or the border between the two lists when they are stacked in a narrower window. A double-click resets a border, and the arrow keys move a focused one. The sizes are kept in the browser and shrink to fit a smaller window.
+
 ## Skeleton preview and cache
 
 - The skeleton preview computes joint positions with NumPy for all frames at once, 3–5 times faster than before with identical results. The UI loads NumPy when it starts, so the first preview no longer waits for it.
