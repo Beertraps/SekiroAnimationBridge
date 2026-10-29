@@ -1,6 +1,6 @@
-# Current work: export into the animation binder, Join animations, Animate tab (retarget add-on 0.9.0)
+# Current release: 0.13.0 — export into the animation binder, Join animations, Animate tab (retarget add-on 0.9.0)
 
-- State: uncommitted on main, on top of the work below. Not released, not checked in game.
+- State: committed on main as bd7dcc6 and released as 0.13.0 with the retarget add-on 0.9.0, from tag v0.13.0. The release also holds the work below since 0.12.0 (body figures and Biped-style feet, Wolf's katana, alternate model meshes, c1070 skin). The user asked: "Push it to github as a new release." Not checked in game.
 - The user asked: "Actually what I was thinking is appending two animations into one clip instead of needing to play the two clips after another through the game. But in your interpretation I would like the export option to simply choose a dcx file add the new hkx file too. In this the default name of the hkx file would be the original clips name and the dcx file would be the dcx file the clip came from. Add both. At the same time can you think of a place to add the log output to that is less obstructive? Can our extension use multiple panels instead of putting everything under "Retarget"? The Control rig at least feels like its own thing and the log output takes up a lot of space."
 - This replaces the standing decision "Use WitchyBND separately ... Do not add binder packing" (see User decisions).
 - `standalone/binder_members.py` (new): its own BND4 reader and writer, because Soulstruct's `Binder.to_bytes()` does not align member data. It keeps the header and entry layout FromSoftware writes (entry size 0x24, format 0x74, extended 4 with the path hash table: groups = first prime >= count // 7, hash h*37+c of the lowercased `/` path, header `<qIi` with 0x00080810), 16-aligned data. On the 34 Sekiro `.anibnd.dcx` of the game folder, parse and rewrite gave identical bytes. `add_member` replaces a member of the same name or adds one with ID 1000000000 + category*1000000 + number in the folder of the clip it came from (or the most common clip folder), in ID order, then compresses with Soulstruct's `compress` in the same DCX type and reads back.
@@ -10,7 +10,7 @@
 - Checked: on the real `c0000_a05x.anibnd.dcx` through the CLI, into a copy beside the HKX, adding a050_999000 made 181 members from 180 and replacing a050_002000 changed only that member, each equal to the exported HKX; the game file was not written. See VERIFICATION.md.
 - Open: in-game playback of a joined clip, of a replaced member and of a new-ID member with a TAE entry; TAE events of the second joined clip; the panels in Blender's UI beyond the drawn outline.
 
-# Current work after 0.12.0 — Wolf's katana, alternate model meshes, c1070 skin
+# Wolf's katana, alternate model meshes, c1070 skin (in 0.13.0)
 
 - Wolf outfit selection now includes `wp_a_0300` when available, both in source selection and manual folder scans. It is optional for missing-part checks.
 - The `c1070` model binder contains both Juzo and Shige as material-prefixed mesh groups in one FLVER. The source UI now exposes those numbered groups and passes the selected masks through to geometry and material preparation. Unnumbered meshes remain included. Mask events during a clip remain unsupported.
@@ -18,7 +18,7 @@
 - After the user asked about Isshin, the source's NPC model picker now exposes other character model IDs from the same source, keeping the animation HKX and skeleton with its animation ID. The vanilla `c5410` FLVER shares 726 bone names with `c5400`, including `R_Katana`.
 - Resurrection `c1070_skin.mtd` lists tiling detail albedos at sampler slots 1 and 2 before the base skin albedo at slot 7. It also lists `c1070_skin_damage_n` in an emissive-named slot; previewing that normal as emission washed the body out to white. The preview now picks slot 7 and ignores that damage normal as emission. A fresh Juzo scene rendered dark skin with no missing texture notices.
 
-# Previous release: 0.12.0 — the rest-relative grip, the fist holds the weapon's matching part (retarget add-on 0.8.0)
+# Release 0.12.0 — the rest-relative grip, the fist holds the weapon's matching part (retarget add-on 0.8.0)
 
 - State: released as 0.12.0 with the retarget add-on 0.8.0, from tag v0.12.0, after the branch grip-matching-part was merged into main. The release also holds the four sections below, merged on main after 0.11.0 without a release. The user asked: "Ok, merge push and release this version."
 - The user, with four screenshots of Isshin's clip on Wolf before and after moving the weapon by hand on one frame: "In the current version weapons still don't get positioned quite correctly, or maybe again? ... Could this be related to where the socket sits relative to the rest of the part? If you check Isshin's and Wolf's weapons in Blender alone and you overlay them, do they align well?" After the diagnosis they asked whether a guard-based fix generalizes, and chose: "Build the general version: find the gripped part from the source's fist, match the two weapons' width profiles along the long axis, and place the target's matching part on the source's scaled grip line. Fall back to the bone for weapons without a long axis. Test sword, spear and axe cases, then measure on my Isshin scene."

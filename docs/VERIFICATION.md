@@ -1,4 +1,4 @@
-# Unreleased — Wolf's katana, alternate model meshes, and c1070 skin
+# 0.13.0 — export into the animation binder, join animations, Wolf's katana, alternate model meshes, and c1070 skin
 
 ## Export into the animation binder, Join animations, Animate tab
 
@@ -7,6 +7,7 @@
 - CLI export on a scene imported from the game folder: with `-Binder` naming a new path beside the HKX and `-BinderMember a050_999000.hkx`, the binder was made from the game's `c0000_a05x.anibnd.dcx` with 181 members instead of 180, the new one equal to the HKX, the others byte for byte. A second export with the clip's own name replaced `a050_002000.hkx` and made one `.bak`. Every member's data starts on a 16-byte boundary. The game's archive was not written.
 - `blender_join.py`, new, on owned synthetic bridge clips of five bones (20 frames and 15 frames at 30 fps, and 29 frames at 60 fps): **Load clip from .blend** brings in the second clip and its root motion, paired by name where Blender numbered both, without objects or metadata; with a 0.1 s blend the joined clip matches the first clip on frames 1-17 and the second on 21-32 within 1e-4 and eases between them on 18-20; the root goes on from frame 18 without a jump; the export has 32 frames with root motion; blend 0 starts the second clip on frame 21; the 60 fps clip spans 14 scene frames and warns; the refusals work.
 - `blender_panels.py` checks both tabs, that a child panel is in its parent's tab, the Log at the bottom of each, and the new states *Join chosen* and *Joined, export to a binder*. Blender 4.5.14 with `--factory-startup` passes panels, join, mirror, control_rig, fixes, export_options, retarget, two_characters, synthetic_check and part_animations.
+- Before the 0.13.0 release: the 135 unit tests and `node --check` on `app.js` and `preview.js` pass. Blender 4.5.14 with `--factory-startup` and `--python-exit-code 7` passes all twenty-one scripts and the three weapon scripts with `-- BODY`.
 - Not checked: game playback of a joined clip or a binder written this way, a new member with a TAE entry, and the panels in Blender's UI beyond the drawn outline.
 
 

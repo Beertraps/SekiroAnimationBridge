@@ -1,4 +1,6 @@
-# Unreleased — Wolf's katana, alternate model meshes, and skin preview
+# 0.13.0 — export into the animation binder, join animations, Animate tab, body figures and Biped-style feet, Wolf's katana, alternate model meshes, skin preview
+
+Install `SekiroRetargetAssistant-0.9.0.zip` over 0.8.0 for the retarget changes.
 
 - Wolf outfit imports select Kusabimaru (`wp_a_0300`) when the part exists in the source. A missing weapon does not make the outfit incomplete.
 - The scene setup lists numbered mesh groups within a character model, so one animation can be imported with a chosen appearance. The selection is saved per model file; unnumbered meshes are always included.
@@ -14,8 +16,6 @@
 - The binder is rewritten as FromSoftware lays out BND4 files, with its path hash table and data on 16-byte boundaries, and compressed with the same DCX type. The other members stay byte for byte. The result is read back before it is written. Weapon part clips still go beside the HKX only.
 
 ## Retarget add-on 0.9.0: Join animations, an Animate tab, and a Log
-
-Install `SekiroRetargetAssistant-0.9.0.zip` over 0.8.0.
 
 - New **Join animations**: one action that plays the armature's own animation and then another one, such as an attack and its recovery, so the game plays both as one clip. **Blend** sets how long one eases into the other (0.2 s by default; 0 cuts). The root motion of the second clip goes on from where the first leaves the character. A second clip keyed at another frame rate plays at its own speed. **Load clip from .blend** brings in the animations and root motion of another bridge scene of the same skeleton, without its objects. Both originals are kept. TAE events of the second clip are not carried over.
 - The sidebar now has two tabs. **Retarget** keeps the four retarget steps. The new **Animate** tab holds **Animation** (the armature, its action, **Mirror animation** and **Join animations**), then **Control rig** and **Fixes**. **Mirror animation** moved there from the control rig panel.
