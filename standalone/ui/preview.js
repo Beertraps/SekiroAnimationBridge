@@ -37,11 +37,17 @@ const ClipPreview=(()=>{
   if(width&&height&&(canvas.width!==width||canvas.height!==height)){canvas.width=width;canvas.height=height;}
  }
  function orbit(yaw,pitch){state.yaw+=yaw;state.pitch=Math.max(-.15,Math.min(1.45,state.pitch+pitch));draw();}
+ // A game-space point in the view's Z-up space: unit*B*v with the preview's basis B (docs/INTERCHANGE.md); FromSoftware's swaps Y and Z.
+ function view(v){
+  const basis=state.data.basis||[[1,0,0],[0,0,1],[0,1,0]],unit=state.data.unitScale||1;
+  return basis.map(row=>unit*(row[0]*v[0]+row[1]*v[1]+row[2]*v[2]));
+ }
  function point(frame,bone){
   const p=state.data.positions[frame];let x=p[bone*3],y=p[bone*3+1],z=p[bone*3+2];
   const r=state.root&&state.data.root?state.data.root[frame]:null;
+  // Root motion turns about the game's up axis, Y, before the view converts the point.
   if(r){const c=Math.cos(r[3]),s=Math.sin(r[3]);[x,z]=[c*x+s*z,-s*x+c*z];x+=r[0];y+=r[1];z+=r[2];}
-  return [x,z,y];
+  return view([x,y,z]);
  }
  function measure(){
   const d=state.data,low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
@@ -69,7 +75,7 @@ const ClipPreview=(()=>{
   ctx.stroke();
   if(state.root&&d.root){
    ctx.strokeStyle=token('--ink-4');ctx.lineWidth=1.5*ratio;ctx.beginPath();
-   d.root.forEach((r,i)=>{const p=project([r[0],r[2],0]);if(i)ctx.lineTo(p[0],p[1]);else ctx.moveTo(p[0],p[1]);});ctx.stroke();
+   d.root.forEach((r,i)=>{const q=view([r[0],0,r[2]]),p=project([q[0],q[1],0]);if(i)ctx.lineTo(p[0],p[1]);else ctx.moveTo(p[0],p[1]);});ctx.stroke();
   }
   const points=d.bones.map((_,i)=>point(state.frame,i));
   ctx.strokeStyle=token('--accent');ctx.lineWidth=1.8*ratio;ctx.lineCap='round';ctx.beginPath();

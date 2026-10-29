@@ -15,28 +15,40 @@ from pathlib import Path
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
+# The games package (source spaces) sits beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from games.space import FROMSOFT, Space  # noqa: E402
 
-def game_to_bl_trs(sample):
-    x, y, z, w = sample["rotation"]
-    rotation = Quaternion((float(w), -float(x), -float(z), -float(y)))
+
+def game_to_bl_trs(sample, space=FROMSOFT):
+    """A source-space transform in Blender's space (docs/INTERCHANGE.md). FromSoftware's swaps Y and Z."""
+    rotation = Quaternion(space.quaternion(sample["rotation"]))
     rotation.normalize()
-    translation = Vector((float(sample["translation"][0]), float(sample["translation"][2]), float(sample["translation"][1])))
-    scale = Vector((float(sample["scale"][0]), float(sample["scale"][2]), float(sample["scale"][1])))
-    return translation, rotation, scale
+    return Vector(space.point(sample["translation"])), rotation, Vector(space.scale(sample["scale"]))
 
 
-def bl_to_game_trs(translation, rotation, scale):
+def bl_to_game_trs(translation, rotation, scale, space=FROMSOFT):
     rotation = rotation.normalized()
     return {
-        "translation": [float(translation.x), float(translation.z), float(translation.y)],
-        "rotation": [float(-rotation.x), float(-rotation.z), float(-rotation.y), float(rotation.w)],
-        "scale": [float(scale.x), float(scale.z), float(scale.y)],
+        "translation": list(space.inverse_point(translation)),
+        "rotation": space.inverse_quaternion(rotation),
+        "scale": list(space.inverse_scale(scale)),
     }
 
 
-def trs_matrix(sample):
-    translation, rotation, scale = game_to_bl_trs(sample)
+def trs_matrix(sample, space=FROMSOFT):
+    translation, rotation, scale = game_to_bl_trs(sample, space)
     return Matrix.LocRotScale(translation, rotation, scale)
+
+
+def root_sample(location, angle, space=FROMSOFT):
+    """A root-motion sample [x, y, z, yaw] in source space from a Blender location and Z angle."""
+    return [*space.inverse_point(location), space.inverse_yaw(angle)]
+
+
+def motion_space(motion):
+    """The source space a motion JSON declares; version 1 is FromSoftware's."""
+    return Space.of(motion)
 
 
 def make_active(context, obj):
@@ -89,8 +101,9 @@ def import_motion(motion):
         raise ValueError("Animation and skeleton names do not match.")
     if len(motion["frames"]) != frame_count:
         raise ValueError("Motion frame count does not match its frame data.")
+    space = motion_space(motion)
 
-    rest_local = [trs_matrix(bone) for bone in bones]
+    rest_local = [trs_matrix(bone, space) for bone in bones]
     rest_world = []
     for index, bone in enumerate(bones):
         parent_index = int(bone["parent"])
@@ -192,7 +205,7 @@ def import_motion(motion):
             raise ValueError("Frame {} has the wrong number of tracks.".format(frame_index))
         local_matrices = [matrix.copy() for matrix in rest_local]
         for track_index, bone_index in enumerate(track_to_bone):
-            local_matrices[bone_index] = trs_matrix(frame[track_index])
+            local_matrices[bone_index] = trs_matrix(frame[track_index], space)
         world_matrices = []
         for index, bone in enumerate(bones):
             parent_index = int(bone["parent"])
@@ -234,8 +247,8 @@ def import_motion(motion):
     write_action(rig, clip_name + "_Sekiro", channels)
     if root_object:
         write_action(root_object, clip_name + "_RootMotion", {
-            "location": [(float(s[0]), float(s[2]), float(s[1])) for s in root_motion],
-            "rotation_euler": [(0.0, 0.0, -float(s[3])) for s in root_motion],
+            "location": [space.point(s[:3]) for s in root_motion],
+            "rotation_euler": [(0.0, 0.0, space.yaw(s[3])) for s in root_motion],
         })
 
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -491,7 +504,7 @@ def embedded_motion(rig):
     if payload.startswith("SEKIRO_BRIDGE_ZLIB_V1\n"):
         payload = zlib.decompress(base64.b64decode(payload.split("\n", 1)[1])).decode("utf-8")
     motion = json.loads(payload)
-    if motion.get("format") != "sekiro-animation-bridge" or motion.get("formatVersion") != 1:
+    if motion.get("format") != "sekiro-animation-bridge" or motion.get("formatVersion") not in (1, 2):
         raise RuntimeError("The embedded motion uses an unsupported bridge format.")
     return motion
 
@@ -668,12 +681,13 @@ def own_rotation(pose_bone):
     return rotation.normalized() if rotation.magnitude > 1e-8 else Quaternion()
 
 
-def extract_root_motion(matrices, axes, yaw):
+def extract_root_motion(matrices, axes, yaw, space=FROMSOFT):
     """Root transforms carrying one bone's travel and, optionally, its heading.
 
     The bone keeps its first-frame offset from the root, so the root starts at
-    the origin. Samples follow the importer's root empty: Blender location
-    (x, y, z) is game (x, z, y), and game yaw is the negative Blender Z angle.
+    the origin. Samples follow the importer's root empty, converted to source
+    space: for FromSoftware, Blender location (x, y, z) is game (x, z, y), and
+    game yaw is the negative Blender Z angle.
     """
     start = matrices[0].translation.copy()
     start_rotation = matrices[0].to_quaternion()
@@ -691,7 +705,7 @@ def extract_root_motion(matrices, axes, yaw):
         if axes == "xy":
             offset.z = 0.0
         transforms.append(Matrix.Translation(offset) @ rotation)
-        samples.append([float(offset.x), float(offset.z), float(offset.y), float(-angle)])
+        samples.append(root_sample(offset, angle, space))
     return transforms, samples
 
 
@@ -709,6 +723,7 @@ def export_motion(output_json: Path, **overrides):
     scene = bpy.context.scene
     rig = export_rig(scene)
     motion = embedded_motion(rig)
+    space = motion_space(motion)
     bones = motion["skeleton"]["bones"]
     names = [bone["name"] for bone in bones]
     parents = [int(bone["parent"]) for bone in bones]
@@ -798,8 +813,7 @@ def export_motion(output_json: Path, **overrides):
             bases.append([pose_bone.matrix_basis.copy() for pose_bone in pose_bones])
             rotations.append([own_rotation(pose_bone) for pose_bone in pose_bones])
             if root_mode == "object":
-                root_samples.append([float(root.location.x), float(root.location.z), float(root.location.y),
-                                     -float(root.rotation_euler.z)])
+                root_samples.append(root_sample(root.location, root.rotation_euler.z, space))
     finally:
         for undo in reversed(restore):
             undo()
@@ -807,7 +821,7 @@ def export_motion(output_json: Path, **overrides):
 
     if root_mode == "bone":
         transforms, root_samples = extract_root_motion([world[root_index] for world in worlds],
-                                                       options["root_axes"], bool(options["root_yaw"]))
+                                                       options["root_axes"], bool(options["root_yaw"]), space)
         # The bone above both the extraction bone and the body gives up the travel with
         # its descendants, so legs and upper body stay together even when the travel
         # is read from the pelvis. Bones above it, such as Master, stay as animated and
@@ -822,7 +836,7 @@ def export_motion(output_json: Path, **overrides):
             inverse = transform.inverted()
             world[:] = [inverse @ matrix if index in moved else matrix for index, matrix in enumerate(world)]
 
-    rest_local = [trs_matrix(bone) for bone in bones]
+    rest_local = [trs_matrix(bone, space) for bone in bones]
     # A bone's own rest offset from its parent, where Blender's parent is the skeleton's.
     own_rest = [pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local
                 if parent >= 0 and pose_bone.parent is not None and pose_bone.parent.name == names[parent] else None
@@ -876,7 +890,7 @@ def export_motion(output_json: Path, **overrides):
             if own_rest[index] is not None and min(abs(value) for value in scale) < 1e-6:
                 # A matrix scaled to nothing has lost its rotation: the bone keeps the one it is keyed with.
                 rotation = own_rest[index].to_quaternion() @ own[index]
-            sample = bl_to_game_trs(location, rotation, scale)
+            sample = bl_to_game_trs(location, rotation, scale, space)
             # Keep each track's quaternions in one hemisphere for the spline compressor.
             if index in previous and sum(a * b for a, b in zip(sample["rotation"], previous[index])) < 0:
                 sample["rotation"] = [-value for value in sample["rotation"]]

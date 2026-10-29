@@ -378,10 +378,35 @@ def same_pose(matrix, other):
     return (location - other_location).length < 1e-5 and Vector(turn[1:]).length < 1e-5 and (scale - other_scale).length < 1e-5
 
 
-def _trs(matrix):
+# FromSoftware's space, for motion JSON without a basis: Blender (x, y, z) is game (x, z, y).
+FROMSOFT_BASIS = ((1, 0, 0), (0, 0, 1), (0, 1, 0))
+
+
+def _space(document):
+    """The inverse basis, its determinant and the unit of a bridge motion JSON.
+
+    A document's basis B maps its game space to Blender's: v_blender = unit * B * v_game
+    (docs/INTERCHANGE.md in the bridge). B is a signed permutation, so B^-1 is its transpose.
+    """
+    document = document or {}
+    basis = Matrix([[float(value) for value in row] for row in document.get('basis') or FROMSOFT_BASIS])
+    return basis.transposed(), basis.determinant(), float(document.get('unitScale', 1.0))
+
+
+def _trs(matrix, document=None):
+    """A Blender bone matrix as a track sample in the game space of the target's motion JSON."""
+    inverse, determinant, unit = _space(document)
     translation, rotation, scale = matrix.decompose()
-    return dict(translation=[translation.x, translation.z, translation.y],
-        rotation=[-rotation.x, -rotation.z, -rotation.y, rotation.w], scale=[scale.x, scale.z, scale.y])
+    reorder = Matrix([[abs(value) for value in row] for row in inverse])
+    return dict(translation=list(inverse @ translation / unit),
+                rotation=[*(inverse @ Vector(rotation[1:]) * determinant), rotation.w], scale=list(reorder @ scale))
+
+
+def _root_sample(location, angle, document=None):
+    """A root-motion sample [x, y, z, yaw] in game space: a turn about Blender Z is one about the game's Y."""
+    inverse, determinant, unit = _space(document)
+    up = inverse.transposed().col[1]
+    return [*(inverse @ location / unit), angle * up.z * determinant]
 
 
 def deformers(rig):
@@ -2534,7 +2559,7 @@ def bake(scene, settings):
                 'location': [tuple(location) for location, angle in root_values],
                 'rotation_euler': [(0.0, 0.0, angle) for location, angle in root_values]})
             if mode != 'NONE':
-                root_samples = [[v.x, v.z, v.y, -angle] for v, angle in root_values]
+                root_samples = [_root_sample(v, angle, target_document) for v, angle in root_values]
         if target_document:
             document = dict(target_document)
             document.update(frameCount=count, frameRate=rate, duration=(count - 1) / rate)
@@ -2546,7 +2571,7 @@ def bake(scene, settings):
                     bone = skeleton[index]
                     parent = int(bone['parent'])
                     matrix = poses[skeleton[parent]['name']].inverted_safe() @ poses[bone['name']] if parent >= 0 else poses[bone['name']]
-                    frame.append(_trs(matrix))
+                    frame.append(_trs(matrix, target_document))
                 document['frames'].append(frame)
             document['rootMotion'] = root_samples
             if root_samples is None:

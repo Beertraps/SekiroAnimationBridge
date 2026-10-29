@@ -7,6 +7,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector, Euler, Quaternion
 from material_assets import mesh_mask
+from games.space import FROMSOFT, Space
 
 LABELS = {'fc': 'Head', 'am': 'Arms', 'bd': 'Torso', 'lg': 'Legs', 'wp': 'Weapon', 'hd': 'Headwear'}
 
@@ -45,7 +46,7 @@ def make_material(spec, uv_names, cache):
     key = json.dumps(spec, sort_keys=True)
     if key in cache:
         return cache[key]
-    mat = bpy.data.materials.new('FromSoftware / ' + spec['name'])
+    mat = bpy.data.materials.new((spec.get('family') or 'FromSoftware') + ' / ' + spec['name'])
     mat.use_nodes = True
     mat.diffuse_color = (0.42, 0.33, 0.23, 1)
     shader = mat.node_tree.nodes.get('Principled BSDF')
@@ -68,10 +69,20 @@ def make_material(spec, uv_names, cache):
         mat.node_tree.links.new(color_output, shader.inputs['Base Color'])
         if spec.get('alpha'):
             mat.node_tree.links.new(tex.outputs['Alpha'], shader.inputs['Alpha'])
-            if hasattr(mat, 'surface_render_method'):
-                mat.surface_render_method = 'DITHERED'
-            elif hasattr(mat, 'blend_method'):
-                mat.blend_method = 'HASHED'
+            cut_out(mat)
+    if spec.get('opacity'):
+        # A separate opacity texture keeps the cut-out in one channel, such as red of an RE Engine ATOS map.
+        tex = texture_node(mat, spec['opacity'], uv_names, color=False)
+        tex.location.y -= 480
+        separate = mat.node_tree.nodes.new('ShaderNodeSeparateColor')
+        separate.location = (-40, tex.location.y)
+        mat.node_tree.links.new(tex.outputs['Color'], separate.inputs[0])
+        channel = {'R': 'Red', 'G': 'Green', 'B': 'Blue'}.get(spec['opacity'].get('channel', 'R'), 'Red')
+        mat.node_tree.links.new(separate.outputs[channel], shader.inputs['Alpha'])
+        cut_out(mat)
+    if spec.get('opacityValue') is not None:
+        shader.inputs['Alpha'].default_value = float(spec['opacityValue'])
+        cut_out(mat)
     if spec.get('emissive'):
         tex = texture_node(mat, spec['emissive'], uv_names)
         emission = shader.inputs.get('Emission Color') or shader.inputs.get('Emission')
@@ -79,7 +90,7 @@ def make_material(spec, uv_names, cache):
             mat.node_tree.links.new(tex.outputs['Color'], emission)
         if 'Emission Strength' in shader.inputs:
             shader.inputs['Emission Strength'].default_value = 1.0
-    # DirectX normals use an inverted green channel. Reconstruct Z for two-channel BC5 maps.
+    # DirectX normals use an inverted green channel, OpenGL normals do not. Reconstruct Z for two-channel BC5 maps.
     if spec.get('normal'):
         tex = texture_node(mat, spec['normal'], uv_names, color=False)
         nodes, links = mat.node_tree.nodes, mat.node_tree.links
@@ -97,7 +108,8 @@ def make_material(spec, uv_names, cache):
         z = math('SQRT', math('MAXIMUM', math('SUBTRACT', 1, math('ADD', math('MULTIPLY', x, x), math('MULTIPLY', y, y))), 0))
         combine = nodes.new('ShaderNodeCombineXYZ')
         links.new(separate.outputs['X'], combine.inputs['X'])
-        links.new(math('SUBTRACT', 1, separate.outputs['Y']), combine.inputs['Y'])
+        opengl = spec['normal'].get('convention') == 'opengl'
+        links.new(separate.outputs['Y'] if opengl else math('SUBTRACT', 1, separate.outputs['Y']), combine.inputs['Y'])
         links.new(math('ADD', math('MULTIPLY', z, .5), .5), combine.inputs['Z'])
         normal = nodes.new('ShaderNodeNormalMap'); normal.inputs['Strength'].default_value = .65
         normal.uv_map = f"uv_{spec['normal'].get('uv', 0)}"
@@ -108,7 +120,33 @@ def make_material(spec, uv_names, cache):
     return mat
 
 
-def ensure_model_bones(rig, preview, needed):
+def cut_out(material):
+    if hasattr(material, 'surface_render_method'):
+        material.surface_render_method = 'DITHERED'
+    elif hasattr(material, 'blend_method'):
+        material.blend_method = 'HASHED'
+
+
+def bone_rest(preview, i, quaternions=False):
+    """A model bone's rest transform relative to its parent, in source space.
+
+    FromSoftware previews store Euler XZY angles; manifests with boneRotation
+    'quaternion' store [x, y, z, w] quaternions (docs/INTERCHANGE.md).
+    """
+    if quaternions:
+        x, y, z, w = (float(v) for v in preview['bone_quaternions'][i])
+        rotation = Quaternion((w, x, y, z))
+    else:
+        rotation = Euler(preview['bone_rotations'][i], 'XZY').to_quaternion()
+    return Matrix.LocRotScale(Vector(preview['bone_translations'][i]), rotation, Vector(preview['bone_scales'][i]))
+
+
+def conversion(space):
+    """C and C^-1 of a source space: C @ M @ C^-1 is a source transform matrix M in Blender's space."""
+    return Matrix(space.matrix()), Matrix(space.inverse_matrix())
+
+
+def ensure_model_bones(rig, preview, needed, space=FROMSOFT, quaternions=False):
     names = [str(n) for n in preview['bone_names']]
     missing = {i for i in needed if names[i] not in rig.data.bones}
     if not missing:
@@ -121,14 +159,14 @@ def ensure_model_bones(rig, preview, needed):
         parent = int(parents[i])
         while parent >= 0 and names[parent] not in rig.data.bones and parent not in wanted:
             wanted.add(parent); parent = int(parents[parent])
-    conversion = Matrix(((1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
+    to_blender, to_source = conversion(space)
     world = {}
     visiting = set()
     def rest(i):
         if i in world: return world[i]
         if i in visiting: raise ValueError('FLVER bone hierarchy contains a cycle.')
         visiting.add(i)
-        local = Matrix.LocRotScale(Vector(preview['bone_translations'][i]), Euler(preview['bone_rotations'][i], 'XZY').to_quaternion(), Vector(preview['bone_scales'][i]))
+        local = bone_rest(preview, i, quaternions)
         parent = int(parents[i]); value = rest(parent) @ local if parent >= 0 else local
         world[i] = value; visiting.remove(i)
         return value
@@ -138,7 +176,7 @@ def ensure_model_bones(rig, preview, needed):
         if names[i] in rig.data.edit_bones: return rig.data.edit_bones[names[i]]
         parent = int(parents[i]); parent_bone = add(parent) if parent >= 0 else None
         bone = rig.data.edit_bones.new(names[i]); bone.length = .04
-        bone.matrix = conversion @ rest(i) @ conversion
+        bone.matrix = to_blender @ rest(i) @ to_source
         bone.parent = parent_bone; bone['sekiro_model_only'] = True
         return bone
     for i in sorted(wanted): add(i)
@@ -146,20 +184,19 @@ def ensure_model_bones(rig, preview, needed):
     print(f'Added {len(wanted)} model-only bones. Original HKX tracks remain unchanged.', flush=True)
 
 
-def skin_rig_for_part(rig, preview, used, collection, name):
+def skin_rig_for_part(rig, preview, used, collection, name, space=FROMSOFT, quaternions=False):
     """Some cutscene parts have a different authored bind pose; retain their inverse bind matrices."""
     names = [str(n) for n in preview['bone_names']]
     parents = preview['bone_parents']
-    conversion = Matrix(((1,0,0,0),(0,0,1,0),(0,1,0,0),(0,0,0,1)))
+    to_blender, to_source = conversion(space)
     world = {}
     def rest(i):
         if i in world: return world[i]
         parent = int(parents[i])
-        local = Matrix.LocRotScale(Vector(preview['bone_translations'][i]),
-            Euler(preview['bone_rotations'][i], 'XZY').to_quaternion(), Vector(preview['bone_scales'][i]))
+        local = bone_rest(preview, i, quaternions)
         world[i] = rest(parent) @ local if parent >= 0 else local
         return world[i]
-    bind = {i:conversion @ rest(i) @ conversion for i in used}
+    bind = {i:to_blender @ rest(i) @ to_source for i in used}
     if not any(max(abs(bind[i][r][c]-rig.data.bones[names[i]].matrix_local[r][c]) for r in range(4) for c in range(4)) > .01 for i in used):
         return rig
     adapter = bpy.data.objects.new(name + ' | Bind adapter', bpy.data.armatures.new(name + ' bind'))
@@ -170,7 +207,7 @@ def skin_rig_for_part(rig, preview, used, collection, name):
         if names[i] in adapter.data.edit_bones: return adapter.data.edit_bones[names[i]]
         parent = int(parents[i]); parent_bone = add(parent) if parent >= 0 else None
         bone = adapter.data.edit_bones.new(names[i]); bone.length = .04
-        matrix = conversion @ rest(i) @ conversion
+        matrix = to_blender @ rest(i) @ to_source
         location, rotation, _ = matrix.decompose()
         bone.matrix = Matrix.LocRotScale(location, rotation, Vector((1,1,1)))
         bone.parent = parent_bone
@@ -318,6 +355,11 @@ def model_mesh_groups(model, preview):
 
 def import_character(manifest_path, rig):
     document = json.loads(Path(manifest_path).read_text(encoding='utf-8'))
+    # Manifest version 5 names its source space; earlier manifests are FromSoftware's (docs/INTERCHANGE.md).
+    space = Space.of(document)
+    quaternions = document.get('boneRotation') == 'quaternion'
+    axes, signs = list(space.indices), np.asarray(space.signs)
+    winding = [0, 2, 1] if space.reflects else [0, 1, 2]
     collection = bpy.data.collections.new('Sekiro | Character')
     rig.users_collection[0].children.link(collection)
     cache, objects = {}, []
@@ -335,9 +377,9 @@ def import_character(manifest_path, rig):
                 skin_rig=weapon_rig(rig,preview,bones,collection,model['name'],model['attachment'])
                 if motion: animate_part(skin_rig, motion, model['name'])
             else:
-                ensure_model_bones(rig, preview, used)
-                skin_rig = skin_rig_for_part(rig, preview, used, collection, model['name'])
-            role = LABELS.get(model['name'].split('_')[0], 'Character')
+                ensure_model_bones(rig, preview, used, space, quaternions)
+                skin_rig = skin_rig_for_part(rig, preview, used, collection, model['name'], space, quaternions)
+            role = model.get('role') or LABELS.get(model['name'].split('_')[0], 'Character')
             uv_names = sorted([key for key in preview.files if key.startswith('uv_')], key=lambda k:int(k[3:]))
             if not uv_names: uv_names = ['uv_0']
             materials = [make_material(spec, uv_names, cache) for spec in model['materials']]
@@ -348,7 +390,8 @@ def import_character(manifest_path, rig):
                 if np.any(part_faces < 0):
                     raise ValueError(f"{model['name']}: mesh group has faces outside its vertex data. Regenerate the preview.")
                 mesh = bpy.data.meshes.new(model['name'])
-                mesh.from_pydata(pos[vertex_rows][:, [0, 2, 1]].tolist(), [], part_faces[:, [0, 2, 1]].tolist()); mesh.update()
+                points = pos[vertex_rows][:, axes] * (signs * space.unit)
+                mesh.from_pydata(points.tolist(), [], part_faces[:, winding].tolist()); mesh.update()
                 label = role
                 if mask is not None:
                     example = next(spec['name'] for spec in model['materials'] if mesh_mask(spec['name']) == mask)
@@ -361,7 +404,7 @@ def import_character(manifest_path, rig):
                     uv[:, 1] = 1 - uv[:, 1]
                     layer = mesh.uv_layers.new(name=key); layer.data.foreach_set('uv', uv.ravel())
                 if 'normals' in preview and np.any(preview['normals'][vertex_rows]):
-                    normals = preview['normals'][vertex_rows][:, [0, 2, 1]].copy()
+                    normals = (preview['normals'][vertex_rows][:, axes] * signs).astype(preview['normals'].dtype)
                     length = np.linalg.norm(normals, axis=1, keepdims=True)
                     normals = normals / np.maximum(length, 1e-8)
                     mesh.normals_split_custom_set_from_vertices(normals.tolist())

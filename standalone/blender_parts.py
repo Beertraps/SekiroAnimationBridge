@@ -22,7 +22,7 @@ from pathlib import Path
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from blender_bridge import bl_to_game_trs, export_rig, sample_times, script_arguments, set_time, trs_matrix, write_action  # noqa: E402
+from blender_bridge import bl_to_game_trs, export_rig, motion_space, sample_times, script_arguments, set_time, trs_matrix, write_action  # noqa: E402
 
 TEXT_PREFIX = "SEKIRO_BRIDGE_ZLIB_V1\n"
 
@@ -60,7 +60,8 @@ def animate_part(rig, motion, model=""):
     names = [bone["name"] for bone in bones]
     parents = [int(bone["parent"]) for bone in bones]
     tracks = [int(index) for index in motion["trackBoneIndices"]]
-    rest = [trs_matrix(bone) for bone in bones]
+    space = motion_space(motion)
+    rest = [trs_matrix(bone, space) for bone in bones]
     scene = bpy.context.scene
     scene_rate = scene.render.fps / scene.render.fps_base
     rate = float(motion["frameRate"])
@@ -80,7 +81,7 @@ def animate_part(rig, motion, model=""):
     for frame in motion["frames"]:
         local = list(rest)
         for track, index in enumerate(tracks):
-            local[index] = trs_matrix(frame[track])
+            local[index] = trs_matrix(frame[track], space)
         world = skeleton_worlds(bones, local)
         flver_world = {}
 
@@ -139,7 +140,7 @@ def embedded_part(rig):
     if payload.startswith(TEXT_PREFIX):
         payload = zlib.decompress(base64.b64decode(payload.split("\n", 1)[1])).decode("utf-8")
     motion = json.loads(payload)
-    if motion.get("format") != "sekiro-animation-bridge" or motion.get("formatVersion") != 1:
+    if motion.get("format") != "sekiro-animation-bridge" or motion.get("formatVersion") not in (1, 2):
         raise RuntimeError("{}: the stored part clip uses an unsupported bridge format.".format(rig.name))
     return motion
 
@@ -173,7 +174,8 @@ def sample_part(scene, rig, motion, start, end):
         worlds.append({index: rig.pose.bones[names[index]].matrix.copy() for index in present})
         bases.append({index: rig.pose.bones[names[index]].matrix_basis.copy() for index in present})
 
-    rest = [trs_matrix(bone) for bone in bones]
+    space = motion_space(motion)
+    rest = [trs_matrix(bone, space) for bone in bones]
     own_rest = {}
     for index in present:
         pose_bone = rig.pose.bones[names[index]]
@@ -198,7 +200,7 @@ def sample_part(scene, rig, motion, start, end):
             game_world.append(game_world[parent] @ matrix if parent >= 0 else matrix)
         frame = []
         for index in tracks:
-            sample = bl_to_game_trs(*local[index].decompose())
+            sample = bl_to_game_trs(*local[index].decompose(), space)
             if index in previous and sum(a * b for a, b in zip(sample["rotation"], previous[index])) < 0:
                 sample["rotation"] = [-value for value in sample["rotation"]]
             previous[index] = sample["rotation"]

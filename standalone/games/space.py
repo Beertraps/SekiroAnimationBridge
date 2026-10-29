@@ -109,7 +109,13 @@ class Space:
     def yaw(self, angle):
         """A turn about the source's up axis (Y) as a turn about Blender's Z, for root motion."""
         up = self.vector((0.0, 1.0, 0.0))
+        if not up[2]:
+            raise ValueError('Root motion turns about the source up axis, Y, which this basis does not map to Blender Z.')
         return float(angle) * up[2] * self.determinant
+
+    def inverse_yaw(self, angle):
+        """A turn about Blender's Z as a turn about the source's up axis. The factor is 1 or -1, its own inverse."""
+        return self.yaw(angle)
 
     def matrix(self):
         """C = unit * B as a 4x4 matrix: C * M * C^-1 converts a source transform matrix M."""
