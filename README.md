@@ -1,6 +1,6 @@
 # Sekiro Animation Bridge
 
-**Edit FromSoftware animations in Blender.** Import an HKX animation together with its skinned character, edit it like any Blender action, and export a raw HKX again. Works with Sekiro, Dark Souls (Prepare to Die and Remastered), Dark Souls III and Elden Ring.
+**Edit FromSoftware animations in Blender.** Import an HKX animation together with its skinned character, edit it like any Blender action, and export a raw HKX again. Works with Sekiro, Dark Souls (Prepare to Die and Remastered), Dark Souls III and Elden Ring. Devil May Cry 5 animations and characters can be imported too, to edit or to retarget onto a FromSoftware character.
 
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
@@ -40,6 +40,13 @@ flowchart LR
 
 Import and export work for all five games. Every release writes and reads back synthetic animations for each of them automatically; [docs/VERIFICATION.md](docs/VERIFICATION.md) lists what was checked and how.
 
+Other engines import only. Their animations can be edited in Blender, or used as the donor of a retarget onto a character of a game above, which then exports.
+
+| Game | Engine and format | Status |
+| --- | --- | --- |
+| Devil May Cry 5 | RE Engine, motlist 85 | Import checked with the game's files ([guide](docs/games/dmc5.md)) |
+| Resident Evil 2 (DX11) | RE Engine, motlist 85 | Untested ([notes](docs/games/re2.md)) |
+
 ## Install
 
 1. Download **`SekiroAnimationBridge-<version>-win-x64.zip`** from [Releases](../../releases) and extract it to any folder.
@@ -48,7 +55,7 @@ Import and export work for all five games. Every release writes and reads back s
 
 For a desktop shortcut with the app's icon, double-click **`Create Desktop Shortcut.cmd`**. Run it again after moving the extracted folder to update the shortcut.
 
-That is all: the release includes the HKX decoder and [uv](https://github.com/astral-sh/uv), so no Python, .NET or Git installation is needed. Only the optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported), which many games have already installed; **Settings & setup** shows whether it is present. To update, extract the new version and start it; your settings carry over.
+That is all: the release includes the HKX decoder, the RE Engine decoder and [uv](https://github.com/astral-sh/uv), so no Python, .NET or Git installation is needed. Only the optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported), which many games have already installed; **Settings & setup** shows whether it is present. To update, extract the new version and start it; your settings carry over.
 
 For retargeting and the control rig, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.
 
@@ -66,6 +73,8 @@ For retargeting and the control rig, also install **`SekiroRetargetAssistant-<ve
 
 - [User guide](docs/USER_GUIDE.md): sources and layouts, import, textures, weapons, export options and the command line
 - [Other FromSoftware games](docs/OTHER_GAMES.md): the files each game needs, materials and weapon placement
+- [Devil May Cry 5](docs/games/dmc5.md): importing from the game's PAK archives, and retargeting onto a Sekiro character
+- [Interchange formats](docs/INTERCHANGE.md) and the [multi-game plan](docs/MULTI_GAME_IMPORT_PLAN.md): how a new game is added
 - [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig, mirror, joining two animations and export
 - [Changelog](CHANGELOG.md), [verification log](docs/VERIFICATION.md) and [credits](CREDITS.md)
 
@@ -85,10 +94,11 @@ git clone https://github.com/Beertraps/SekiroAnimationBridge.git
 cd SekiroAnimationBridge
 tools\setup_writer.cmd
 tools\SekiroMotionDecoder\build_decoder.cmd
+tools\ReEngineDecoder\build_decoder.cmd
 "Start Animation Bridge.cmd"
 ```
 
-`setup_writer.cmd` creates the conversion Python; `build_decoder.cmd` builds the decoder from a pinned [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) commit. Both store their results in `%LOCALAPPDATA%\SekiroAnimationBridge`.
+`setup_writer.cmd` creates the conversion Python; `SekiroMotionDecoder\build_decoder.cmd` builds the HKX decoder from a pinned [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) commit, and `ReEngineDecoder\build_decoder.cmd` the RE Engine decoder from a pinned [REE-Lib](https://github.com/kagenocookie/RE-Engine-Lib) commit (only needed for Devil May Cry 5). All store their results in `%LOCALAPPDATA%\SekiroAnimationBridge`.
 
 Run the unit tests with that Python, from the repository folder:
 
@@ -98,11 +108,11 @@ Run the unit tests with that Python, from the repository folder:
 
 The Blender checks run as `blender --background --factory-startup --python standalone/tests/<script>.py`. All test fixtures are synthetic rigs owned by this project; no game files are needed.
 
-To release, update `VERSION` and `CHANGELOG.md`, then push a tag such as `v0.9.0`. The [release workflow](.github/workflows/release.yml) builds the decoder, adds uv, starts the packaged bridge on a fresh Windows profile, runs the unit tests and publishes the ZIPs.
+To release, update `VERSION` and `CHANGELOG.md`, then push a tag such as `v0.9.0`. The [release workflow](.github/workflows/release.yml) builds both decoders, adds uv, starts the packaged bridge on a fresh Windows profile, runs the unit tests and publishes the ZIPs.
 
 ## Credits
 
-Built on [Soulstruct](https://github.com/Grimrukh/soulstruct) and [Soulstruct Havok](https://github.com/Grimrukh/soulstruct-havok) by Grimrukh, [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) by Meowmaritus with [SoulsFormats](https://github.com/JKAnderson/SoulsFormats) by JKAnderson, [Blender](https://www.blender.org/), Python, NumPy, .NET and uv. [CREDITS.md](CREDITS.md) lists every component and its license.
+Built on [Soulstruct](https://github.com/Grimrukh/soulstruct) and [Soulstruct Havok](https://github.com/Grimrukh/soulstruct-havok) by Grimrukh, [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) by Meowmaritus with [SoulsFormats](https://github.com/JKAnderson/SoulsFormats) by JKAnderson, [REE-Lib](https://github.com/kagenocookie/RE-Engine-Lib) by kagenocookie, [Blender](https://www.blender.org/), Python, NumPy, .NET and uv. [CREDITS.md](CREDITS.md) lists every component and its license.
 
 ## License
 

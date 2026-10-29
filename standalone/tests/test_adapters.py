@@ -161,6 +161,11 @@ class ReEngineSource(unittest.TestCase):
         self.assertEqual(motion['archive'], idle['archive'])
         self.assertEqual(notes, ['Coat_L is animated but not in the skeleton'])
 
+    def test_missing_decoder_is_reported(self):
+        ready, detail = re_engine.decoder_status(str(Path(self.temp.name) / 'missing.exe'))
+        self.assertFalse(ready)
+        self.assertIn('build_decoder.cmd', detail)
+
     def test_loose_files_replace_packed_ones(self):
         catalog = dict(folder=str(self.root), work=str(self.cache / 'work'), container='pak')
         self.assertEqual(re_engine.local_file(catalog, FILES[0].upper().replace('NATIVES', 'natives')), self.root / FILES[0])

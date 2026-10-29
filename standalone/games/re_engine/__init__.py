@@ -70,6 +70,22 @@ def run_decoder(*args, decoder=''):
     return result.stdout
 
 
+def decoder_status(decoder=''):
+    """Whether the RE Engine decoder runs, and what it reports, for the setup checks."""
+    try:
+        path = decoder_path(decoder)
+    except ValueError as exc:
+        return False, str(exc)
+    try:
+        result = subprocess.run([str(path), '--version'], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                creationflags=HIDDEN, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, 'The RE Engine decoder could not start.'
+    if result.returncode or not result.stdout.startswith(DECODER_VERSION):
+        return False, 'The RE Engine decoder is from another version. Rebuild it with tools\\ReEngineDecoder\\build_decoder.cmd.'
+    return True, result.stdout.strip()
+
+
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

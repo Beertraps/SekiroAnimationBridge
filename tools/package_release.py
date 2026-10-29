@@ -1,6 +1,6 @@
 """Package source, launchers, docs and the add-on without game data or local settings.
 
-A release build adds the prebuilt decoder (--decoder) and uv (--uv), so the bridge runs without build tools."""
+A release build adds the prebuilt decoders (--decoder, --re-decoder) and uv (--uv), so the bridge runs without build tools."""
 from pathlib import Path
 import argparse,hashlib,zipfile
 from package_addon import OUTPUT as ADDON
@@ -9,14 +9,14 @@ ROOT=Path(__file__).resolve().parents[1]
 TOP_FILES=['README.md','CHANGELOG.md','CREDITS.md','LICENSE','VERSION','requirements-writer.txt','Start Animation Bridge.cmd','Create Desktop Shortcut.cmd',ADDON.name]
 SUFFIXES={'.py','.ps1','.cmd','.cs','.csproj','.html','.css','.js','.md','.txt','.png','.svg','.ico'}
 GAME_FILES={'.hkx','.flver','.tpf','.dcx','.blend','.anibnd','.chrbnd','.partsbnd','.texbnd','.mtdbnd','.matbinbnd'}
-# Native binaries may only come from the decoder build and uv, never from the source tree.
+# Native binaries may only come from the decoder builds and uv, never from the source tree.
 BINARIES={'.dll','.exe'}
-BINARY_FOLDERS=('decoder/','tools/uv/')
+BINARY_FOLDERS=('decoder/','re-decoder/','tools/uv/')
 # SoulsAssetPipeline copies a Havok CompressAnim.exe next to the decoder for FBX import; decoding never uses it.
 DECODER_SKIP=('SapResources/CompressAnim/',)
 
 
-def members(decoder=None,uv=None):
+def members(decoder=None,uv=None,re_decoder=None):
     files={ROOT/name:name for name in TOP_FILES}
     for folder in ['standalone','tools','blender_addon','docs']:
         files.update((p,p.relative_to(ROOT).as_posix()) for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in SUFFIXES
@@ -27,6 +27,11 @@ def members(decoder=None,uv=None):
         for p in decoder.rglob('*'):
             relative=p.relative_to(decoder).as_posix()
             if p.is_file() and not relative.startswith(DECODER_SKIP): files[p]='decoder/'+relative
+    if re_decoder:
+        # The RE Engine decoder (REE-Lib) for Devil May Cry 5; games.re_engine finds it in re-decoder/.
+        re_decoder=Path(re_decoder)
+        if not (re_decoder/'ReEngineDecoder.exe').is_file(): raise ValueError(f'No ReEngineDecoder.exe in {re_decoder}')
+        files.update((p,'re-decoder/'+p.relative_to(re_decoder).as_posix()) for p in re_decoder.rglob('*') if p.is_file())
     if uv:
         uv=Path(uv)
         if not (uv/'uv.exe').is_file(): raise ValueError(f'No uv.exe in {uv}')
@@ -34,8 +39,8 @@ def members(decoder=None,uv=None):
     return files
 
 
-def package(output,decoder=None,uv=None):
-    files=members(decoder,uv)
+def package(output,decoder=None,uv=None,re_decoder=None):
+    files=members(decoder,uv,re_decoder)
     missing=[str(p) for p in files if not p.is_file()]
     if missing: raise ValueError('Missing release files: '+', '.join(missing))
     top=Path('SekiroAnimationBridge-'+(ROOT/'VERSION').read_text(encoding='utf-8').strip())
@@ -56,6 +61,7 @@ def package(output,decoder=None,uv=None):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--decoder',type=Path,help='decoder folder from build_decoder.cmd')
+    parser.add_argument('--re-decoder',type=Path,help='RE Engine decoder folder from tools/ReEngineDecoder/build_decoder.cmd')
     parser.add_argument('--uv',type=Path,help='folder with uv.exe and its license')
     args=parser.parse_args()
-    package(args.output,args.decoder,args.uv)
+    package(args.output,args.decoder,args.uv,args.re_decoder)

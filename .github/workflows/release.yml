@@ -39,6 +39,9 @@ jobs:
       - name: Build the decoder
         run: ./tools/SekiroMotionDecoder/build_decoder.ps1 -SoulsAssetPipelineRoot "$env:RUNNER_TEMP\SoulsAssetPipeline" -OutputDirectory "$env:RUNNER_TEMP\decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\decoder-build"
 
+      - name: Build the RE Engine decoder
+        run: ./tools/ReEngineDecoder/build_decoder.ps1 -REELibRoot "$env:RUNNER_TEMP\REE-Lib" -OutputDirectory "$env:RUNNER_TEMP\re-decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\re-decoder-build"
+
       - name: Download uv
         run: |
           $zip = "$env:RUNNER_TEMP\uv.zip"
@@ -50,7 +53,7 @@ jobs:
       - name: Package
         run: |
           python tools/package_addon.py
-          python tools/package_release.py --output "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" --decoder "$env:RUNNER_TEMP\decoder" --uv "$env:RUNNER_TEMP\uv"
+          python tools/package_release.py --output "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" --decoder "$env:RUNNER_TEMP\decoder" --re-decoder "$env:RUNNER_TEMP\re-decoder" --uv "$env:RUNNER_TEMP\uv"
           if ($LASTEXITCODE) { throw 'Packaging failed.' }
           Copy-Item SekiroRetargetAssistant-*.zip dist/
 
@@ -69,7 +72,7 @@ jobs:
           $headers = @{ 'X-Bridge-Token' = $ui.token }
           $checks = Invoke-RestMethod "$($ui.base)/api/environment" -Headers $headers
           $checks | Format-Table key, ready, detail -AutoSize | Out-String | Write-Host
-          foreach ($key in 'writer', 'decoder') {
+          foreach ($key in 'writer', 'decoder', 're-decoder') {
             if (-not ($checks | Where-Object { $_.key -eq $key -and $_.ready })) { throw "The $key check failed." }
           }
           $config = (Invoke-RestMethod "$($ui.base)/api/state" -Headers $headers).config

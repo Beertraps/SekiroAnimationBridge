@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <REELibProject Condition="'$(REELibProject)' == ''">$(MSBuildThisFileDirectory)..\..\dependencies\REE-Lib\REE-Lib\REE-Lib.csproj</REELibProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- REE-Lib uses C# 14 features (field-backed properties, null-conditional assignment) that the .NET 9 SDK offers as preview. -->
+    <ProjectReference Include="$(REELibProject)" AdditionalProperties="LangVersion=preview" />
+  </ItemGroup>
+</Project>

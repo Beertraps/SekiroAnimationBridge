@@ -123,6 +123,11 @@ def environment():
     result.append(dict(key='spline',title='Spline compression',ready=runtime.is_file(),optional=True,
         detail='Visual C++ 2010 runtime ready' if runtime.is_file() else
             'Spline export needs the Microsoft Visual C++ 2010 Redistributable (x86). Interleaved export works without it.'))
+    # RE Engine games such as Devil May Cry 5 import through their own decoder; FromSoftware games never need it.
+    from games import re_engine
+    ready, detail = re_engine.decoder_status()
+    result.append(dict(key='re-decoder',title='RE Engine decoder',ready=ready,optional=True,
+        detail='Devil May Cry 5 import ready · '+detail if ready else 'Only needed to import RE Engine games such as Devil May Cry 5. '+detail))
     try:
         path=CONFIG.get('writer', '')
         p=subprocess.run([path,'-E','-X','utf8',str(HERE/'dcx_codec.py'),'status','--oodle',CONFIG.get('oodle','')],
