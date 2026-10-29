@@ -165,7 +165,8 @@ def check_character(rig, motion, temp):
              bone_scales=np.ones((4, 3), np.float32), material_names=np.asarray(['hair', 'eye']))
     png = Path(temp) / 'owned_ATOS.png'
     write_png(png)
-    hair = dict(name='hair', mtd='Hair.mmtr', family='Devil May Cry 5', albedo=None, normal=None, emissive=None, samplers=[],
+    hair = dict(name='hair', mtd='Hair.mmtr', family='Devil May Cry 5', albedo=dict(path=str(png), linear=False, uv=0, scale=[1, 1],
+                stem='owned_ATOS', packedAlpha=True), normal=None, emissive=None, samplers=[],
                 alpha=False, color=[.5, .4, .3], opacity=dict(path=str(png), linear=True, uv=0, scale=[1, 1], channel='R', stem='owned_ATOS'))
     eye = dict(name='eye', mtd='EyeTransparent.mmtr', family='Devil May Cry 5', albedo=None, normal=None, emissive=None, samplers=[],
                alpha=False, color=[1, 1, 1], opacityValue=0.0)
@@ -196,6 +197,8 @@ def check_character(rig, motion, temp):
     hair_shader = materials['Devil May Cry 5 / hair'].node_tree.nodes['Principled BSDF']
     alpha_link = hair_shader.inputs['Alpha'].links[0]
     assert alpha_link.from_node.type == 'SEPARATE_COLOR' and alpha_link.from_socket.name == 'Red', alpha_link.from_node.type
+    # Alpha that holds other data must not darken the color.
+    assert bpy.data.images['owned_ATOS.png'].alpha_mode == 'CHANNEL_PACKED'
     eye_shader = materials['Devil May Cry 5 / eye'].node_tree.nodes['Principled BSDF']
     assert eye_shader.inputs['Alpha'].default_value == 0.0 and not eye_shader.inputs['Alpha'].links
 

@@ -533,7 +533,8 @@ def prepare(request, catalog_path, catalog, temp, event):
     requested = request.get('game', 'auto')
     if requested not in ('', 'auto', chosen['game']):
         raise ValueError('The selected clip belongs to a different game. Choose Auto detect or the matching source game.')
-    request['game'] = chosen['game']
+    # The motlist and the motion in it name the clip, so that a donor can be told apart from the target.
+    request.update(game=chosen['game'], animation=chosen['animation'], motionIndex=chosen['motion'])
     profile = games.profile(chosen['game'])
     models = request.get('models') or [p['path'] for p in chosen['parts'] if p['selected']]
     include = request.get('includeCharacter', True) and bool(models)

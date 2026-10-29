@@ -89,6 +89,14 @@ class GameChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cannot write its animation format'):
             check_games(dict(mode='export', exportGame='dmc5'))
 
+    def test_sampled_clips_of_import_only_games_are_refused(self):
+        from bridge_runtime import refuse_import_only
+        refuse_import_only(dict(game='sekiro'))
+        refuse_import_only(dict(game='er', formatVersion=1))
+        for document in (dict(game='dmc5'), dict(game='', source=dict(engine='re_engine')), dict(game='sekiro', engine='re_engine')):
+            with self.assertRaisesRegex(ValueError, 'Retarget the animation'):
+                refuse_import_only(document)
+
 
 class ReEngineSource(unittest.TestCase):
     def setUp(self):
@@ -189,6 +197,8 @@ class ReEngineMaterials(unittest.TestCase):
         spec = characters.material_spec(material, 'Owned', self.images('hair_ALBM.tex', 'hair_NRMR.tex', 'hair_ATOS.tex'), self.profile)
         self.assertEqual(spec['family'], 'Devil May Cry 5')
         self.assertEqual(spec['albedo']['stem'], 'hair_ALBM')
+        # The shift map's alpha is data, as are roughness in NRMR and subsurface in ATOS.
+        self.assertTrue(spec['albedo']['packedAlpha'] and spec['normal']['packedAlpha'] and spec['opacity']['packedAlpha'])
         self.assertFalse(spec['alpha'])
         self.assertEqual((spec['normal']['convention'], spec['normal']['channels']), ('directx', 'xyz'))
         self.assertEqual((spec['opacity']['stem'], spec['opacity']['channel']), ('hair_ATOS', 'R'))

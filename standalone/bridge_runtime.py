@@ -289,6 +289,15 @@ def check_games(request):
         raise ValueError(export_refusal(export))
 
 
+def refuse_import_only(document):
+    """Stop before writing when the sampled clip comes from a game the bridge imports but cannot write."""
+    from games import BY_ID, engine
+    game = document.get('game') or ''
+    if engine(document) != 'fromsoft' or (game in BY_ID and not BY_ID[game].capabilities.export):
+        from build_animation import export_refusal
+        raise ValueError(export_refusal(game))
+
+
 def convert(request):
     mode = request.get('mode', 'import')
     check_games(request)
@@ -473,7 +482,9 @@ def convert(request):
                     donor_motion, donor_character, donor = prepare(donor_input, temp / 'donor', donor_event)
                 except (ValueError, RuntimeError) as exc:
                     raise (ValueError if isinstance(exc, ValueError) else RuntimeError)(f'Donor: {exc}') from exc
-                if Path(donor_input['animation']).resolve() == Path(request['animation']).resolve():
+                # A motlist holds many clips: RE Engine clips also compare the motion's index.
+                clip_of = lambda r: (Path(r['animation']).resolve(), r.get('motionIndex'))
+                if clip_of(donor_input) == clip_of(request):
                     raise ValueError('The donor is the same animation as the target. Choose a different clip as the donor.')
                 character_args += ['--donor-motion-json', donor_motion]
                 if donor_character:
@@ -512,8 +523,9 @@ def convert(request):
             sampling = sampling_arguments(request)
             event('blender', 'Sampling the edited animation in Blender', 25)
             run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export', '--output-json', motion, *sampling])
-        parts = part_outputs(blender, blend, motion, output, force, temp) if mode == 'export' and request.get('exportParts') else []
         doc = json.loads(motion.read_text(encoding='utf-8'))
+        refuse_import_only(doc)
+        parts = part_outputs(blender, blend, motion, output, force, temp) if mode == 'export' and request.get('exportParts') else []
         member, base = binder_member(into, doc) if into else ('', '')
         event('write', f'Writing {fmt} HKX' + (' and part clips' if parts else '') + (' and reading it back' if '--verify' in writing else ''), 70)
         run([writer, '-E', '-X', 'utf8', HERE / 'build_animation.py', motion, staged_hkx, *writing])

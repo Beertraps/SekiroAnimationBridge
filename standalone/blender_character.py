@@ -14,6 +14,9 @@ LABELS = {'fc': 'Head', 'am': 'Arms', 'bd': 'Torso', 'lg': 'Legs', 'wp': 'Weapon
 
 def load_image(spec, color=True):
     image = bpy.data.images.load(spec['path'], check_existing=True)
+    if spec.get('packedAlpha'):
+        # The alpha channel holds other data, such as metalness or roughness: it must not darken the color.
+        image.alpha_mode = 'CHANNEL_PACKED'
     space = 'Linear Rec.709' if color and spec.get('linear') else ('sRGB' if color else 'Non-Color')
     try:
         image.colorspace_settings.name = space

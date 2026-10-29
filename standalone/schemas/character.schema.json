@@ -31,7 +31,9 @@
             "scale": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
             "stem": {"type": "string"},
             "convention": {"enum": ["directx", "opengl"]},
-            "channels": {"enum": ["xy", "xyz"]}
+            "channels": {"enum": ["xy", "xyz"]},
+            "channel": {"enum": ["R", "G", "B"]},
+            "packedAlpha": {"type": "boolean"}
           }
         }
       ]
@@ -42,10 +44,13 @@
       "properties": {
         "name": {"type": "string"},
         "mtd": {"type": "string"},
+        "family": {"type": "string"},
         "albedo": {"$ref": "#/$defs/image"},
         "normal": {"$ref": "#/$defs/image"},
         "emissive": {"$ref": "#/$defs/image"},
         "tint": {"$ref": "#/$defs/image"},
+        "opacity": {"$ref": "#/$defs/image"},
+        "opacityValue": {"type": "number", "minimum": 0, "maximum": 1},
         "samplers": {"type": "array", "items": {"type": "object"}},
         "alpha": {"type": "boolean"},
         "color": {"type": "array", "items": {"type": "number"}}
@@ -67,7 +72,8 @@
             "triangles": {"type": "integer", "minimum": 0}
           }
         },
-        "attachment": {"anyOf": [{"type": "null"}, {"type": "object"}]}
+        "attachment": {"anyOf": [{"type": "null"}, {"type": "object"}]},
+        "role": {"type": "string"}
       }
     }
   }

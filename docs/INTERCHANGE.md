@@ -98,6 +98,13 @@ Version 5 adds:
 | `boneRotation` | `euler_xzy` (default): `bone_rotations` holds FLVER Euler angles. `quaternion`: `bone_quaternions` holds [x, y, z, w]. |
 | `models[].materials[].normal.convention` | `directx` (default, green channel down) or `opengl` |
 | `models[].materials[].normal.channels` | `xy` (default): the image's red and green hold X and Y and Z is rebuilt. `xyz`: the image holds all three. |
+| `models[].materials[].family` | the name Blender gives the material before ` / `, such as `Devil May Cry 5`; `FromSoftware` when absent |
+| `models[].materials[].opacity` | null or an image whose `channel` (`R`, `G` or `B`) cuts the material out, such as red of an RE Engine ATOS map |
+| `models[].materials[].opacityValue` | a fixed opacity from 0 to 1, for overlays the preview cannot shade, such as eye wetness |
+| image `packedAlpha` | true when the image's alpha holds other data (metalness, roughness): Blender reads it as channel-packed, so it does not darken the color |
+| `models[].role` | the part's label in Blender, such as `Body`, `Head` or `Hair`; FromSoftware models are labelled by their file prefix |
+
+All version 5 fields are optional except `version`; a reader treats a missing one as its default, so the FromSoftware characters stay version 4.
 
 ## Model arrays
 

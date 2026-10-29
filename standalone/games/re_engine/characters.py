@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+from games.interchange import check_manifest
 from games.re_engine import materialize, run_decoder
 
 # mdf2 texture slots, in the order a material's base color is looked for.
@@ -143,6 +144,7 @@ def prepare_character(catalog, models, output, profile, event=lambda *args: None
         raise ValueError('None of the chosen models could be read. Choose other parts.')
     manifest['texture_count'] = len(images)
     manifest['warnings'] = list(dict.fromkeys(warnings))
+    check_manifest(manifest, f'The {profile.name} character manifest')
     path = out / 'character.json'
     path.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     print(f"Character ready: {len(manifest['models'])} parts, {len(images)} texture images, {len(manifest['warnings'])} notices", flush=True)
@@ -200,15 +202,17 @@ def material_spec(material, name, images, profile):
                         for t in material['textures']]
     albedo = slot_texture(material, ALBEDO_SLOTS)
     if albedo and albedo['path'] in images:
-        spec['albedo'] = dict(images[albedo['path']], linear=False, uv=0, scale=[1, 1])
         # ALBA keeps alpha in the base color; ALBM keeps metalness there.
         spec['alpha'] = albedo['slot'] == 'BaseAlphaMap'
+        spec['albedo'] = dict(images[albedo['path']], linear=False, uv=0, scale=[1, 1], packedAlpha=not spec['alpha'])
     normal = slot_texture(material, NORMAL_SLOTS)
     if normal and normal['path'] in images:
-        spec['normal'] = dict(images[normal['path']], linear=True, uv=0, scale=[1, 1], convention='directx', channels='xyz')
+        # NRMR keeps roughness in alpha.
+        spec['normal'] = dict(images[normal['path']], linear=True, uv=0, scale=[1, 1], convention='directx', channels='xyz',
+                              packedAlpha=True)
     atos = slot_texture(material, (ATOS_SLOT,)) if uses_alpha_map(material) else None
     if atos and atos['path'] in images and not spec['alpha']:
-        spec['opacity'] = dict(images[atos['path']], linear=True, uv=0, scale=[1, 1], channel='R')
+        spec['opacity'] = dict(images[atos['path']], linear=True, uv=0, scale=[1, 1], channel='R', packedAlpha=True)
     if hidden(material):
         spec['opacityValue'] = 0.0
     return spec
