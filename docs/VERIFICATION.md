@@ -2,7 +2,8 @@
 
 ## Before the release
 
-- The 200 unit tests in `standalone/tests`, the 9 RE Engine and 12 Unreal Engine package tests, and `node --check` on `app.js` and `preview.js` pass. Blender 4.5.14 with `--factory-startup` and `--python-exit-code 7` passes all twenty-two scripts and the three weapon scripts with `-- BODY`, among them `blender_panels.py` with the full-body bake's labels without *experimental*.
+- The 201 unit tests in `standalone/tests`, the 9 RE Engine and 12 Unreal Engine package tests, and `node --check` on `app.js` and `preview.js` pass. Blender 4.5.14 with `--factory-startup` and `--python-exit-code 7` passes all twenty-two scripts and the three weapon scripts with `-- BODY`, among them `blender_panels.py` with the full-body bake's labels without *experimental*.
+- The first tagged run (40971258230) stopped at *Test the release ZIP on a fresh profile*: the ZIP left out `.json` files, so installing the RE Engine package found no `standalone/schemas/package.schema.json`, and the example package that the unit tests use had no `package.json`. `tools/package_release.py` now ships `.json` files, and `test_package_release.py` checks that the schemas and the test fixtures are in the ZIP; it fails without the fix. A ZIP built locally the same way, with the decoder and the shared runtime, installs the RE Engine package into a fresh profile, its decoder is ready on the ZIP's runtime (9.0.22), and the 201 unit tests pass from the unpacked folder.
 
 ## Deep Rock Galactic, on the game's own files
 
