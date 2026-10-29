@@ -40,7 +40,10 @@ jobs:
         run: ./tools/SekiroMotionDecoder/build_decoder.ps1 -SoulsAssetPipelineRoot "$env:RUNNER_TEMP\SoulsAssetPipeline" -OutputDirectory "$env:RUNNER_TEMP\decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\decoder-build"
 
       - name: Build the RE Engine decoder
-        run: ./tools/ReEngineDecoder/build_decoder.ps1 -REELibRoot "$env:RUNNER_TEMP\REE-Lib" -OutputDirectory "$env:RUNNER_TEMP\re-decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\re-decoder-build"
+        run: ./packages/re_engine/decoder/build_decoder.ps1 -REELibRoot "$env:RUNNER_TEMP\REE-Lib" -OutputDirectory "$env:RUNNER_TEMP\re-decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\re-decoder-build"
+
+      - name: Prepare the .NET runtime
+        run: ./tools/prepare_dotnet_runtime.ps1 -OutputDirectory "$env:RUNNER_TEMP\dotnet-runtime"
 
       - name: Download uv
         run: |
@@ -53,8 +56,14 @@ jobs:
       - name: Package
         run: |
           python tools/package_addon.py
-          python tools/package_release.py --output "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" --decoder "$env:RUNNER_TEMP\decoder" --re-decoder "$env:RUNNER_TEMP\re-decoder" --uv "$env:RUNNER_TEMP\uv"
+          python tools/package_release.py --output "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" --decoder "$env:RUNNER_TEMP\decoder" --dotnet-runtime "$env:RUNNER_TEMP\dotnet-runtime" --uv "$env:RUNNER_TEMP\uv"
           if ($LASTEXITCODE) { throw 'Packaging failed.' }
+          # The RE Engine package is a separate asset; users install it on the Setup page.
+          $version = (Get-Content packages/re_engine/package.json -Raw | ConvertFrom-Json).version
+          $package = "dist/AnimationBridge-package-re_engine-$version.zip"
+          python tools/package_game_package.py packages/re_engine --output $package --tool "decoder=$env:RUNNER_TEMP\re-decoder"
+          if ($LASTEXITCODE) { throw 'Packaging the RE Engine package failed.' }
+          "RE_ENGINE_PACKAGE=$((Resolve-Path $package).Path)" >> $env:GITHUB_ENV
           Copy-Item SekiroRetargetAssistant-*.zip dist/
 
       - name: Test the release ZIP on a fresh profile
@@ -63,6 +72,8 @@ jobs:
           Expand-Archive "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" "$env:RUNNER_TEMP\unpacked"
           $root = "$env:RUNNER_TEMP\unpacked\SekiroAnimationBridge-$env:VERSION"
           $env:LOCALAPPDATA = "$env:RUNNER_TEMP\profile"
+          # setup-dotnet sets DOTNET_ROOT; without it the bridge points its tools at the ZIP's dotnet-runtime folder.
+          Remove-Item Env:DOTNET_ROOT, Env:DOTNET_ROOT_X64 -ErrorAction SilentlyContinue
           # First start, as a user would run it: the launcher prepares Python, then starts the UI.
           & "$root\Start Animation Bridge.cmd" --no-browser
           if ($LASTEXITCODE) { throw "The launcher failed with exit code $LASTEXITCODE." }
@@ -72,11 +83,18 @@ jobs:
           $headers = @{ 'X-Bridge-Token' = $ui.token }
           $checks = Invoke-RestMethod "$($ui.base)/api/environment" -Headers $headers
           $checks | Format-Table key, ready, detail -AutoSize | Out-String | Write-Host
-          foreach ($key in 'writer', 'decoder', 're-decoder') {
+          foreach ($key in 'writer', 'decoder') {
             if (-not ($checks | Where-Object { $_.key -eq $key -and $_.ready })) { throw "The $key check failed." }
           }
           $config = (Invoke-RestMethod "$($ui.base)/api/state" -Headers $headers).config
           if ($config.decoder -ne "$root\decoder\SekiroMotionDecoder.exe") { throw "Unexpected decoder: $($config.decoder)" }
+          # Install the RE Engine package from its ZIP, as a user does on the Setup page; its decoder runs on the shared runtime.
+          $install = @{ zip = $env:RE_ENGINE_PACKAGE; confirm = $true } | ConvertTo-Json
+          Invoke-RestMethod "$($ui.base)/api/packages/install" -Method Post -Headers $headers -ContentType 'application/json' -Body $install |
+            ConvertTo-Json -Depth 5 -Compress | Write-Host
+          $checks = Invoke-RestMethod "$($ui.base)/api/environment" -Headers $headers
+          $checks | Format-Table key, ready, detail -AutoSize | Out-String | Write-Host
+          if (-not ($checks | Where-Object { $_.key -eq 'package:re_engine:decoder' -and $_.ready })) { throw 'The RE Engine package decoder check failed.' }
           Invoke-RestMethod "$($ui.base)/api/shutdown" -Method Post -Headers $headers -ContentType 'application/json' -Body '{}' | Out-Null
           # Spline export runs Soulstruct Havok's 32-bit CompressAnim.exe, which needs the Visual C++ 2010 runtime.
           # Install it from Microsoft, as the README tells users, so the unit tests cover spline export too.
@@ -92,6 +110,11 @@ jobs:
           & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s standalone/tests -p "test_*.py"
           if ($LASTEXITCODE) { throw 'The unit tests failed.' }
           Pop-Location
+          # The bridge ZIP holds no packages, so the RE Engine package's own tests run in the checkout.
+          Push-Location $env:GITHUB_WORKSPACE
+          & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s packages/re_engine/tests
+          if ($LASTEXITCODE) { throw 'The RE Engine package tests failed.' }
+          Pop-Location
 
       - uses: actions/upload-artifact@v7
         with:
@@ -106,12 +129,14 @@ jobs:
           $changes = ((Get-Content CHANGELOG.md -Raw) -split '(?m)^# ')[1]
           $changes = $changes.Substring($changes.IndexOf("`n") + 1).Trim()
           $addon = (Get-ChildItem dist/SekiroRetargetAssistant-*.zip).Name
+          $package = (Get-ChildItem dist/AnimationBridge-package-re_engine-*.zip).Name
           $notes = @"
           ## Install
 
           1. Download **SekiroAnimationBridge-$env:VERSION-win-x64.zip**, extract it and double-click **Start Animation Bridge.cmd**. The first start prepares the conversion Python; it needs an internet connection and takes a few minutes.
           2. Install [Blender 4.5](https://www.blender.org/download/lts/4-5/) if you do not have it. The bridge finds standard installations; otherwise choose ``blender.exe`` under **Settings & setup**.
           3. Optional: install **$addon** in Blender to retarget animations between characters.
+          4. Optional: to import Devil May Cry 5, download **$package** and install it with **Install package…** under **Settings & setup**.
 
           No game files are included. KRAK-compressed archives need ``oo2core_6_win64.dll``: the bridge uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it. The optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported); **Settings & setup** shows whether it is installed.
 

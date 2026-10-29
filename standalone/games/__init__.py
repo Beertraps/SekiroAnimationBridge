@@ -1,8 +1,8 @@
 """The games the bridge reads: one registry for the UI, the CLI, the add-on and the code.
 
-Each game is a GameProfile (data). Each engine has an adapter (code) in a subpackage:
-games.fromsoft for Havok and FLVER, games.re_engine for RE Engine files. Adding a game of a
-known engine is a profile here; a new engine also needs an adapter. See docs/MULTI_GAME_IMPORT_PLAN.md.
+FromSoftware games are built in (games.fromsoft). Every other engine comes as a game package
+(games.packages): a folder with a package.json, whose games join the registry when the bridge
+starts or a package is installed. See docs/GAME_PACKAGES_PLAN.md and docs/PACKAGES.md.
 """
 from __future__ import annotations
 
@@ -11,12 +11,10 @@ import json
 from pathlib import Path
 
 from games.base import Capabilities, GameProfile
-from games.space import RE_ENGINE_BASIS
 
 FROMSOFT_CAPABILITIES = Capabilities(export=True, add_to_binder=True, root_motion=True, weapons=True)
-RE_ENGINE_CAPABILITIES = Capabilities(packed_archives=True)
 
-PROFILES = (
+BUILTIN = (
     GameProfile('sekiro', 'Sekiro', 'SEK', 'fromsoft', ('sekiro.exe',),
                 Capabilities(export=True, add_to_binder=True, root_motion=True, weapons=True, part_animations=True),
                 formats=dict(havok='2016 tagfile', sdk='20160200'),
@@ -38,22 +36,28 @@ PROFILES = (
                 formats=dict(havok='2018 tagfile', sdk='20180100'),
                 hint='eldenring.exe, its MATBIN library, or Havok 2018 inside an animation archive',
                 documentation='docs/OTHER_GAMES.md'),
-    GameProfile('dmc5', 'Devil May Cry 5', 'DMC5', 're_engine', ('devilmaycry5.exe',), RE_ENGINE_CAPABILITIES,
-                basis=RE_ENGINE_BASIS,
-                formats=dict(motlist=85, mot=65, mesh=1808282334, tex=11, mdf2=10, fbxskel=3, chunk='re_chunk_000.pak',
-                             fileList='DMC5_STM_Release.list'),
-                hint='DevilMayCry5.exe and re_chunk_000.pak, or an extracted natives folder with DMC5 file versions',
-                documentation='docs/games/dmc5.md'),
-    GameProfile('re2', 'Resident Evil 2 (DX11)', 'RE2', 're_engine', ('re2.exe',), RE_ENGINE_CAPABILITIES,
-                basis=RE_ENGINE_BASIS,
-                formats=dict(motlist=85, mot=65, mesh=1808312334, tex=10, mdf2=10, chunk='re_chunk_000.pak',
-                             fileList='RE2_STM_Release.list'),
-                hint='re2.exe of the DX11 (non-ray-tracing) version, or an extracted natives folder with its file versions',
-                verified=False, documentation='docs/games/re2.md'),
 )
-BY_ID = {profile.id: profile for profile in PROFILES}
-ENGINES = {'fromsoft': 'games.fromsoft', 're_engine': 'games.re_engine'}
 DEFAULT_ENGINE = 'fromsoft'
+PROFILES, BY_ID, ENGINES, PACKAGES = BUILTIN, {p.id: p for p in BUILTIN}, {DEFAULT_ENGINE: 'games.fromsoft'}, []
+
+
+def reload():
+    """Read the package folders again: the games of usable packages join the built-in ones."""
+    global PROFILES, BY_ID, ENGINES, PACKAGES
+    from games import packages
+    found = packages.discover_packages()
+    profiles, engines = list(BUILTIN), {DEFAULT_ENGINE: 'games.fromsoft'}
+    for package in found:
+        if not package.usable:
+            continue
+        taken = [p.id for p in package.profiles if p.id in {q.id for q in profiles}]
+        if taken:
+            package.error = f'Its games {", ".join(taken)} are already registered by the bridge or another package.'
+            continue
+        profiles += package.profiles
+        engines[package.id] = packages.PackageEngine(package)
+    PROFILES, BY_ID, ENGINES, PACKAGES = tuple(profiles), {p.id: p for p in profiles}, engines, found
+    return found
 
 
 def profile(game):
@@ -76,10 +80,11 @@ def engine_of(game, default=DEFAULT_ENGINE):
 
 
 def adapter(engine):
-    """The adapter module of an engine, imported when first needed."""
+    """The entry points of an engine: games.fromsoft, or the PackageEngine of a loaded package."""
     if engine not in ENGINES:
-        raise ValueError(f'Unknown engine {engine!r}.')
-    return importlib.import_module(ENGINES[engine])
+        raise ValueError(f'This needs the game package {engine!r}, which is not installed. Install it on the Setup page.')
+    found = ENGINES[engine]
+    return importlib.import_module(found) if isinstance(found, str) else found
 
 
 def engine(document):
@@ -90,31 +95,41 @@ def engine(document):
 
 
 def foreign(document):
-    """The adapter for a document of another engine than FromSoftware's, or None.
+    """The package engine of a document of another engine than FromSoftware's, or None.
 
     The FromSoftware code predates the registry and stays where it is; the generic entry points
-    hand everything else to the engine's adapter.
+    hand everything else to the package's engine.
     """
     kind = engine(document)
     return None if kind == DEFAULT_ENGINE else adapter(kind)
 
 
 def detect(path, file_list=''):
-    """The first adapter other than FromSoftware's that recognises a folder, or None."""
-    for kind in ENGINES:
+    """The first package that recognises a folder, or None. A package that fails is noted and skipped."""
+    for kind, found in ENGINES.items():
         if kind == DEFAULT_ENGINE:
             continue
-        found = adapter(kind).detect(path, file_list)
-        if found:
-            return found
+        try:
+            result = found.detect(path, file_list)
+        except Exception as exc:  # A broken package must not hide the other engines.
+            note = f'Detection failed: {type(exc).__name__}: {exc}'
+            if note not in found.package.problems:
+                found.package.problems.append(note)
+            continue
+        if result:
+            return result
     return None
 
 
 def public():
-    """The registry as JSON for the UI and the CLI."""
-    return dict(games=[p.to_json() for p in PROFILES], engines=list(ENGINES))
+    """The registry as JSON for the UI, the CLI and the add-on."""
+    return dict(games=[p.to_json() for p in PROFILES], engines=list(ENGINES),
+                packages=[p.summary() for p in PACKAGES])
 
 
 def write_registry(path):
     """Write games.json for the Blender add-on, which runs without this package."""
     Path(path).write_text(json.dumps(public(), indent=1), encoding='utf-8')
+
+
+reload()

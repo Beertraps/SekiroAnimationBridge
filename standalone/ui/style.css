@@ -405,6 +405,13 @@ details.block[open]>summary{margin-bottom:14px}
 .card-head.spaced{margin-top:22px}
 .card-head h3{margin:0;font-size:14px}
 .card-head p{margin:2px 0 0;font-size:12px;color:var(--ink-3)}
+.package-list{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.package-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.package-row b{font-size:12.5px}
+.package-row p{margin:2px 0 0;font-size:12px;color:var(--ink-3);line-height:1.5;overflow-wrap:anywhere}
+.package-row p.danger{color:var(--err)}
+.package-version{font:500 11px var(--mono);color:var(--ink-3)}
+.package-warning{margin:14px 0 6px;padding:10px 12px;font-size:12px;line-height:1.55;border:1px solid var(--line);border-radius:10px;color:var(--ink-2)}
 .steps{display:flex;flex-direction:column;gap:14px}
 .steps b{font-size:12.5px}
 .steps p{margin:3px 0 6px;font-size:12px;color:var(--ink-3);line-height:1.6}

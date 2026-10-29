@@ -581,6 +581,9 @@ def main():
     parser.add_argument('--request', type=Path, required=True, help='JSON request shared by the UI and PowerShell CLI')
     args = parser.parse_args()
     remember_location()
+    # The decoders are .NET programs; they run on the bridge's shared runtime when there is one.
+    from dotnet_runtime import configure
+    configure()
     try:
         request = json.loads(args.request.read_text(encoding='utf-8-sig'))
         convert(request)

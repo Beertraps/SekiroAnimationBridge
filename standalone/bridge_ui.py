@@ -98,6 +98,19 @@ def defaults():
     return result
 
 
+def package_state():
+    """The game packages for the Setup page, and where installed ones go."""
+    from games import packages
+    return dict(packages=public_games()['packages'],folder=str(packages.installed_root()))
+
+
+def reload_packages():
+    """Read the packages again after an install or removal, and tell the add-on about their games."""
+    import games
+    games.reload(); remember_location()
+    return package_state()
+
+
 def environment():
     result = []
     for key, title in [('blender','Blender'),('writer','Python + conversion libraries'),('decoder','HKX decoder')]:
@@ -123,11 +136,23 @@ def environment():
     result.append(dict(key='spline',title='Spline compression',ready=runtime.is_file(),optional=True,
         detail='Visual C++ 2010 runtime ready' if runtime.is_file() else
             'Spline export needs the Microsoft Visual C++ 2010 Redistributable (x86). Interleaved export works without it.'))
-    # RE Engine games such as Devil May Cry 5 import through their own decoder; FromSoftware games never need it.
-    from games import re_engine
-    ready, detail = re_engine.decoder_status()
-    result.append(dict(key='re-decoder',title='RE Engine decoder',ready=ready,optional=True,
-        detail='Devil May Cry 5 import ready · '+detail if ready else 'Only needed to import RE Engine games such as Devil May Cry 5. '+detail))
+    # The decoders of the bridge and of its game packages are .NET programs that share one runtime.
+    from dotnet_runtime import status as dotnet_status
+    ready, detail = dotnet_status()
+    result.append(dict(key='dotnet',title='.NET runtime',ready=ready,detail=detail))
+    # Each tool a game package declares gets a card; a package that cannot load says why.
+    import games
+    for package in games.PACKAGES:
+        if package.duplicate:
+            continue
+        if package.error:
+            result.append(dict(key=f'package:{package.id}',title=package.name,ready=False,optional=True,
+                detail='This game package cannot be used: '+package.error))
+            continue
+        for tool in package.tools:
+            ready, detail = package.tool_status(tool)
+            result.append(dict(key=f'package:{package.id}:{tool["id"]}',title=tool['name'],ready=ready,optional=True,
+                detail=f'{package.name} {package.version} · {detail}'))
     try:
         path=CONFIG.get('writer', '')
         p=subprocess.run([path,'-E','-X','utf8',str(HERE/'dcx_codec.py'),'status','--oodle',CONFIG.get('oodle','')],
@@ -273,6 +298,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(dict(config=CONFIG,job=snapshot(),root=str(HOME),version=version,games=public_games()['games']))
             if self.path=='/api/environment': return self.send_json(environment())
             if self.path=='/api/games': return self.send_json(public_games())
+            if self.path=='/api/packages': return self.send_json(package_state())
             return self.send_json({'error':'Unknown route'},404)
         routes={'/':('ui/index.html','text/html'),'/style.css':('ui/style.css','text/css'),'/app.js':('ui/app.js','text/javascript'),
                 '/preview.js':('ui/preview.js','text/javascript'),
@@ -395,6 +421,16 @@ class Handler(BaseHTTPRequestHandler):
                         if process and process.poll() is None:
                             subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],capture_output=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                 return self.send_json(snapshot())
+            if self.path in ('/api/packages/inspect','/api/packages/install','/api/packages/remove'):
+                from games import packages
+                if self.path=='/api/packages/inspect': return self.send_json(packages.inspect_zip(str(data.get('zip',''))))
+                # Installing runs nothing from the package, but its code runs on the next import, so the UI asks first.
+                if data.get('confirm') is not True: raise ValueError('Confirm the warning about game packages first.')
+                with LOCK:
+                    if JOB and JOB['status']=='running': raise ValueError('Wait for the current operation, or cancel it first.')
+                    if self.path=='/api/packages/install': packages.install_zip(str(data.get('zip','')))
+                    else: packages.remove(str(data.get('id','')))
+                return self.send_json(reload_packages())
             if self.path=='/api/pick':
                 with tempfile.TemporaryDirectory(prefix='SekiroBridgePicker-') as tmp:
                     p=Path(tmp)/'picker.json'; p.write_text(json.dumps(data),encoding='utf-8')
@@ -438,6 +474,7 @@ def main():
     parser.add_argument('--port',type=int,default=0); parser.add_argument('--no-browser',action='store_true')
     parser.add_argument('--state-file',type=Path,default=APP/'ui-instance.json')
     args=parser.parse_args(); APP.mkdir(parents=True,exist_ok=True); remember_location()
+    from dotnet_runtime import configure; configure()
     if args.state_file.is_file() and not args.no_browser:
         try:
             from urllib.request import Request,urlopen

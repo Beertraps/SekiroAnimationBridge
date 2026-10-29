@@ -55,9 +55,11 @@ Other engines import only. Their animations can be edited in Blender, or used as
 
 For a desktop shortcut with the app's icon, double-click **`Create Desktop Shortcut.cmd`**. Run it again after moving the extracted folder to update the shortcut.
 
-That is all: the release includes the HKX decoder, the RE Engine decoder and [uv](https://github.com/astral-sh/uv), so no Python, .NET or Git installation is needed. Only the optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported), which many games have already installed; **Settings & setup** shows whether it is present. To update, extract the new version and start it; your settings carry over.
+That is all: the release includes the HKX decoder, the .NET runtime it runs on and [uv](https://github.com/astral-sh/uv), so no Python, .NET or Git installation is needed. Only the optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported), which many games have already installed; **Settings & setup** shows whether it is present. To update, extract the new version and start it; your settings carry over.
 
 For retargeting and the control rig, also install **`SekiroRetargetAssistant-<version>.zip`** in Blender: *Edit › Preferences › Add-ons › Install from Disk*.
+
+To import Devil May Cry 5, also download **`AnimationBridge-package-re_engine-<version>.zip`** from the same release and install it with **Install package…** under **Settings & setup**.
 
 > **No game files are included.** Use archives from your own copy of the game. The bridge only reads a game folder; it extracts what it needs into its own cache and refuses to write outputs into a game installation. KRAK-compressed archives need `oo2core_6_win64.dll`, which the bridge does not include: it uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it.
 
@@ -93,12 +95,13 @@ You need Windows, Git, the [.NET 9 SDK](https://dotnet.microsoft.com/download/do
 git clone https://github.com/Beertraps/SekiroAnimationBridge.git
 cd SekiroAnimationBridge
 tools\setup_writer.cmd
+tools\prepare_dotnet_runtime.cmd
 tools\SekiroMotionDecoder\build_decoder.cmd
-tools\ReEngineDecoder\build_decoder.cmd
+packages\re_engine\decoder\build_decoder.cmd
 "Start Animation Bridge.cmd"
 ```
 
-`setup_writer.cmd` creates the conversion Python; `SekiroMotionDecoder\build_decoder.cmd` builds the HKX decoder from a pinned [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) commit, and `ReEngineDecoder\build_decoder.cmd` the RE Engine decoder from a pinned [REE-Lib](https://github.com/kagenocookie/RE-Engine-Lib) commit (only needed for Devil May Cry 5). All store their results in `%LOCALAPPDATA%\SekiroAnimationBridge`.
+`setup_writer.cmd` creates the conversion Python; `prepare_dotnet_runtime.cmd` copies the .NET 9 runtime that the decoders share from your .NET installation; `SekiroMotionDecoder\build_decoder.cmd` builds the HKX decoder from a pinned [SoulsAssetPipeline](https://github.com/Meowmaritus/SoulsAssetPipeline) commit. These store their results in `%LOCALAPPDATA%\SekiroAnimationBridge`. `packages\re_engine\decoder\build_decoder.cmd` builds the RE Engine package's decoder from a pinned [REE-Lib](https://github.com/kagenocookie/RE-Engine-Lib) commit into `packages\re_engine\tools` (only needed for Devil May Cry 5).
 
 Run the unit tests with that Python, from the repository folder:
 

@@ -63,9 +63,10 @@ const help={
  exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. Each file keeps the part clip’s member name, such as a076_405010_1.hkx, and its own frame rate; the format and settings follow the character’s HKX.\n\nReplace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. The bridge does not repack archives. Part clips are not yet tested in game.'],
  blender:['Blender executable','Choose blender.exe from your Blender installation. Version 4.5.14 is checked locally. The scripts use Blender’s built-in Python APIs and require no add-on. Compatibility with 5.2 still needs a run on that version.'],
  writer:['Conversion Python','Choose python.exe from the writer environment, normally %LOCALAPPDATA%\\SekiroAnimationBridge\\writer-env\\Scripts\\python.exe. The bridge creates it on the first start with Soulstruct, Soulstruct Havok and NumPy; tools/setup_writer.cmd repeats that setup. Blender’s bundled Python stays separate.'],
+ packages:['Game packages','A game package teaches the bridge one more engine: how to find its games, list their animations and read clips and characters. Devil May Cry 5 is in the RE Engine package, a separate download beside each release.\n\nInstall package… reads the ZIP first and shows its name, games, tools and author. Nothing in it runs until you confirm, and nothing is downloaded. The package goes into %LOCALAPPDATA%\\SekiroAnimationBridge\\packages. A package runs its own code with your rights, like any program, so install packages only from people you trust.\n\nRemove deletes the package folder. Your sources stay; a source of a removed game cannot be scanned until you install the package again.'],
  decoder:['HKX decoder','Release ZIPs include SekiroMotionDecoder.exe in their decoder folder, and the bridge selects it automatically. In a source checkout, build it with tools/SekiroMotionDecoder/build_decoder.cmd; that path is under %LOCALAPPDATA%\\SekiroAnimationBridge\\decoder. Version 0.5 handles tagfiles, native PC packfiles, spline/interleaved animations and separate animation/skeleton compendiums.']
 };
-const pickTitles={models:'Model files','src-path':'Source folder','src-scenes':'Scenes folder','src-list':'File list',folder:'Folder'};
+const pickTitles={package:'Game package ZIP',models:'Model files','src-path':'Source folder','src-scenes':'Scenes folder','src-list':'File list',folder:'Folder'};
 // The game selects and the source-game help come from the registry, so a new game needs no change here.
 function applyGames(list){
  if(!Array.isArray(list)||!list.length)return;
@@ -79,7 +80,7 @@ function applyGames(list){
  $('src-game').innerHTML=first('src-game')+options(list);
  help.sourceGame[1]='Auto detect identifies the game by what the folder holds:\n'+list.map(g=>`• ${g.name}: ${g.hint}`).join('\n')+'\n\nChoose the game yourself for a mod folder without an executable. A game folder or custom layout holds one game. A collected folder can mix FromSoftware games and keeps each game’s characters apart.'+(list.some(g=>!g.verified)?'\n\nGames marked untested are supported by their engine but were not yet checked with the game’s own files.':'');
 }
-const filters={'src-list':'File list (*.list)|*.list|All files (*.*)|*.*',animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
+const filters={'src-list':'File list (*.list)|*.list|All files (*.*)|*.*',package:'Game package (*.zip)|*.zip',animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
 
 async function api(path,data,signal){
  const response=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'X-Bridge-Token':token,...(data===undefined?{}:{'Content-Type':'application/json'})},body:data===undefined?undefined:JSON.stringify(data),signal});
@@ -1133,6 +1134,52 @@ async function checkEnvironment(){
  }catch(e){toast(e.message,true);}finally{$('check-environment').disabled=false;}
 }
 
+/* Game packages */
+let packageAction=null;
+function renderPackages(state){
+ $('package-folder').textContent=`Installed packages go to ${state.folder}.`;
+ const list=state.packages||[];
+ $('package-list').innerHTML=list.length?list.map(p=>{
+  const games=p.games.map(g=>g.name+(g.verified?'':' · untested')).join(', ');
+  const problem=p.error||(p.duplicate?'Not used: an earlier folder has the same package.':'');
+  const where=p.installed?'':' <span class="optional">BRIDGE FOLDER</span>';
+  const remove=p.installed?`<button type="button" class="text-button danger" data-remove-package="${escape(p.id)}">Remove</button>`:'';
+  return `<div class="package-row"><div><b>${escape(p.name)}</b> <span class="package-version">${escape(p.version)}</span>${where}<p>${escape(games||'No games')}</p>${problem?`<p class="danger">${escape(problem)}</p>`:''}${p.problems.map(x=>`<p>${escape(x)}</p>`).join('')}</div>${remove}</div>`;
+ }).join(''):'<p class="note">No game packages installed.</p>';
+}
+async function loadPackages(){
+ try{renderPackages(await api('packages'));}catch(e){$('package-list').innerHTML=`<p class="note">${escape(e.message)}</p>`;}
+}
+function openPackageDialog(action){
+ packageAction=action;const info=action.info;
+ const fact=(name,value)=>value?`<dt>${escape(name)}</dt><dd>${escape(value)}</dd>`:'';
+ if(action.mode==='install'){
+  $('package-dialog-title').textContent=info.replaces?`Replace ${info.name} ${info.replaces}`:`Install ${info.name}`;
+  $('package-facts').innerHTML=fact('Package',`${info.name} ${info.version} (${info.id})`)+fact('Games',info.games.join(', '))+fact('Tools',info.tools.join(', '))
+   +fact('Authors',info.authors.join(', '))+fact('License',info.license)+fact('Homepage',info.homepage)+fact('Files',`${info.files} files, ${formatBytes(info.bytes)}`)+fact('ZIP',action.zip);
+  $('package-warning').textContent='A game package runs its own code on this computer with your rights, like any program you download. Install it only if you trust where it came from.'
+   +(info.replaces?` It replaces the installed version ${info.replaces}.`:'')+(info.shadowedBy?` The copy in ${info.shadowedBy} stays in use while it is there; the bridge folder comes first.`:'');
+  $('package-confirm').textContent='Install';
+ }else{
+  $('package-dialog-title').textContent=`Remove ${info.name}`;
+  $('package-facts').innerHTML=fact('Package',`${info.name} ${info.version} (${info.id})`)+fact('Folder',info.folder);
+  $('package-warning').textContent='This deletes the package folder. Your sources and scenes stay, but sources of its games cannot be scanned until you install the package again.';
+  $('package-confirm').textContent='Remove';
+ }
+ $('package-dialog').showModal();
+}
+async function confirmPackage(){
+ const action=packageAction;if(!action)return;$('package-confirm').disabled=true;
+ try{
+  const state=action.mode==='install'?await api('packages/install',{zip:action.zip,confirm:true}):await api('packages/remove',{id:action.info.id,confirm:true});
+  $('package-dialog').close();renderPackages(state);applyGames((await api('games')).games);await checkEnvironment();
+  toast(action.mode==='install'?`Installed ${action.info.name} ${action.info.version}.`:`Removed ${action.info.name}.`);
+ }catch(e){toast(e.message,true);}finally{$('package-confirm').disabled=false;}
+}
+$('package-install').addEventListener('click',()=>pick('package',{apply:async paths=>openPackageDialog({mode:'install',zip:paths[0],info:await api('packages/inspect',{zip:paths[0]})})}));
+$('package-form').addEventListener('submit',event=>{event.preventDefault();confirmPackage();});
+$('package-dialog').addEventListener('close',()=>packageAction=null);
+
 /* Events */
 document.addEventListener('click',event=>{
  const t=event.target,hit=s=>t.closest(s);let el;
@@ -1163,6 +1210,8 @@ document.addEventListener('click',event=>{
  if((el=hit('[data-add-folder]'))){const input=document.querySelector(`[data-add-input="${el.dataset.addFolder}"]`);return addFolder(el.dataset.addFolder,input.value);}
  if((el=hit('[data-browse-folder]'))){const kind=el.dataset.browseFolder;return pick('folder',{apply:paths=>addFolder(kind,relativeTo(paths[0],$('src-path').value.trim()))});}
  if((el=hit('[data-pick]')))return pick(el.dataset.pick);
+ if((el=hit('[data-remove-package]'))){const id=el.dataset.removePackage;api('packages').then(state=>{const info=state.packages.find(p=>p.id===id&&p.installed);if(info)openPackageDialog({mode:'remove',info});}).catch(e=>toast(e.message,true));return;}
+ if(hit('[data-close-package]'))return $('package-dialog').close();
  if(hit('[data-close]'))return $('source-dialog').close();
 });
 document.addEventListener('keydown',event=>{
@@ -1303,6 +1352,6 @@ document.querySelectorAll('[data-help]').forEach(b=>{const entry=help[b.dataset.
    renderLibrary();
    if(inputMethod==='manual'){if(config.characterSource)await findModels(true);else if(config.models?.length){const scan=await api('scan',{files:config.models});parts=scan.parts;detectNpcModels();}}
   }
-  renderParts();await checkEnvironment();if(state.job)updateJob(state.job);poll();
+  renderParts();await checkEnvironment();loadPackages();if(state.job)updateJob(state.job);poll();
  }catch(e){toast('Could not connect to Animation Bridge. Reopen the UI launcher.\n'+e.message,true);}
 })();

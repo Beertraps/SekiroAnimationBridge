@@ -1,48 +1,83 @@
-"""The game registry, engine dispatch and the RE Engine adapter, with a stand-in decoder and made-up files."""
+"""The game registry, game packages and their API, with the example package and made-up files."""
+import gzip
 import json
+import shutil
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import games
-from games import re_engine
-from games.re_engine import characters
+from games import api, packages
 from games.space import FROMSOFT, RE_ENGINE
 from test_interchange import owned_motion
 
-ADAPTER_FUNCTIONS = ('detect', 'discover', 'inventory_character', 'refresh_clip', 'load_catalog', 'selection', 'preview', 'prepare')
-MESH = 'natives/x64/character/player/pl0100_dante/{}/{}.mesh.1808282334'
-FILES = (MESH.format('pl0100_body', 'pl0100'), MESH.format('pl0100_01_head', 'pl0100_01_head'),
-         MESH.format('pl0100_03_hair', 'pl0100_03_hair'), MESH.format('pl0100_01_head', 'pl0100_01_head_eyelash'),
-         'natives/x64/character/player/pl0100_dante/pl0100_body/pl0100.mdf2.10',
-         'natives/x64/animation/player/pl0100/base/pl0100_base.motlist.85',
-         'natives/x64/animation/enemy/em0000/em0000_base.motlist.85',
-         'natives/x64/character/enemy/em0000_00/em0000.mesh.1808282334')
+FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'packages'
+ENGINE_FUNCTIONS = ('detect', 'discover', 'inventory_character', 'refresh_clip', 'load_catalog', 'selection', 'preview', 'prepare')
 
 
-def fake_decoder(*args, decoder=''):
-    """The ReEngineDecoder commands the adapter uses, answered with made-up data."""
-    command = args[0]
-    if command == 'motlist':
-        motions = [dict(index=0, id=1, name='pl0100_Idle', frameCount=3, frameRate=60.0, boneCount=2, mirror=False),
-                   dict(index=1, id=2, name='pl0100_Event', frameCount=3, frameRate=60.0, boneCount=0, mirror=False)]
-        Path(args[2]).write_text(json.dumps(dict(version=85, motions=motions)), encoding='utf-8')
-    elif command == 'decode':
-        motion = owned_motion(version=2)
-        Path(args[3]).write_text(json.dumps(motion), encoding='utf-8')
-        return 'NOTE: Coat_L is animated but not in the skeleton\n'
-    else:
-        raise AssertionError(f'unexpected decoder command {command}')
-    return ''
+class PackageCase(unittest.TestCase):
+    """Runs with the example package as the only package, from a copy in a temporary bridge folder."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.temp = Path(temp.name)
+        self.bridge, self.user = self.temp / 'bridge-packages', self.temp / 'user-packages'
+        shutil.copytree(FIXTURES / 'example', self.bridge / 'example')
+        self.user.mkdir()
+        self.cache = self.temp / 'cache'
+        for name, value in (('ROOTS', [self.bridge, self.user]), ('CACHE', self.cache)):
+            patcher = mock.patch.object(packages, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(games.reload)
+        games.reload()
+        self.notes = []
+
+    def notify(self, stage, message, progress=None, **extra):
+        self.notes.append(message)
+
+    def source(self):
+        """A made-up example game: two clips of one character."""
+        root = self.temp / 'Example Game'
+        (root / 'motions' / 'hero').mkdir(parents=True)
+        (root / 'example.game').write_text('', encoding='utf-8')
+        for name in ('idle', 'walk'):
+            (root / 'motions' / 'hero' / f'{name}.json').write_text(json.dumps(dict(owned_motion(2), clip=name)), encoding='utf-8')
+        return root
+
+    def write_package(self, root, manifest, code=None):
+        folder = root / manifest['id']
+        folder.mkdir(parents=True)
+        (folder / 'package.json').write_text(json.dumps(manifest), encoding='utf-8')
+        (folder / '__init__.py').write_text(code if code is not None else (FIXTURES / 'example' / '__init__.py').read_text(encoding='utf-8'),
+                                            encoding='utf-8')
+        return folder
+
+    def zip_of(self, folder, name, top=True, extra=()):
+        """A package ZIP of folder, with the folder as its top entry or without it."""
+        path = self.temp / name
+        with zipfile.ZipFile(path, 'w') as archive:
+            for file in sorted(folder.rglob('*')):
+                if file.is_file() and '__pycache__' not in file.parts:
+                    archive.write(file, (f'{folder.name}/' if top else '') + file.relative_to(folder).as_posix())
+            for entry, data in extra:
+                archive.writestr(entry, data)
+        return path
+
+    def manifest(self, **changes):
+        return dict(json.loads((FIXTURES / 'example' / 'package.json').read_text(encoding='utf-8')), **changes)
 
 
-class Registry(unittest.TestCase):
-    def test_profiles_name_known_engines_and_unique_ids(self):
+class Registry(PackageCase):
+    def test_built_in_and_package_games_have_unique_ids(self):
         ids = [profile.id for profile in games.PROFILES]
         self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(games.games('fromsoft')[0].id, 'sekiro')
         for profile in games.PROFILES:
             self.assertIn(profile.engine, games.ENGINES, profile.id)
             self.assertTrue(profile.name and profile.short and profile.hint, profile.id)
@@ -50,63 +85,246 @@ class Registry(unittest.TestCase):
     def test_only_fromsoft_games_export(self):
         for profile in games.PROFILES:
             self.assertEqual(profile.capabilities.export, profile.engine == 'fromsoft', profile.id)
-        self.assertEqual(games.profile('dmc5').space(), RE_ENGINE)
+        self.assertEqual(games.profile('example').space(), RE_ENGINE)
         self.assertEqual(games.profile('sekiro').space(), FROMSOFT)
+        self.assertFalse(games.profile('example').capabilities.import_character)
 
-    def test_public_registry_is_json(self):
+    def test_public_registry_is_json_with_packages_and_bone_names(self):
         registry = json.loads(json.dumps(games.public()))
         self.assertEqual({g['id'] for g in registry['games']}, set(games.BY_ID))
-        self.assertIn('re_engine', registry['engines'])
+        self.assertEqual(registry['engines'], ['fromsoft', 'example'])
+        [package] = registry['packages']
+        self.assertEqual((package['id'], package['version'], package['installed'], package['error']), ('example', '1.0.0', False, ''))
+        example = next(g for g in registry['games'] if g['id'] == 'example')
+        self.assertEqual((example['package'], example['bones']['names']['Becken']), ('example', 'Pelvis'))
 
-    def test_every_adapter_has_the_contract(self):
+    def test_every_engine_has_the_bridge_entry_points(self):
         for engine in games.ENGINES:
-            adapter = games.adapter(engine)
             if engine == games.DEFAULT_ENGINE:
-                continue
-            for name in ADAPTER_FUNCTIONS:
+                continue  # The FromSoftware code is called directly; games.fromsoft names only what it shares.
+            adapter = games.adapter(engine)
+            for name in ENGINE_FUNCTIONS:
                 self.assertTrue(callable(getattr(adapter, name, None)), f'{engine}.{name}')
 
     def test_foreign_dispatch(self):
         self.assertIsNone(games.foreign(dict(engine='fromsoft')))
         self.assertIsNone(games.foreign(dict(game='sekiro')))
         self.assertIsNone(games.foreign({}))
-        self.assertIs(games.foreign(dict(engine='re_engine')), re_engine)
-        self.assertIs(games.foreign(dict(game='dmc5')), re_engine)
-        self.assertIs(games.foreign(dict(source=dict(engine='re_engine'))), re_engine)
-        with self.assertRaises(ValueError):
-            games.adapter('unknown')
+        engine = games.adapter('example')
+        self.assertIsInstance(engine, packages.PackageEngine)
+        self.assertIs(games.foreign(dict(engine='example')), engine)
+        self.assertIs(games.foreign(dict(game='example')), engine)
+        self.assertIs(games.foreign(dict(source=dict(engine='example'))), engine)
+        with self.assertRaisesRegex(ValueError, 'not installed'):
+            games.foreign(dict(engine='re_engine_v9'))
 
 
-class GameChecks(unittest.TestCase):
+class Loading(PackageCase):
+    def reasons(self):
+        return {(p.folder.parent.name, p.folder.name): (p.error, p.duplicate) for p in games.reload()}
+
+    def test_broken_packages_are_listed_and_the_rest_works(self):
+        broken = self.user / 'broken'
+        broken.mkdir()
+        (broken / 'package.json').write_text('{"id": "broken"', encoding='utf-8')
+        self.write_package(self.user, self.manifest(id='future', apiVersion=2, games=[dict(self.manifest()['games'][0], id='future')]))
+        self.write_package(self.user, self.manifest(id='clash', games=[dict(self.manifest()['games'][0], id='sekiro')]))
+        reasons = self.reasons()
+        self.assertIn('not valid JSON', reasons['user-packages', 'broken'][0])
+        self.assertIn('needs package API version 2', reasons['user-packages', 'future'][0])
+        self.assertIn('already registered', reasons['user-packages', 'clash'][0])
+        self.assertEqual(reasons['bridge-packages', 'example'], ('', ''))
+        self.assertIn('example', games.BY_ID)
+
+    def test_the_bridge_folder_wins_over_an_installed_copy(self):
+        self.write_package(self.user, self.manifest(version='0.9.0'))
+        reasons = self.reasons()
+        self.assertEqual(reasons['bridge-packages', 'example'], ('', ''))
+        self.assertEqual(reasons['user-packages', 'example'], ('', str(self.bridge / 'example')))
+        installed = next(p for p in games.PACKAGES if p.installed)
+        self.assertEqual((installed.version, installed.duplicate), ('0.9.0', str(self.bridge / 'example')))
+        self.assertEqual(games.adapter('example').package.version, '1.0.0')
+
+    def test_a_package_without_the_api_functions_is_refused_when_used(self):
+        self.write_package(self.user, self.manifest(id='empty', games=[dict(self.manifest()['games'][0], id='empty')]), code='')
+        games.reload()
+        with self.assertRaisesRegex(ValueError, 'lacks the package API functions detect, scan'):
+            games.adapter('empty').module
+        # Detection skips it and notes why, so other engines still detect their folders.
+        self.assertIsNone(games.detect(self.temp))
+        self.assertTrue(any('lacks' in note for note in games.adapter('empty').package.problems))
+
+    def test_package_data_is_checked(self):
+        for changes, message in ((dict(id='Bad-Id'), 'the id must be'), (dict(id='fromsoft'), 'the id must be'),
+                                 (dict(tools=[dict(id='t', name='T', path='../t.exe')]), 'must stay inside the package'),
+                                 (dict(bones=dict(patterns=[dict(match='(', **{'as': 'x'})])), 'not a valid regular expression'),
+                                 (dict(games=[dict(self.manifest()['games'][0], capabilities=dict(export=True))]), 'is not valid')):
+            with self.assertRaisesRegex(ValueError, message):
+                packages.check_package_data(self.manifest(**changes))
+
+
+class Engine(PackageCase):
+    def test_scan_inventory_selection_preview_and_prepare(self):
+        from asset_discovery import detect_source, discover, inventory_character, load_catalog, selection
+        root = self.source()
+        found = detect_source(str(root))
+        self.assertEqual((found['engine'], found['game'], found['layout'], found['needsFileList']), ('example', 'example', 'game', False))
+        self.assertEqual(found['counts'], dict(animations=2, characters=1, materials=0))
+
+        path, catalog = discover(root, self.cache, self.notify, '', 'auto', 'game', None, True, '')
+        self.assertEqual((catalog['engine'], catalog['package'], catalog['layout'], catalog['archiveCount']), ('example', 'example', 'game', 2))
+        self.assertEqual(Path(path).parent, self.cache / 'catalogs')
+        self.assertIn('Listing the characters', self.notes)
+
+        catalog = inventory_character(path, 'hero', self.cache, self.notify)
+        self.assertEqual([c['name'] for c in catalog['clips']], ['idle', 'walk'])
+        self.assertEqual(json.loads(Path(path).read_text(encoding='utf-8'))['clips'][0]['scope'], str(root))
+        catalog = load_catalog(path, root, True)
+        chosen = selection(catalog, 'hero/idle')
+        self.assertEqual((chosen['engine'], chosen['game'], chosen['layout'], chosen['skeleton']), ('example', 'example', 'game', ''))
+
+        from clip_preview import preview
+        data = preview(chosen, '', self.temp / 'previews')
+        document = json.loads(gzip.decompress(data))
+        self.assertEqual((document['clip'], document['basis']), ('idle', [list(row) for row in RE_ENGINE.basis]))
+        self.assertEqual(preview(chosen, '', self.temp / 'previews', stored_only=True), data)
+
+        request = dict(assetClip='hero/walk', game='auto')
+        motion, character_args, report = games.adapter('example').prepare(request, path, catalog, self.temp, self.notify)
+        self.assertEqual((json.loads(motion.read_text(encoding='utf-8'))['source']['engine'], character_args), ('example', []))
+        self.assertEqual((request['game'], report['game'], report['clip'], report['parts']), ('example', 'Example Game', 'walk', 0))
+
+    def test_package_results_are_checked(self):
+        engine = games.adapter('example')
+        with mock.patch.object(engine.module, 'scan', return_value=dict(schema=1, game='example', folder='x', characters=[],
+                                                                       clips=[dict(id='a', name='a', character='c', characterKey='c',
+                                                                                   game='example', ready=True)])):
+            with self.assertRaisesRegex(ValueError, 'Example engine: the scan is not valid: .*issues'):
+                engine.discover(self.temp, self.cache, self.notify, dict(game='example', root=str(self.temp)))
+        with mock.patch.object(engine.module, 'detect', return_value=dict(game='other', root=str(self.temp))):
+            with self.assertRaisesRegex(ValueError, 'does not declare'):
+                engine.detect(self.temp)
+
+    def test_a_stored_scan_of_another_folder_is_refused(self):
+        root = self.source()
+        from asset_discovery import discover, load_catalog
+        path, catalog = discover(root, self.cache, self.notify, '', 'auto', 'game', None, True, '')
+        with self.assertRaisesRegex(ValueError, 'another folder'):
+            load_catalog(path, self.temp / 'elsewhere', False)
+
+
+class Tools(PackageCase):
+    def setUp(self):
+        super().setUp()
+        tool = dict(id='decoder', name='Example decoder', path='tools/decoder.exe', version=['--version'], expect='Example 1',
+                    build='decoder/build.cmd')
+        folder = self.write_package(self.user, self.manifest(id='tooled', games=[dict(self.manifest()['games'][0], id='tooled')],
+                                                             tools=[tool]))
+        (folder / 'decoder').mkdir()
+        (folder / 'decoder' / 'build.cmd').write_text('', encoding='utf-8')
+        games.reload()
+        self.package = games.adapter('tooled').package
+        self.ctx = api.Context(self.package, self.temp / 'tool-cache')
+
+    def test_a_missing_tool_names_its_build_script(self):
+        with self.assertRaisesRegex(ValueError, r'Example decoder is missing: .*Build it with .*build\.cmd'):
+            self.ctx.run('decoder', 'list')
+        ready, detail = self.package.tool_status(self.package.tool('decoder'))
+        self.assertFalse(ready)
+        self.assertIn('build.cmd', detail)
+
+    def test_run_returns_output_and_reports_the_last_error_line(self):
+        (self.package.folder / 'tools').mkdir()
+        (self.package.folder / 'tools' / 'decoder.exe').write_bytes(b'')
+        done = mock.Mock(returncode=0, stdout='listed\n', stderr='')
+        with mock.patch('subprocess.run', return_value=done) as run:
+            self.assertEqual(self.ctx.run('decoder', 'list', Path('a b.txt')), 'listed\n')
+        command, environment = run.call_args[0][0], run.call_args[1]['env']
+        self.assertEqual(command[1:], ['list', 'a b.txt'])
+        self.assertIsInstance(environment, dict)
+        failed = mock.Mock(returncode=2, stdout='step 1\n', stderr='Unknown motlist version 99\n')
+        with mock.patch('subprocess.run', return_value=failed):
+            with self.assertRaisesRegex(ValueError, 'Example decoder list failed: Unknown motlist version 99'):
+                self.ctx.run('decoder', 'list')
+        with mock.patch('subprocess.run', return_value=mock.Mock(returncode=0, stdout='Example 1.2\n', stderr='')):
+            self.assertEqual(self.package.tool_status(self.package.tool('decoder')), (True, 'Example 1.2'))
+
+
+class Installing(PackageCase):
+    def test_install_replace_and_remove(self):
+        source = self.write_package(self.temp / 'build', self.manifest(id='other', version='2.0.0',
+                                                                         games=[dict(self.manifest()['games'][0], id='other')]))
+        package_zip = self.zip_of(source, 'other.zip')
+        info = packages.inspect_zip(package_zip)
+        self.assertEqual((info['id'], info['version'], info['replaces'], info['games']), ('other', '2.0.0', '', ['Example Game']))
+        packages.install_zip(package_zip)
+        games.reload()
+        self.assertTrue(games.adapter('other').package.installed)
+        self.assertIn('other', games.BY_ID)
+
+        (source / 'package.json').write_text(json.dumps(self.manifest(id='other', version='2.1.0',
+                                                                      games=[dict(self.manifest()['games'][0], id='other')])), encoding='utf-8')
+        update = self.zip_of(source, 'other-2.1.zip', top=False)
+        self.assertEqual(packages.inspect_zip(update)['replaces'], '2.0.0')
+        packages.install_zip(update)
+        self.assertEqual(sorted(p.name for p in self.user.iterdir()), ['other'])
+        self.assertEqual(json.loads((self.user / 'other' / 'package.json').read_text(encoding='utf-8'))['version'], '2.1.0')
+
+        with self.assertRaisesRegex(ValueError, 'No installed package'):
+            packages.remove('example')
+        packages.remove('other')
+        games.reload()
+        self.assertNotIn('other', games.BY_ID)
+        self.assertFalse((self.user / 'other').exists())
+
+    def test_unsafe_or_incomplete_zips_are_refused(self):
+        source = self.write_package(self.temp / 'build', self.manifest(id='other', games=[dict(self.manifest()['games'][0], id='other')]))
+        for name, extra, message in (('escape.zip', [('../evil.py', 'x')], 'unsafe path'),
+                                     ('two.zip', [('second/package.json', '{}')], 'one package.json')):
+            with self.assertRaisesRegex(ValueError, message):
+                packages.inspect_zip(self.zip_of(source, name, extra=extra))
+        with self.assertRaisesRegex(ValueError, 'Choose a game package ZIP'):
+            packages.inspect_zip(source / 'package.json')
+        self.assertEqual(list(self.user.iterdir()), [])
+
+    def test_a_package_in_the_bridge_folder_is_named_when_it_hides_an_install(self):
+        info = packages.inspect_zip(self.zip_of(FIXTURES / 'example', 'example.zip'))
+        self.assertEqual(info['shadowedBy'], str(self.bridge / 'example'))
+
+
+class GameChecks(PackageCase):
     def test_requests_name_registered_games(self):
         from bridge_runtime import check_games
-        check_games(dict(mode='import', game='dmc5'))
+        check_games(dict(mode='import', game='example'))
         check_games(dict(mode='export', exportGame='sekiro'))
         with self.assertRaisesRegex(ValueError, 'Unknown game'):
             check_games(dict(mode='import', game='dmc6'))
         with self.assertRaisesRegex(ValueError, 'Unknown donor game'):
             check_games(dict(mode='import', donor=dict(game='dmc6')))
         with self.assertRaisesRegex(ValueError, 'cannot write its animation format'):
-            check_games(dict(mode='export', exportGame='dmc5'))
+            check_games(dict(mode='export', exportGame='example'))
 
     def test_sampled_clips_of_import_only_games_are_refused(self):
         from bridge_runtime import refuse_import_only
         refuse_import_only(dict(game='sekiro'))
         refuse_import_only(dict(game='er', formatVersion=1))
-        for document in (dict(game='dmc5'), dict(game='', source=dict(engine='re_engine')), dict(game='sekiro', engine='re_engine')):
+        for document in (dict(game='example'), dict(game='', source=dict(engine='example')), dict(game='sekiro', engine='example')):
             with self.assertRaisesRegex(ValueError, 'Retarget the animation'):
                 refuse_import_only(document)
 
-    def test_the_workspace_passes_the_file_list_to_its_jobs(self):
+class Workspace(PackageCase):
+    """The UI server's routes, on a free port with a fixed token."""
+
+    def setUp(self):
+        super().setUp()
         import http.client
         import threading
         from http.server import ThreadingHTTPServer
         import bridge_ui
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        started = []
-        for name, value in (('SETTINGS', Path(temp.name) / 'ui-settings.json'), ('SOURCES', Path(temp.name) / 'ui-sources.json'),
-                            ('CONFIG', {}), ('JOB', None), ('worker', lambda job, request: started.append(request))):
+        self.started = []
+        for name, value in (('SETTINGS', self.temp / 'ui-settings.json'), ('SOURCES', self.temp / 'ui-sources.json'),
+                            ('CONFIG', {}), ('JOB', None), ('worker', lambda job, request: self.started.append(request)),
+                            ('remember_location', lambda: None)):
             patcher = mock.patch.object(bridge_ui, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -115,135 +333,45 @@ class GameChecks(unittest.TestCase):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=30)
-        self.addCleanup(connection.close)
+        self.connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=30)
+        self.addCleanup(self.connection.close)
+
+    def call(self, path, data=None):
+        body = None if data is None else json.dumps(data).encode()
+        self.connection.request('GET' if data is None else 'POST', path, body,
+                                {'Content-Type': 'application/json', 'X-Bridge-Token': 'token'})
+        response = self.connection.getresponse()
+        return response.status, json.loads(response.read())
+
+    def test_the_workspace_passes_the_file_list_to_its_jobs(self):
         request = dict(mode='discover', assetFolder=r'C:\Games\Devil May Cry 5', writer='python.exe', game='auto',
                        sourceFileList=r'C:\Lists\DMC5_STM_Release.list')
-        connection.request('POST', '/api/job', json.dumps(request).encode(), {'Content-Type': 'application/json', 'X-Bridge-Token': 'token'})
-        self.assertEqual(connection.getresponse().status, 200)
+        self.assertEqual(self.call('/api/job', request)[0], 200)
         # A PAK source scans only with its file list, so the server must keep it in the job's request.
-        self.assertEqual([r.get('sourceFileList') for r in started], [request['sourceFileList']])
+        self.assertEqual([r.get('sourceFileList') for r in self.started], [request['sourceFileList']])
 
-
-class ReEngineSource(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / 'extracted'
-        for path in FILES:
-            target = self.root / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(b'stand-in')
-        self.cache = Path(self.temp.name) / 'cache'
-        self.notes = []
-        decoder = mock.patch.object(re_engine, 'run_decoder', side_effect=fake_decoder)
-        decoder.start()
-        self.addCleanup(decoder.stop)
-
-    def notify(self, stage, message, progress=None, **extra):
-        self.notes.append(message)
-
-    def test_natives_folder_is_detected_by_file_versions(self):
-        for chosen in (self.root, self.root / 'natives', self.root / 'natives' / 'x64'):
-            found = games.detect(chosen)
-            self.assertEqual((found['game'], found['engine'], found['container']), ('dmc5', 're_engine', 'natives'), chosen)
-            self.assertFalse(found['needsFileList'])
-            self.assertEqual(found['counts'], dict(animations=2, characters=5, materials=1))
-
-    def test_game_folder_needs_a_file_list(self):
-        game = Path(self.temp.name) / 'game'
-        game.mkdir()
-        for name in ('DevilMayCry5.exe', 're_chunk_000.pak', 're_chunk_000.pak.patch_010.pak',
-                     're_chunk_000.pak.patch_002.pak', 're_chunk_000.pak.patch_001.pak'):
-            (game / name).write_bytes(b'')
-        found = games.detect(game)
-        self.assertEqual((found['game'], found['container']), ('dmc5', 'pak'))
-        self.assertTrue(found['needsFileList'])
-        self.assertIn('DMC5_STM_Release.list', found['note'])
-        self.assertEqual([Path(p).name for p in found['archives']],
-                         ['re_chunk_000.pak', 're_chunk_000.pak.patch_001.pak', 're_chunk_000.pak.patch_002.pak',
-                          're_chunk_000.pak.patch_010.pak'])
-        self.assertIsNone(games.detect(Path(self.temp.name) / 'missing'))
-
-    def test_scan_inventory_selection_and_decode(self):
-        from asset_discovery import discover, inventory_character, load_catalog, selection
-        path, catalog = discover(self.root, self.cache, self.notify, '', 'auto', 'game', None, True, '')
-        self.assertEqual((catalog['engine'], catalog['game'], catalog['schema']), ('re_engine', 'dmc5', re_engine.CATALOG_SCHEMA))
-        people = {c['id']: c for c in catalog['characters']}
-        self.assertEqual(set(people), {'pl0100', 'em0000'})
-        self.assertEqual(people['pl0100']['name'], 'Dante')
-        # A folder without a letter-initial name keeps the ID.
-        self.assertEqual(people['em0000']['name'], 'EM0000')
-        self.assertEqual(people['pl0100']['model'], MESH.format('pl0100_body', 'pl0100'))
-
-        catalog = inventory_character(path, 'pl0100', self.cache, self.notify)
-        entry = next(c for c in catalog['characters'] if c['id'] == 'pl0100')
-        self.assertEqual((entry['count'], entry['ready']), (2, 1))
-        catalog = load_catalog(path, self.root, True)
-        idle = next(c for c in catalog['clips'] if c['name'] == 'pl0100_Idle')
-        self.assertEqual(idle['id'], 'pl0100/pl0100_base#0')
-        with self.assertRaisesRegex(ValueError, 'no bone animation'):
-            selection(catalog, 'pl0100/pl0100_base#1')
-
-        chosen = selection(catalog, idle['id'])
-        self.assertEqual((chosen['engine'], chosen['game'], chosen['preset'], chosen['motion']), ('re_engine', 'dmc5', 'player', 0))
-        picked = [(p['id'], p['role']) for p in chosen['parts'] if p['selected']]
-        self.assertEqual(picked, [('pl0100', 'Body'), ('pl0100_01_head', 'Head'), ('pl0100_03_hair', 'Hair')])
-
-        notes = []
-        motion = re_engine.decode(chosen, Path(self.temp.name) / 'motion.json', notes=notes)
-        self.assertEqual((motion['formatVersion'], motion['source']['engine'], motion['source']['game']), (2, 're_engine', 'dmc5'))
-        self.assertEqual(motion['archive'], idle['archive'])
-        self.assertEqual(notes, ['Coat_L is animated but not in the skeleton'])
-
-    def test_missing_decoder_is_reported(self):
-        ready, detail = re_engine.decoder_status(str(Path(self.temp.name) / 'missing.exe'))
-        self.assertFalse(ready)
-        self.assertIn('build_decoder.cmd', detail)
-
-    def test_loose_files_replace_packed_ones(self):
-        catalog = dict(folder=str(self.root), work=str(self.cache / 'work'), container='pak')
-        self.assertEqual(re_engine.local_file(catalog, FILES[0].upper().replace('NATIVES', 'natives')), self.root / FILES[0])
-        self.assertIsNone(re_engine.local_file(catalog, 'natives/x64/character/player/none.mesh.1808282334'))
-
-
-class ReEngineMaterials(unittest.TestCase):
-    profile = games.profile('dmc5')
-
-    def material(self, shader, textures, params=()):
-        return dict(name='Owned', shader=shader, textures=[dict(slot=s, path=p) for s, p in textures],
-                    params=[dict(name=n, value=v) for n, v in params])
-
-    def images(self, *paths):
-        return {p: dict(path=f'C:/owned/{Path(p).stem}.png', stem=Path(p).stem) for p in paths}
-
-    def test_albedo_normal_and_hair_cut_out(self):
-        material = self.material('Character/Hair.mmtr', [('BaseShiftMap', 'hair_ALBM.tex'), ('NormalRoughnessMap', 'hair_NRMR.tex'),
-                                                         ('AlphaTranslucentOcclusionSSSMap', 'hair_ATOS.tex')],
-                                 [('BaseColor', [.5, .4, .3, 1])])
-        spec = characters.material_spec(material, 'Owned', self.images('hair_ALBM.tex', 'hair_NRMR.tex', 'hair_ATOS.tex'), self.profile)
-        self.assertEqual(spec['family'], 'Devil May Cry 5')
-        self.assertEqual(spec['albedo']['stem'], 'hair_ALBM')
-        # The shift map's alpha is data, as are roughness in NRMR and subsurface in ATOS.
-        self.assertTrue(spec['albedo']['packedAlpha'] and spec['normal']['packedAlpha'] and spec['opacity']['packedAlpha'])
-        self.assertFalse(spec['alpha'])
-        self.assertEqual((spec['normal']['convention'], spec['normal']['channels']), ('directx', 'xyz'))
-        self.assertEqual((spec['opacity']['stem'], spec['opacity']['channel']), ('hair_ATOS', 'R'))
-        self.assertEqual(spec['color'], [.5, .4, .3])
-        self.assertNotIn('opacityValue', spec)
-
-    def test_null_textures_and_hidden_overlays(self):
-        material = self.material('Character/EyeTransparent.mmtr', [('BaseMetalMap', 'systems/rendering/NullBlack.tex')])
-        spec = characters.material_spec(material, 'Owned', {}, self.profile)
-        self.assertIsNone(spec['albedo'])
-        self.assertEqual(spec['opacityValue'], 0.0)
-        self.assertEqual(characters.material_spec(None, 'Missing', {}, self.profile)['color'], [.6, .6, .6])
-
-    def test_texture_paths_prefer_streaming(self):
-        self.assertEqual(characters.texture_paths('Character\\Player\\pl0100_ALBM.tex', self.profile),
-                         ['natives/x64/streaming/character/player/pl0100_albm.tex.11', 'natives/x64/character/player/pl0100_albm.tex.11'])
-        self.assertEqual(characters.role(MESH.format('pl0100_03_hair', 'pl0100_03_hair')), 'Hair')
-
+    def test_packages_are_listed_inspected_installed_and_removed(self):
+        status, state = self.call('/api/packages')
+        self.assertEqual((status, state['folder']), (200, str(self.user)))
+        self.assertEqual([(p['id'], p['installed']) for p in state['packages']], [('example', False)])
+        source = self.write_package(self.temp / 'build', self.manifest(id='other', games=[dict(self.manifest()['games'][0], id='other')]))
+        package_zip = str(self.zip_of(source, 'other.zip'))
+        status, info = self.call('/api/packages/inspect', dict(zip=package_zip))
+        self.assertEqual((status, info['id'], info['games']), (200, 'other', ['Example Game']))
+        # Nothing is installed until the user confirms the warning.
+        status, error = self.call('/api/packages/install', dict(zip=package_zip))
+        self.assertEqual(status, 400)
+        self.assertIn('Confirm the warning', error['error'])
+        self.assertEqual(list(self.user.iterdir()), [])
+        status, state = self.call('/api/packages/install', dict(zip=package_zip, confirm=True))
+        self.assertEqual((status, [(p['id'], p['installed']) for p in state['packages']]), (200, [('example', False), ('other', True)]))
+        self.assertIn('other', [g['id'] for g in self.call('/api/games')[1]['games']])
+        status, error = self.call('/api/packages/remove', dict(id='example', confirm=True))
+        self.assertEqual(status, 400)
+        self.assertIn('No installed package', error['error'])
+        status, state = self.call('/api/packages/remove', dict(id='other', confirm=True))
+        self.assertEqual((status, [p['id'] for p in state['packages']]), (200, ['example']))
+        self.assertNotIn('other', games.BY_ID)
 
 if __name__ == '__main__':
     unittest.main()

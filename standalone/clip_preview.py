@@ -114,6 +114,19 @@ def cache_key(paths, decoder):
     return hashlib.sha1(json.dumps(parts).encode('utf-8')).hexdigest()[:24]
 
 
+def motion_preview(motion):
+    """Preview JSON of a version 2 motion JSON of any engine, in the motion's own space."""
+    from games.space import Space
+    bones = motion['skeleton']['bones']
+    count = int(motion['frameCount'])
+    step = max(1, math.ceil(count * len(bones) / LIMIT))
+    positions = joint_positions(dict(motion, frames=motion['frames'][::step]))
+    return dict(clip=motion['clip'], skeleton=motion['skeletonName'], frameCount=count, frameRate=float(motion['frameRate']),
+                duration=float(motion.get('duration') or (count - 1) / float(motion['frameRate'])), frameStep=step,
+                bones=[b['name'] for b in bones], parents=[int(b['parent']) for b in bones], tracks=motion['trackCount'],
+                positions=positions, detached=detached(positions, len(bones)), root=None, **Space.of(motion).to_json())
+
+
 def preview_mode(decoder):
     """Whether the decoder writes the preview itself, asked once per decoder file."""
     stat = Path(decoder).stat()

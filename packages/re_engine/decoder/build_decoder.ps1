@@ -1,10 +1,11 @@
 param(
     [string]$REELibRoot = (Join-Path $env:LOCALAPPDATA "SekiroAnimationBridge\REE-Lib"),
-    [string]$OutputDirectory = (Join-Path $env:LOCALAPPDATA "SekiroAnimationBridge\re-decoder"),
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\tools\re-decoder'),
     [string]$ArtifactsDirectory = (Join-Path $env:LOCALAPPDATA "SekiroAnimationBridge\re-build")
 )
 
 $ErrorActionPreference = "Stop"
+$OutputDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw 'Install the .NET 9 SDK before building the RE Engine decoder. The runtime alone cannot build it.'
 }
@@ -42,12 +43,22 @@ if ($head -ne $commit) {
     if ($LASTEXITCODE -ne 0) { throw "Could not check out the pinned REE-Lib commit $commit." }
 }
 
-dotnet publish $project -c Release -r win-x64 --self-contained true `
+# Framework-dependent: the bridge runs it with its shared .NET runtime (tools\prepare_dotnet_runtime.cmd).
+dotnet publish $project -c Release -r win-x64 --self-contained false `
     --artifacts-path $ArtifactsDirectory `
     -p:REELibProject="$libProject" `
     -o $OutputDirectory
 if ($LASTEXITCODE -ne 0) { throw "RE Engine decoder build failed." }
 $decoder = Join-Path $OutputDirectory 'ReEngineDecoder.exe'
-& $decoder selftest
-if ($LASTEXITCODE -ne 0) { throw "The RE Engine decoder failed its self-test." }
+# The self-test uses the shared runtime when it is prepared, so it also passes without a system .NET 9 runtime.
+$runtime = @((Join-Path $PSScriptRoot '..\..\..\dotnet-runtime'), (Join-Path $env:LOCALAPPDATA 'SekiroAnimationBridge\dotnet-runtime')) |
+    Where-Object { Test-Path (Join-Path $_ 'host\fxr\*\hostfxr.dll') } | Select-Object -First 1
+$saved = $env:DOTNET_ROOT, $env:DOTNET_ROOT_X64
+if ($runtime) { $env:DOTNET_ROOT = $env:DOTNET_ROOT_X64 = (Resolve-Path -LiteralPath $runtime).Path }
+try {
+    & $decoder selftest
+    if ($LASTEXITCODE -ne 0) { throw "The RE Engine decoder failed its self-test." }
+} finally {
+    $env:DOTNET_ROOT, $env:DOTNET_ROOT_X64 = $saved
+}
 Write-Host "RE Engine decoder ready: $decoder"

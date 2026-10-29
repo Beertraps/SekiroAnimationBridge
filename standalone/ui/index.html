@@ -256,6 +256,11 @@
       <section class="card"><header class="card-head"><h3>Setup</h3><p>Release ZIPs set themselves up on the first start.</p></header>
         <div class="steps"><div><b>Conversion libraries</b><p>uv installs Python 3.13, Soulstruct and NumPy into the tool’s own environment. Run this to repeat or repair it.</p><code>tools\setup_writer.cmd</code></div><div><b>HKX decoder</b><p>Included in release ZIPs. A source checkout builds it once; that needs Git and the .NET 9 SDK.</p><code>tools\SekiroMotionDecoder\build_decoder.cmd</code></div></div>
       </section>
+      <section class="card"><header class="card-head"><h3>Game packages</h3><p>Games from other engines, such as Devil May Cry 5, come as packages. FromSoftware games need none.</p></header>
+        <div id="package-list" class="package-list" aria-live="polite"><p class="note">Reading the packages…</p></div>
+        <div class="tool-row"><button id="package-install" class="secondary" type="button"><svg><use href="#i-folder"/></svg>Install package…</button><button type="button" class="help" data-help="packages" aria-label="About game packages">?</button></div>
+        <p class="note">A package runs its own code on this computer. Install packages only from people you trust. <span id="package-folder"></span></p>
+      </section>
       <section class="card"><header class="card-head"><h3>Cache</h3><p>Unpacked animations, scans and skeleton previews in this tool’s <code>work\asset-cache</code>. Files that no source uses are removed when the bridge starts.</p></header>
         <dl class="resolved cache-usage" id="cache-usage" aria-live="polite"><dt>Total</dt><dd>Measuring…</dd></dl>
         <button id="cache-clean" class="secondary" type="button"><svg><use href="#i-refresh"/></svg>Remove unused files now</button>
@@ -305,6 +310,14 @@
       <div class="field"><label for="src-scenes">Scenes folder <button type="button" class="help" data-help="scenes" aria-label="About the scenes folder">?</button></label><div class="path-row"><input id="src-scenes" spellcheck="false" placeholder="Where new Blender scenes are suggested"><button type="button" class="browse" id="src-scenes-browse"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
     </div>
     <footer class="sheet-foot"><button type="button" id="src-remove" class="text-button danger" hidden>Remove source</button><span class="grow"></span><button type="button" class="secondary" data-close>Cancel</button><button type="submit" id="src-save" class="primary">Save and scan</button></footer>
+  </form>
+</dialog>
+
+<dialog id="package-dialog" class="sheet" aria-labelledby="package-dialog-title">
+  <form id="package-form" method="dialog">
+    <header class="sheet-head"><div><span class="eyebrow">GAME PACKAGE</span><h2 id="package-dialog-title">Install a game package</h2></div><button type="button" class="icon-button" data-close-package aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+    <div class="sheet-body"><dl id="package-facts" class="resolved"></dl><p id="package-warning" class="package-warning"></p></div>
+    <footer class="sheet-foot"><span class="grow"></span><button type="button" class="secondary" data-close-package>Cancel</button><button type="submit" id="package-confirm" class="primary">Install</button></footer>
   </form>
 </dialog>
 

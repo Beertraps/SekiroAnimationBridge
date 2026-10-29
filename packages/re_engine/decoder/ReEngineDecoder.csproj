@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <REELibProject Condition="'$(REELibProject)' == ''">$(MSBuildThisFileDirectory)..\..\dependencies\REE-Lib\REE-Lib\REE-Lib.csproj</REELibProject>
+    <REELibProject Condition="'$(REELibProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\dependencies\REE-Lib\REE-Lib\REE-Lib.csproj</REELibProject>
   </PropertyGroup>
   <ItemGroup>
     <!-- REE-Lib uses C# 14 features (field-backed properties, null-conditional assignment) that the .NET 9 SDK offers as preview. -->

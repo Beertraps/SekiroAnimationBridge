@@ -12,8 +12,9 @@ from pathlib import Path
 
 import numpy as np
 
-from games.interchange import check_manifest
-from games.re_engine import materialize, run_decoder
+from games.api import check_manifest, dds_to_png
+
+from . import materialize
 
 # mdf2 texture slots, in the order a material's base color is looked for.
 ALBEDO_SLOTS = ('BaseMetalMap', 'BaseShiftMap', 'BaseAlphaMap', 'BaseDielectricMap', 'BaseColorMap', 'AlbedoMap', 'BaseMap')
@@ -91,7 +92,7 @@ def mdf2_path(mesh_path, profile):
     return re.sub(r'\.mesh\.\d+$', f'.mdf2.{profile.formats["mdf2"]}', mesh_path)
 
 
-def prepare_character(catalog, models, output, profile, event=lambda *args: None):
+def prepare_character(catalog, models, output, profile, ctx):
     """Decode a character's meshes, materials and textures into a manifest for Blender."""
     out = Path(output)
     textures_out = out / 'textures'
@@ -103,13 +104,13 @@ def prepare_character(catalog, models, output, profile, event=lambda *args: None
             warnings.append(f'{name}: the model is not in the archives.')
             continue
         stem = out / f'{index:02d}_{name}'
-        run_decoder('mesh', local, stem)
+        ctx.run('decoder', 'mesh', local, stem)
         info, arrays = read_mesh(stem)
-        material_file = materialize(catalog, [mdf2_path(path, profile)]).get(mdf2_path(path, profile))
+        material_file = materialize(catalog, [mdf2_path(path, profile)], ctx).get(mdf2_path(path, profile))
         materials = {}
         if material_file:
             listing = out / f'{index:02d}_{name}.mdf2.json'
-            run_decoder('mdf2', material_file, listing)
+            ctx.run('decoder', 'mdf2', material_file, listing)
             materials = {m['name']: m for m in json.loads(listing.read_text(encoding='utf-8-sig'))['materials']}
         else:
             warnings.append(f'{name}: no material file ({Path(mdf2_path(path, profile)).name}); the model stays untextured.')
@@ -123,10 +124,10 @@ def prepare_character(catalog, models, output, profile, event=lambda *args: None
                           slot_texture(material, (ATOS_SLOT,)) if uses_alpha_map(material) else None):
                 if entry:
                     wanted[entry['path']] = texture_paths(entry['path'], profile)
-    event('character', f'Extracting {len(wanted)} textures', 36)
-    found = materialize(catalog, [p for paths in wanted.values() for p in paths])
+    ctx.notify('character', f'Extracting {len(wanted)} textures', 36)
+    found = materialize(catalog, [p for paths in wanted.values() for p in paths], ctx)
     sources = {stored: next((found[p] for p in paths if p in found), None) for stored, paths in wanted.items()}
-    images = convert_textures({s: f for s, f in sources.items() if f}, textures_out, event)
+    images = convert_textures({s: f for s, f in sources.items() if f}, textures_out, ctx)
     missing = sorted(Path(s).name for s, f in sources.items() if not f)
     if missing:
         warnings.append(f"Textures not in the archives: {', '.join(missing[:8])}{', …' if len(missing) > 8 else ''}.")
@@ -158,9 +159,8 @@ def role(path):
     return 'Head' if '_head' in folder else 'Hair' if '_hair' in folder else 'Body' if folder.endswith('_body') else 'Character'
 
 
-def convert_textures(sources, output, event=lambda *args: None):
-    """PNG images of tex files: the decoder writes each as DDS, texconv converts them in one run."""
-    from soulstruct.base.textures.texconv import texconv
+def convert_textures(sources, output, ctx):
+    """PNG images of tex files: the decoder writes each as DDS, the bridge converts them to PNG."""
     if not sources:
         return {}
     staging = output / 'dds'
@@ -172,14 +172,12 @@ def convert_textures(sources, output, event=lambda *args: None):
             stem += '_'
         names[stored] = stem
         target = staging / f'{stem}.dds'
-        run_decoder('tex', local, target)
+        ctx.run('decoder', 'tex', local, target)
         dds.append(target)
-    event('character', f'Converting {len(dds)} textures', 40)
-    for start in range(0, len(dds), 40):
-        result = texconv('-ft', 'png', '-o', str(output), '-y', '-nologo', *[str(p) for p in dds[start:start + 40]])
-        if result.returncode:
-            lines = result.stdout.decode(errors='replace').strip().splitlines()
-            print('NOTICE: texconv could not convert every texture' + (': ' + lines[-1] if lines else '.'), flush=True)
+    ctx.notify('character', f'Converting {len(dds)} textures', 40)
+    problem = dds_to_png(dds, output)
+    if problem:
+        print(f'NOTICE: {problem}', flush=True)
     images = {}
     for stored, stem in names.items():
         png = next((p for p in (output / f'{stem}.PNG', output / f'{stem}.png') if p.is_file()), None)

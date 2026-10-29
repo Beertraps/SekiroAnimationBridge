@@ -42,6 +42,9 @@ class GameProfile:
     # False until an import was checked with the game's own files; the UI marks the game as untested.
     verified: bool = True
     documentation: str = ''
+    # The game package that adds the game, and its bone names for the retarget add-on; empty for built-in games.
+    package: str = ''
+    bones: dict = field(default_factory=dict)
 
     def space(self):
         return Space(self.basis, self.unit_scale)
@@ -56,20 +59,16 @@ class GameProfile:
 
 
 class GameAdapter(Protocol):
-    """The code an engine supplies. Every method gets plain paths and dictionaries and returns them.
+    """The bridge's own entry points for an engine: games.fromsoft for the built-in games, and
+    games.packages.PackageEngine, which serves them from a game package's API (games.api, docs/PACKAGES.md).
 
-    detect(path) -> dict | None
-        Describe a folder the way asset_sources.detect does, with 'engine' and 'game' set, or None
-        when the folder is not this engine's.
-    discover(source, cache, notify, game, layout, folders, recursive, options) -> (catalog_path, catalog)
-        List a source's characters. A catalog carries 'engine'.
-    inventory_character(catalog_path, character, cache, notify) -> catalog
-        Read one character's clips.
+    detect(path, file_list='') -> dict | None
+    discover(root, cache, notify, found, game='auto', file_list='') -> (catalog_path, catalog)
+    inventory_character(catalog_path, catalog, character, cache, notify) -> catalog
     refresh_clip(catalog_path, catalog, clip_id, cache, notify) -> (catalog, clip_id)
-    selection(catalog, clip_id, preset) -> dict
-        The inputs of one clip: what the UI shows and the import uses.
-    preview(selection, cache) -> bytes
+    load_catalog(catalog, folder, check_sources=False) -> catalog
+    selection(catalog, clip_id, preset='auto') -> dict
+    preview(selection, cache, stored_only=False) -> bytes | None
         Gzipped preview JSON.
-    prepare(request, temp, event) -> (motion_path, character_args, report)
-        Decode a clip to motion JSON version 2 and its character to a manifest.
+    prepare(request, catalog_path, catalog, temp, event) -> (motion_path, character_args, report)
     """

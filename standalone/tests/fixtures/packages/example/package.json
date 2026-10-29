@@ -1,0 +1,28 @@
+{
+  "id": "example",
+  "name": "Example engine",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "A template game package. Its made-up game keeps one motion JSON per clip in motions/<character>/.",
+  "authors": ["Sekiro Animation Bridge contributors"],
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/Beertraps/SekiroAnimationBridge",
+  "games": [
+    {
+      "id": "example",
+      "name": "Example Game",
+      "short": "EX",
+      "executables": ["example.exe"],
+      "capabilities": {"import_character": false, "textures": false},
+      "basis": [[1, 0, 0], [0, 0, -1], [0, 1, 0]],
+      "unitScale": 1.0,
+      "hint": "A folder with example.game and a motions folder",
+      "verified": true
+    }
+  ],
+  "tools": [],
+  "bones": {
+    "names": {"Becken": "Pelvis", "Kopf": "Head"},
+    "patterns": [{"match": "([LR])_Oberschenkel", "as": "\\1_Thigh"}]
+  }
+}

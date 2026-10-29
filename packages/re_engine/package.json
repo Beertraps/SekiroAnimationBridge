@@ -1,0 +1,53 @@
+{
+  "id": "re_engine",
+  "name": "RE Engine",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "Imports animations and characters of RE Engine games: Devil May Cry 5, and Resident Evil 2 (DX11, untested). Reads the game's PAK archives with its file list, or an extracted natives folder.",
+  "authors": ["Sekiro Animation Bridge contributors"],
+  "license": "GPL-3.0-or-later; the decoder uses REE-Lib (MIT)",
+  "homepage": "https://github.com/Beertraps/SekiroAnimationBridge",
+  "sourceOptions": ["fileList"],
+  "games": [
+    {
+      "id": "dmc5",
+      "name": "Devil May Cry 5",
+      "short": "DMC5",
+      "executables": ["devilmaycry5.exe"],
+      "capabilities": {"packed_archives": true},
+      "basis": [[1, 0, 0], [0, 0, -1], [0, 1, 0]],
+      "unitScale": 1.0,
+      "formats": {"motlist": 85, "mot": 65, "mesh": 1808282334, "tex": 11, "mdf2": 10, "fbxskel": 3,
+                  "chunk": "re_chunk_000.pak", "fileList": "DMC5_STM_Release.list"},
+      "hint": "DevilMayCry5.exe and re_chunk_000.pak, or an extracted natives folder with DMC5 file versions",
+      "verified": true,
+      "documentation": "docs/games/dmc5.md"
+    },
+    {
+      "id": "re2",
+      "name": "Resident Evil 2 (DX11)",
+      "short": "RE2",
+      "executables": ["re2.exe"],
+      "capabilities": {"packed_archives": true},
+      "basis": [[1, 0, 0], [0, 0, -1], [0, 1, 0]],
+      "unitScale": 1.0,
+      "formats": {"motlist": 85, "mot": 65, "mesh": 1808312334, "tex": 10, "mdf2": 10,
+                  "chunk": "re_chunk_000.pak", "fileList": "RE2_STM_Release.list"},
+      "hint": "re2.exe of the DX11 (non-ray-tracing) version, or an extracted natives folder with its file versions",
+      "verified": false,
+      "documentation": "docs/games/re2.md"
+    }
+  ],
+  "tools": [
+    {
+      "id": "decoder",
+      "name": "RE Engine decoder",
+      "path": "tools/re-decoder/ReEngineDecoder.exe",
+      "version": ["--version"],
+      "expect": "ReEngineDecoder 0.1",
+      "runtime": "dotnet-9",
+      "build": "decoder/build_decoder.cmd",
+      "help": "Reads PAK archives, motlists, meshes, materials and textures. Built on REE-Lib."
+    }
+  ]
+}

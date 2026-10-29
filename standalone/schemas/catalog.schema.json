@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sekiro-animation-bridge/catalog.schema.json",
+  "title": "Package catalog",
+  "description": "What a game package's scan returns: a source's characters and the clips of those it has read. The bridge adds engine and package and stores it. See docs/PACKAGES.md.",
+  "type": "object",
+  "required": ["schema", "game", "folder", "characters", "clips"],
+  "properties": {
+    "schema": {"type": "integer", "minimum": 1},
+    "game": {"type": "string", "minLength": 1},
+    "folder": {"type": "string", "minLength": 1},
+    "layout": {"const": "game"},
+    "engine": {"type": "string"},
+    "package": {"type": "string"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "characters": {"type": "array", "items": {"$ref": "#/$defs/character"}},
+    "clips": {"type": "array", "items": {"$ref": "#/$defs/clip"}}
+  },
+  "$defs": {
+    "character": {
+      "type": "object",
+      "required": ["id", "name", "archives", "inventoried"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "character": {"type": "string"},
+        "name": {"type": "string", "minLength": 1},
+        "game": {"type": "string"},
+        "folder": {"type": "string"},
+        "archives": {"type": "array", "items": {"type": "string"}},
+        "archiveCount": {"type": "integer", "minimum": 0},
+        "inventoried": {"type": "boolean"},
+        "count": {"anyOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]}
+      }
+    },
+    "clip": {
+      "type": "object",
+      "required": ["id", "name", "character", "characterKey", "game", "ready", "issues"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "archive": {"type": "string"},
+        "member": {"type": "string"},
+        "character": {"type": "string"},
+        "characterKey": {"type": "string"},
+        "game": {"type": "string"},
+        "ready": {"type": "boolean"},
+        "issues": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

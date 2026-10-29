@@ -11,6 +11,10 @@ JSON Schemas for each format are in [`standalone/schemas/`](../standalone/schema
 | Model arrays (`.npz`) | the adapter's character step | Blender import | listed below |
 | Textures | the adapter's character step | Blender import | PNG files |
 | Preview JSON | the decoder's preview mode, or `clip_preview.computed` | `ui/preview.js` | [`preview.schema.json`](../standalone/schemas/preview.schema.json) |
+| Package manifest (`package.json`) | the author of a game package | the bridge's package loader | [`package.schema.json`](../standalone/schemas/package.schema.json) |
+| Source catalog | a game package's `scan` and `inventory` | the bridge, the Import page | [`catalog.schema.json`](../standalone/schemas/catalog.schema.json) |
+
+Game packages, which add the games of other engines, are described in [PACKAGES.md](PACKAGES.md). The bridge checks everything a package returns against these schemas before it uses it.
 
 ## Source space
 
@@ -66,7 +70,7 @@ Version 2 fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `source.engine` | string | `fromsoft`, `re_engine` |
+| `source.engine` | string | `fromsoft`, or the ID of the game package that read the file, such as `re_engine` |
 | `source.game` | string | the game's ID from the registry, such as `sekiro` or `dmc5` |
 | `source.container` | string | the file type the clip came from: `hkx`, `motlist`, `mot` |
 | `source.version` | integer or string | the container's version |
