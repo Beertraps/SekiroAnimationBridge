@@ -18,6 +18,7 @@
 - A package can give the retarget add-on its games' bone names. Imported rigs record their game, so the add-on reads the names of that game only.
 - The decoders share one .NET 9 runtime. Release ZIPs carry it in `dotnet-runtime/`, and the decoders no longer include their own; a source checkout prepares it with `tools\prepare_dotnet_runtime.cmd`. **Settings & setup** shows it as **.NET runtime**.
 - DMC5 sources scanned before need one new scan.
+- The skeleton preview hands a package the whole selection it made for the clip, as the import does, so a package that needs more than the clip's file (DOOM Eternal needs its game folder) can preview. `tools\check_package.cmd` asks for the preview the way the page does.
 
 ## Skeleton preview and cache
 

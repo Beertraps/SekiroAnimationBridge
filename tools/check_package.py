@@ -152,8 +152,11 @@ def main():
         return 1
 
     def preview():
+        from clip_preview import preview_selection
         from games.interchange import check_preview
-        document = check_preview(json.loads(gzip.decompress(engine.preview(chosen, cache / 'previews'))))
+        # The selection as the page sends it for the preview.
+        sent = json.loads(json.dumps(preview_selection(chosen, chosen), default=str))
+        document = check_preview(json.loads(gzip.decompress(engine.preview(sent, cache / 'previews'))))
         return None, f"{len(document['bones'])} bones, {document['frameCount']} frames at {document['frameRate']:g} fps"
 
     steps.run('preview', preview)

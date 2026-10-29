@@ -30,6 +30,21 @@ _MODES = {}
 _RUNNING = {}
 _RUNNING_LOCK = threading.Lock()
 HIDDEN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+# The selection keys a skeleton preview reads: the HKX files, or another engine's clip.
+PREVIEW_KEYS = ('animation', 'skeleton', 'compendium', 'skeletonCompendium', 'engine', 'game', 'motion')
+
+
+def preview_selection(chosen, keys):
+    """What a clip preview reads: the HKX files, or for a game package's clip the whole selection the package made.
+
+    keys holds the preview keys, as the page sends them or as a selection has them. A package reads its clip
+    from its own selection keys, such as DOOM Eternal's game folder; the model parts are left out, since the
+    skeleton preview does not change with them.
+    """
+    files = {k: str(keys.get(k) if keys.get(k) is not None else '') for k in PREVIEW_KEYS}
+    if not isinstance(chosen, dict) or chosen.get('engine') in (None, '', 'fromsoft'):
+        return files
+    return {**{k: v for k, v in chosen.items() if k != 'parts'}, **{k: v for k, v in files.items() if v}}
 
 
 def use_oodle(path=''):

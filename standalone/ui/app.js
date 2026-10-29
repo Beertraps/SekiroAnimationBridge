@@ -651,8 +651,11 @@ function removeDonor(){
 let previewKey='',previewTimer,previewSequence=0,partKey='',partTimer,partSequence=0,partRows=null;
 function previewInputs(){
  const v=key=>$(key).value.trim(),inputs={animation:v('animation'),skeleton:v('skeleton'),compendium:v('compendium'),skeletonCompendium:v('skeletonCompendium')};
- // Another engine's clip is a motion inside its file: the adapter needs the engine and the motion's index.
- if(inputMethod==='folder'&&selection?.engine&&selection.engine!=='fromsoft')Object.assign(inputs,{engine:selection.engine,game:selection.game,motion:String(selection.motion??'')});
+ // Another engine's clip is read by its package from the selection the package made; the model parts do not change it.
+ if(inputMethod==='folder'&&selection?.engine&&selection.engine!=='fromsoft'){
+  const {parts,...chosen}=selection;
+  Object.assign(inputs,{engine:selection.engine,game:selection.game,motion:String(selection.motion??''),selection:chosen});
+ }
  return inputs;
 }
 function schedulePreview(){

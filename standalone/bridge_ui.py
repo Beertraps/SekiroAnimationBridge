@@ -18,8 +18,6 @@ from bridge_runtime import APP, HERE, HOME, EVENT_PREFIX, default_decoder, remem
 from character_assets import scan_character, asset_id, ROLES
 
 from games import public as public_games
-# The selection keys a skeleton preview reads: the HKX files, or another engine's clip.
-PREVIEW_KEYS = ('animation','skeleton','compendium','skeletonCompendium','engine','game','motion')
 SETTINGS = APP / 'ui-settings.json'
 # Sources have their own file: an older bridge rewrites ui-settings.json with only the keys it knows.
 SOURCES = APP / 'ui-sources.json'
@@ -210,7 +208,7 @@ def prefetcher(index):
     Standard caching has one worker and aggressive caching two; none works while a conversion runs.
     """
     from asset_discovery import load_catalog, selection
-    from clip_preview import preview
+    from clip_preview import preview, preview_selection
     catalogs={}
     while True:
         with PREFETCH_WAKE:
@@ -224,8 +222,7 @@ def prefetcher(index):
             if catalogs.get(path,(None,))[0]!=stamp: catalogs={path:(stamp,load_catalog(path,folder))}
             chosen=selection(catalogs[path][1],clip,preset)
             with LOCK: decoder=CONFIG.get('decoder') or str(default_decoder()); oodle=CONFIG.get('oodle','')
-            preview({k:str(chosen.get(k) if chosen.get(k) is not None else '') for k in PREVIEW_KEYS},
-                    decoder,CACHE/'previews',oodle)
+            preview(preview_selection(chosen,chosen),decoder,CACHE/'previews',oodle)
         except Exception:
             # A clip that cannot be previewed shows its error when it is selected.
             pass
@@ -350,9 +347,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(selection(load_catalog(path,data['folder']),data['clip'],data.get('preset','auto')))
             if self.path=='/api/preview':
                 # The configured decoder only; the request names the clip's files.
-                from clip_preview import preview
+                from clip_preview import preview, preview_selection
                 decoder=CONFIG.get('decoder') or str(default_decoder())
-                result=preview({k:str(data.get(k) or '') for k in PREVIEW_KEYS},
+                result=preview(preview_selection(data.get('selection'),data),
                                decoder,CACHE/'previews',CONFIG.get('oodle',''),bool(data.get('storedOnly')))
                 return self.send_json(None) if result is None else self.send_gzip(result)
             if self.path=='/api/prefetch':
