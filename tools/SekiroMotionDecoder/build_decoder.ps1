@@ -42,7 +42,8 @@ if ($head -ne $commit) {
     if ($LASTEXITCODE -ne 0) { throw "Could not check out the pinned SoulsAssetPipeline commit $commit." }
 }
 
-dotnet publish $project -c Release -r win-x64 --self-contained true `
+# Framework-dependent: the bridge runs it with its shared .NET runtime (tools\prepare_dotnet_runtime.cmd).
+dotnet publish $project -c Release -r win-x64 --self-contained false `
     --artifacts-path $ArtifactsDirectory `
     -p:SoulsAssetPipelineProject="$sapProject" `
     -o $OutputDirectory

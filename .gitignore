@@ -24,6 +24,8 @@ oo2core*.dll
 # Build output and editor files
 bin/
 obj/
+packages/*/tools/
+/dotnet-runtime/
 dependencies/
 __pycache__/
 *.pyc
