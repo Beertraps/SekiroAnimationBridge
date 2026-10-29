@@ -1,5 +1,7 @@
 """The game registry, game packages and their API, with the example package and made-up files."""
+import contextlib
 import gzip
+import io
 import json
 import shutil
 import sys
@@ -16,6 +18,7 @@ from games.space import FROMSOFT, RE_ENGINE
 from test_interchange import owned_motion
 
 FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'packages'
+TOOLS = Path(__file__).resolve().parents[2] / 'tools'
 ENGINE_FUNCTIONS = ('detect', 'discover', 'inventory_character', 'refresh_clip', 'load_catalog', 'selection', 'preview', 'prepare')
 
 
@@ -372,6 +375,34 @@ class Workspace(PackageCase):
         status, state = self.call('/api/packages/remove', dict(id='other', confirm=True))
         self.assertEqual((status, [p['id'] for p in state['packages']]), (200, ['example']))
         self.assertNotIn('other', games.BY_ID)
+
+
+class Checker(PackageCase):
+    """tools/check_package.py, which package authors run on their package and a source of its game."""
+
+    def check(self, *arguments):
+        sys.path.insert(0, str(TOOLS))
+        self.addCleanup(sys.path.remove, str(TOOLS))
+        import check_package
+        output = io.StringIO()
+        with mock.patch.object(sys, 'argv', ['check_package.py', *map(str, arguments)]), \
+                mock.patch('dotnet_runtime.configure'), contextlib.redirect_stdout(output):
+            code = check_package.main()
+        steps = [line.split()[1] for line in output.getvalue().splitlines() if line.startswith('PASS ')]
+        failed = [line for line in output.getvalue().splitlines() if line.startswith('FAIL ')]
+        return code, steps, failed
+
+    def test_every_step_passes_for_the_example_package(self):
+        code, steps, failed = self.check(self.bridge / 'example', '--source', self.source(), '--clip', 'walk')
+        self.assertEqual((code, failed), (0, []))
+        self.assertEqual(steps, ['package.json', 'module', 'detect', 'scan', 'inventory', 'selection', 'preview', 'prepare'])
+        self.assertTrue(any(self.cache.glob('catalogs/example-*.json')))
+
+    def test_a_package_without_the_api_stops_at_its_module(self):
+        folder = self.write_package(self.temp / 'work', self.manifest(), code='')
+        code, steps, failed = self.check(folder)
+        self.assertEqual((code, steps), (1, ['package.json']))
+        self.assertIn('lacks the package API functions', failed[0])
 
 if __name__ == '__main__':
     unittest.main()
