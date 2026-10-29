@@ -4,10 +4,20 @@
 
 - **Devil May Cry 5 imports.** Add the game folder as a source and choose its file list, `DMC5_STM_Release.list` from REE.PAK.Tool. The bridge reads the PAK archives without changing them, lists the players and enemies, previews their clips and builds a Blender scene with the rig, the body, head and hair, their materials and textures. A folder with an extracted `natives` folder works without a list. [docs/games/dmc5.md](docs/games/dmc5.md) walks through it.
 - DMC5 is import-only: edit a clip in Blender, or use it as the **Retarget donor** for a Sekiro, Dark Souls or Elden Ring character and export that. Exporting a DMC5 scene says so instead of failing in the writer.
-- New RE Engine decoder (`tools/ReEngineDecoder`, on REE-Lib), included in release ZIPs and shown under **Settings & setup**. Build it in a source checkout with `tools\ReEngineDecoder\build_decoder.cmd`.
+- New RE Engine decoder (on REE-Lib) in the RE Engine game package, shown under **Settings & setup**. Build it in a source checkout with `packages\re_engine\decoder\build_decoder.cmd`.
 - A game registry (`standalone/games`) names every game with its engine, capabilities and axis convention. The game lists in the UI, the CLI and the add-on come from it, so a new game of a known engine is one entry. Resident Evil 2 (DX11) is registered as untested.
 - Motion JSON version 2 and character manifest version 5 say which axes and unit their game uses; Blender converts them once. FromSoftware files and scenes give the same results as before. See [docs/INTERCHANGE.md](docs/INTERCHANGE.md).
 - Retarget add-on: RE Engine bone names (`Hip`, `L_Shin`, `L_IndexF1`) match by name, fingers included. A bake no longer stops when a target finger has no source bone.
+
+## Game packages
+
+- Engines other than FromSoftware's come as **game packages**: a folder with `package.json`, a Python module on a fixed, versioned API and the tools it runs. Users download only the engines they need. Devil May Cry 5 and Resident Evil 2 are in the RE Engine package, a separate ZIP beside each release.
+- **Settings & setup › Game packages** lists the packages, shows what a package ZIP holds (games, tools, authors, license, homepage) and installs it into `%LOCALAPPDATA%\SekiroAnimationBridge\packages` after a warning that a package runs its own code. **Remove** deletes an installed package. Each package tool has its own card, and a package that cannot load says why.
+- Anyone can write a package: [docs/PACKAGES.md](docs/PACKAGES.md) describes the API, with an example package as the template. `tools\check_package.cmd` runs a package as the bridge does, from `package.json` to a Blender scene, and names the step that fails. `tools/package_game_package.py` builds the ZIP.
+- The bridge checks what a package returns against the new catalog schema and the motion and manifest schemas. `standalone/schemas/package.schema.json` checks `package.json`.
+- A package can give the retarget add-on its games' bone names. Imported rigs record their game, so the add-on reads the names of that game only.
+- The decoders share one .NET 9 runtime. Release ZIPs carry it in `dotnet-runtime/`, and the decoders no longer include their own; a source checkout prepares it with `tools\prepare_dotnet_runtime.cmd`. **Settings & setup** shows it as **.NET runtime**.
+- DMC5 sources scanned before need one new scan.
 
 ## Skeleton preview and cache
 

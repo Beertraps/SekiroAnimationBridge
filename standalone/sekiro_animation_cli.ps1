@@ -10,7 +10,7 @@ param(
     # A packed RE Engine game reads its PAK archives by the names in the game's file list (DMC5_STM_Release.list).
     [string]$SourceFileList,
     [switch]$RigOnly,
-    # A game ID from the registry (standalone/games): auto, sekiro, ds1, ds1r, ds3, er, dmc5, re2. The bridge checks it.
+    # A game ID from the registry: auto, sekiro, ds1, ds1r, ds3, er, and the games of installed packages, such as dmc5. The bridge checks it.
     [string]$Game='auto',
     [string]$CharacterSource,
     [Alias('CharacterPreset')][ValidateSet('auto','npc','player','wolf','tutorial','mortal')][string]$WolfPreset='auto',

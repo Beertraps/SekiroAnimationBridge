@@ -15,7 +15,7 @@ Animation Bridge stands on the work of the FromSoftware modding community and of
 
 - **[REE-Lib (RE-Engine-Lib)](https://github.com/kagenocookie/RE-Engine-Lib)** by kagenocookie — reads Devil May Cry 5's PAK archives, motlist and mot animations, meshes, mdf2 materials and tex textures in the RE Engine decoder (`packages/re_engine/decoder`). MIT. The RE Engine package ZIP includes the decoder that the release workflow builds from a pinned commit; `packages\re_engine\decoder\build_decoder.cmd` builds the same.
 - Libraries that REE-Lib uses, included with the RE Engine decoder: [ZstdSharp.Port](https://github.com/oleg-st/ZstdSharp) (MIT) and [Standart.Hash.xxHash](https://github.com/uranium62/xxHash) (MIT).
-- **[REE-Lib-Resources](https://github.com/kagenocookie/REE-Lib-Resources)** by kagenocookie — the DMC5 file versions in `standalone/games/__init__.py` were checked against its `dmc5/file_extensions.json`. MIT.
+- **[REE-Lib-Resources](https://github.com/kagenocookie/REE-Lib-Resources)** by kagenocookie — the DMC5 file versions in `packages/re_engine/package.json` were checked against its `dmc5/file_extensions.json`. MIT.
 - **RE Engine file lists**, such as `DMC5_STM_Release.list` from [REE.PAK.Tool](https://github.com/Ekey/REE.PAK.Tool) by Ekey — the names of the files in the PAK archives. They carry no license, so the bridge does not include them; you choose the list for your game.
 - [RE Mesh Editor](https://github.com/NSACloud/RE-Mesh-Editor) by NSACloud and [RevilLib](https://github.com/PredatorCZ/RevilLib) by PredatorCZ served as references for the RE Engine axes and file versions. No code is copied. GPL-3.0.
 

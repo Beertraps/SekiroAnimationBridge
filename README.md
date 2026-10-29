@@ -76,7 +76,7 @@ To import Devil May Cry 5, also download **`AnimationBridge-package-re_engine-<v
 - [User guide](docs/USER_GUIDE.md): sources and layouts, import, textures, weapons, export options and the command line
 - [Other FromSoftware games](docs/OTHER_GAMES.md): the files each game needs, materials and weapon placement
 - [Devil May Cry 5](docs/games/dmc5.md): importing from the game's PAK archives, and retargeting onto a Sekiro character
-- [Interchange formats](docs/INTERCHANGE.md) and the [multi-game plan](docs/MULTI_GAME_IMPORT_PLAN.md): how a new game is added
+- [Game packages](docs/PACKAGES.md): add the games of another engine, with the [interchange formats](docs/INTERCHANGE.md) they write
 - [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig, mirror, joining two animations and export
 - [Changelog](CHANGELOG.md), [verification log](docs/VERIFICATION.md) and [credits](CREDITS.md)
 

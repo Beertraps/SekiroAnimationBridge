@@ -1,5 +1,20 @@
 # Unreleased — import from other games: Devil May Cry 5 — 2026-10-29
 
+## Game packages
+
+- `test_adapters.py` (23 tests), with the example package from `standalone/tests/fixtures/packages`: built-in and package games have unique IDs and only FromSoftware games export; `games.json` lists packages and bone names; every engine serves the bridge's entry points; broken JSON, a newer API version and a game ID that is taken are listed with their reason while the rest loads; the bridge folder wins over an installed copy; a module without the API functions is refused when used; scan, inventory, selection, preview and prepare through the package API, with results checked against the schemas; a stored scan of another folder is refused; a missing tool names its build script, and `ctx.run` returns a tool's output and reports its last error line; ZIP install, replace and remove, and ZIPs with `..` paths or two `package.json` are refused; the UI server lists, inspects, installs (only after confirmation) and removes packages; the checker passes every step for the example package and stops at the module of a package without the API.
+- `packages/re_engine/tests` (9 tests): the RE Engine package through the package API with a stand-in decoder, as the RE tests in `test_adapters.py` did before.
+- `test_dotnet_runtime.py` (7) and `test_package_game_package.py` (7): finding and configuring the shared runtime, and building package ZIPs.
+- The RE Engine decoder built framework-dependent runs on the runtime prepared by `tools\prepare_dotnet_runtime.cmd` (.NET 9.0.22); `COREHOST_TRACE` shows `hostfxr.dll` and `coreclr.dll` loaded from it. A release ZIP built with `--dotnet-runtime` is 48.8 MB and its unpacked decoder runs on its own `dotnet-runtime`.
+- **Real DMC5 files from the package ZIP.** `tools/package_game_package.py` built `AnimationBridge-package-re_engine-0.1.0.zip` (22 files, 1.5 MB), and `install_zip` put it into an empty packages folder. `tools\check_package.cmd` on that folder, with the Steam install, `DMC5_STM_Release.list`, `--character pl0100 --clip pl0100_Idle_Normal --models --blender`: every step passed. Detection counts 471 motlists, 288 meshes and 1040 mdf2 files; the scan lists 47 characters; Dante has 968 clips, 855 ready; the preview has 89 bones and 259 frames at 60 fps; the Blender scene has 3 parts, 32 textures, 127,260 vertices and 173,258 triangles, with the same 14 coat and shoulder helper bones noted. The scan used the cache of earlier runs.
+
+- **Setup page**, on a copy of the bridge with a throwaway profile, in the desktop app's browser: the card lists the example package as *BRIDGE FOLDER*; the install dialog for the RE Engine ZIP shows package, games, tool, authors, license, homepage, 22 files and 4 MB with the warning; **Install** adds *RE Engine 0.1.0* with **Remove**, the card *RE Engine decoder: READY* (on the system .NET 9.0.22) and Devil May Cry 5 to the source dialog's games; **Remove** asks again, deletes the folder and takes all three away. The Windows file dialog was not used: the page received the ZIP path directly.
+- 196 unit tests, the 9 package tests and `node --check` on `app.js` and `preview.js` pass; Blender 4.5.14 with `--factory-startup` passes all 22 scripts.
+
+Not checked for packages: the release workflow's runtime and package steps, which run only on GitHub; a retarget onto Wolf after the move (the Blender side did not change and its tests pass).
+
+## Registry, adapters and source spaces
+
 ## Registry, adapters and source spaces
 
 - `test_interchange.py` (13 tests): the motion, manifest and preview schemas accept the bridge's own documents of versions 1, 2, 4 and 5 and reject broken ones; `Space` maps vectors, quaternions, scales and matrices both ways, and the FromSoftware space gives the 0.13 Y/Z swap exactly.

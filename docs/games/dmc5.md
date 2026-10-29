@@ -16,7 +16,13 @@ The game folder is only read. The files the bridge needs are copied out of the g
 ## What you need
 
 1. Devil May Cry 5 installed, for example through Steam.
-2. A bridge release ZIP. It includes the RE Engine decoder. **Settings & setup** shows it as **RE Engine decoder: READY**. In a source checkout, build it once with `tools\ReEngineDecoder\build_decoder.cmd`.
+2. The bridge and its **RE Engine package**, which reads Devil May Cry 5:
+   1. On the bridge's release page, download `AnimationBridge-package-re_engine-<version>.zip` too, next to the bridge ZIP.
+   2. In the bridge, open **Settings & setup**. Under **Game packages**, click **Install package…** and choose that ZIP.
+   3. The window shows the package: *RE Engine*, its games and its author. Click **Install**.
+   4. The Setup page now lists **RE Engine** under **Game packages** and shows **RE Engine decoder: READY**.
+
+   In a source checkout the package is already in `packages\re_engine`. Build its decoder once with `packages\re_engine\decoder\build_decoder.cmd`.
 3. The **file list** `DMC5_STM_Release.list`. The PAK archives store a number for each file instead of its name; the file list gives the names back. It is a community file and the bridge does not include it. To get it:
    1. Open [REE.PAK.Tool on GitHub](https://github.com/Ekey/REE.PAK.Tool) in your browser.
    2. Open the folder **Projects**, then the file **DMC5_STM_Release.list**.
@@ -64,6 +70,7 @@ Exporting the DMC5 scene itself stops with a message that the bridge cannot writ
 
 - **Mirrored clips.** Some DMC5 motions are played mirrored by the game. The bridge imports them as stored; the activity log says so for each such clip.
 - **Materials** are a preview: base color, normal map and the cut-out of hair and eyelashes. Transparent eye layers are hidden.
+- **Bridge versions before the RE Engine package** scanned DMC5 sources in another format. Scan the source again once: the refresh button beside the source menu does it.
 - **Updates.** When the game updates, scan the source again with the refresh button beside the source menu; the bridge also asks for this when an import finds changed archives.
 - **Space and units.** DMC5 stores positions in metres with Y up. The bridge turns the scene so that Z is up and the character faces Blender's front view, as for every other game; see [INTERCHANGE.md](../INTERCHANGE.md).
 - File versions: motlist 85, mot 65, mesh 1808282334, mdf2 10, tex 11.
