@@ -1,10 +1,10 @@
-# Sekiro Retarget Assistant 0.9.0
+# Sekiro Retarget Assistant 0.10.0
 
 An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, can [mirror an animation](#mirror-animation) left to right, and can [join two animations](#join-animations) into one clip. The bridge's own import and export need no add-on.
 
 ## Install
 
-In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.9.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N. They sit in two tabs on the sidebar's edge:
+In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.10.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N. They sit in two tabs on the sidebar's edge:
 
 - **Retarget** holds the four retarget steps below.
 - **Animate** holds the tools that change an armature's own animation: **Animation**, with [Mirror animation](#mirror-animation) and [Join animations](#join-animations), then the [Control rig](#control-rig) and its [Fixes](#fixes).

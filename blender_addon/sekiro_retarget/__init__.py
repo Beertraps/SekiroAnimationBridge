@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 9, 0), 'blender': (4, 5, 0),
+    'version': (0, 10, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget and Animate', 'category': 'Animation',
     'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, mirror and join animations, '
                    'add a control rig with fixes and export HKX',
