@@ -1,9 +1,9 @@
-# 0.14.0 — import from other games: Unreal Engine
+# 0.14.1 — import from other games: Unreal Engine
 
 ## Before the release
 
 - The 201 unit tests in `standalone/tests`, the 9 RE Engine and 12 Unreal Engine package tests, and `node --check` on `app.js` and `preview.js` pass. Blender 4.5.14 with `--factory-startup` and `--python-exit-code 7` passes all twenty-two scripts and the three weapon scripts with `-- BODY`, among them `blender_panels.py` with the full-body bake's labels without *experimental*.
-- The first tagged run (40971258230) stopped at *Test the release ZIP on a fresh profile*: the ZIP left out `.json` files, so installing the RE Engine package found no `standalone/schemas/package.schema.json`, and the example package that the unit tests use had no `package.json`. `tools/package_release.py` now ships `.json` files, and `test_package_release.py` checks that the schemas and the test fixtures are in the ZIP; it fails without the fix. A ZIP built locally the same way, with the decoder and the shared runtime, installs the RE Engine package into a fresh profile, its decoder is ready on the ZIP's runtime (9.0.22), and the 201 unit tests pass from the unpacked folder.
+- The run of tag v0.14.0 (40971258230) stopped at *Test the release ZIP on a fresh profile*, before publishing, so v0.14.0 stays a tag without a release and the same work is released as 0.14.1 with the fix. The ZIP left out `.json` files, so installing the RE Engine package found no `standalone/schemas/package.schema.json`, and the example package that the unit tests use had no `package.json`. `tools/package_release.py` now ships `.json` files, and `test_package_release.py` checks that the schemas and the test fixtures are in the ZIP; it fails without the fix. A ZIP built locally the same way, with the decoder and the shared runtime, installs the RE Engine package into a fresh profile, its decoder is ready on the ZIP's runtime (9.0.22), and the 201 unit tests pass from the unpacked folder.
 
 ## Deep Rock Galactic, on the game's own files
 
@@ -28,7 +28,7 @@ Steam install, read only: four IoStore containers (TOC version 8) with their thr
 
 Not checked: Unreal Engine 5 imports; IoStore archives, AES keys, mappings files and an Oodle library with a real game (made-up files only); ACL-compressed clips, since no game here with them can be read without a mappings file; the Steam version of Deep Rock Galactic; retargeting an Unreal clip onto a Sekiro character; Blender renders other than Workbench. Many Deep Rock Galactic props mix two tints through a pattern texture in the material graph; the scene shows the pattern instead.
 
-# 0.14.0 — import from other games: Devil May Cry 5
+# 0.14.1 — import from other games: Devil May Cry 5
 
 ## Game packages
 

@@ -1,6 +1,6 @@
-# 0.14.0 — game packages, Devil May Cry 5 import, full-body bake, faster skeleton preview, cache cleanup
+# 0.14.1 — game packages, Devil May Cry 5 import, full-body bake, faster skeleton preview, cache cleanup
 
-Install `SekiroRetargetAssistant-0.10.0.zip` over 0.9.0 for the retarget changes.
+Install `SekiroRetargetAssistant-0.10.0.zip` over 0.9.0 for the retarget changes. 0.14.0 was tagged but not released: its ZIP left out the JSON schemas that installing a game package needs.
 
 ## Import from other games: Devil May Cry 5
 
