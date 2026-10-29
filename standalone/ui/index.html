@@ -256,6 +256,11 @@
       <section class="card"><header class="card-head"><h3>Setup</h3><p>Release ZIPs set themselves up on the first start.</p></header>
         <div class="steps"><div><b>Conversion libraries</b><p>uv installs Python 3.13, Soulstruct and NumPy into the tool’s own environment. Run this to repeat or repair it.</p><code>tools\setup_writer.cmd</code></div><div><b>HKX decoder</b><p>Included in release ZIPs. A source checkout builds it once; that needs Git and the .NET 9 SDK.</p><code>tools\SekiroMotionDecoder\build_decoder.cmd</code></div></div>
       </section>
+      <section class="card"><header class="card-head"><h3>Cache</h3><p>Unpacked animations, scans and skeleton previews in this tool’s <code>work\asset-cache</code>. Files that no source uses are removed when the bridge starts.</p></header>
+        <dl class="resolved cache-usage" id="cache-usage" aria-live="polite"><dt>Total</dt><dd>Measuring…</dd></dl>
+        <button id="cache-clean" class="secondary" type="button"><svg><use href="#i-refresh"/></svg>Remove unused files now</button>
+        <p class="note">Your sources stay. A source you have removed, or a mod archive that has changed, leaves files behind until the next cleanup.</p>
+      </section>
       <section class="card"><header class="card-head"><h3>Retarget add-on</h3><p>Optional. Moves an animation from one character to another and adds animator controls inside Blender.</p></header>
         <div class="steps"><div><b>Install it in Blender</b><p>Edit › Preferences › Add-ons › Install from Disk, then choose the SekiroRetargetAssistant ZIP from this tool’s folder. Its tools are in the 3D Viewport sidebar under Retarget.</p></div><div><b>Bake and export</b><p>Match the bones, bake onto a character imported here, then use Export HKX in the add-on. It uses this bridge’s conversion Python and settings.</p></div><div><b>Animate with controls</b><p>The Control rig panel adds FK controls along the limbs and IK arms and legs with an IK/FK switch to a character imported here, with its animation baked onto them. Export works as before.</p></div></div>
       </section>

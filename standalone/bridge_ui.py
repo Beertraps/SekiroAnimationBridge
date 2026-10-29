@@ -22,6 +22,9 @@ SETTINGS = APP / 'ui-settings.json'
 SOURCES = APP / 'ui-sources.json'
 SOURCE_KEYS = {'sources','activeSource'}
 LOCK = threading.RLock()
+# Held while cache cleanup removes an item, and while a job starts. Taken before LOCK, never inside it.
+CACHE_LOCK = threading.Lock()
+CACHE = HOME/'work/asset-cache'
 JOB = None
 CONFIG = {}
 KEYS = {'blender','writer','decoder','animation','compendium','skeleton','characterSource','materialBinder',
@@ -140,6 +143,17 @@ def persist(config):
             staging.write_text(json.dumps(value,indent=2),encoding='utf-8'); os.replace(staging,path)
 
 
+def job_running():
+    with LOCK: return bool(JOB and JOB['status']=='running')
+
+
+def clean_cache():
+    """Remove cached files that no source uses; it stops when a job starts."""
+    from cache_cleanup import clean
+    with LOCK: settings=json.loads(json.dumps(CONFIG))
+    return clean(CACHE,settings,CACHE_LOCK,lambda:not job_running())
+
+
 def snapshot():
     with LOCK:
         if not JOB: return None
@@ -255,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
                 from clip_preview import preview
                 decoder=CONFIG.get('decoder') or str(default_decoder())
                 return self.send_json(preview({k:str(data.get(k) or '') for k in ('animation','skeleton','compendium','skeletonCompendium')},
-                                              decoder,HOME/'work/asset-cache/previews',CONFIG.get('oodle','')))
+                                              decoder,CACHE/'previews',CONFIG.get('oodle',''),bool(data.get('storedOnly'))))
             if self.path=='/api/part-clips':
                 from clip_preview import part_rows
                 catalog=None
@@ -285,8 +299,18 @@ class Handler(BaseHTTPRequestHandler):
                 from dcx_codec import configure_oodle
                 configure_oodle(CONFIG.get('oodle',''))
                 return self.send_json(model_masks(data['path']))
+            if self.path=='/api/cache':
+                from cache_cleanup import usage
+                if data.get('action')=='clean':
+                    if job_running(): raise ValueError('Wait until the conversion has finished, then remove the unused files.')
+                    freed=clean_cache()
+                    with LOCK: settings=json.loads(json.dumps(CONFIG))
+                    return self.send_json(dict(usage(CACHE,settings),freed=freed))
+                with LOCK: settings=json.loads(json.dumps(CONFIG))
+                return self.send_json(usage(CACHE,settings))
             if self.path=='/api/job':
-                with LOCK:
+                # Cache cleanup finishes the item it is removing before a job may start.
+                with CACHE_LOCK, LOCK:
                     if JOB and JOB['status']=='running': raise ValueError('A conversion is already running.')
                     request={k:v for k,v in data.items() if k in KEYS or k=='mode'}
                     if request.get('mode') not in ('import','export','discover','inventory','inspect'): raise ValueError('Unknown conversion mode.')
@@ -370,6 +394,9 @@ def main():
     args.state_file.parent.mkdir(parents=True,exist_ok=True)
     args.state_file.write_text(json.dumps(dict(base=base,url=url,token=server.token,pid=os.getpid())),encoding='utf-8')
     print('Animation Bridge workspace: '+base,flush=True)
+    # The clip preview needs numpy; loading it now spares the first preview half a second.
+    threading.Thread(target=lambda:__import__('numpy'),daemon=True).start()
+    threading.Thread(target=clean_cache,daemon=True).start()
     if not args.no_browser:
         open_browser(url)
         def stop_when_closed():

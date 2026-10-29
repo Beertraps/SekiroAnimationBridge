@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -40,29 +41,44 @@ def matrix(sample):
             (sx * 2 * (x * z - y * w), sy * 2 * (y * z + x * w), sz * (1 - 2 * (x * x + y * y)), tz))
 
 
-def multiply(a, b):
-    return tuple(tuple(a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c] + (a[r][3] if c == 3 else 0)
-                       for c in range(4)) for r in range(3))
+def matrices(rotation, scale, translation):
+    """matrix() for arrays of samples: (..., 4), (..., 3) and (..., 3) give (..., 3, 4)."""
+    import numpy as np
+    x, y, z, w = np.moveaxis(rotation, -1, 0)
+    sx, sy, sz = np.moveaxis(scale, -1, 0)
+    tx, ty, tz = np.moveaxis(translation, -1, 0)
+    rows = ((sx * (1 - 2 * (y * y + z * z)), sy * 2 * (x * y - z * w), sz * 2 * (x * z + y * w), tx),
+            (sx * 2 * (x * y + z * w), sy * (1 - 2 * (x * x + z * z)), sz * 2 * (y * z - x * w), ty),
+            (sx * 2 * (x * z - y * w), sy * 2 * (y * z + x * w), sz * (1 - 2 * (x * x + y * y)), tz))
+    return np.stack([np.stack(row, axis=-1) for row in rows], axis=-2)
 
 
 def joint_positions(motion):
-    """World positions of every bone per frame, flattened as x, y, z per bone."""
+    """World positions of every bone per frame, flattened as x, y, z per bone.
+
+    All frames are composed at once, one bone at a time down the hierarchy.
+    """
+    import numpy as np
     bones = motion['skeleton']['bones']
     parents = [int(bone['parent']) for bone in bones]
-    rest = [matrix(bone) for bone in bones]
     tracks = [int(index) for index in motion['trackBoneIndices']]
-    frames = []
-    for frame in motion['frames']:
-        local = list(rest)
-        for track, index in enumerate(tracks):
-            local[index] = matrix(frame[track])
-        worlds, flat = [], []
-        for index, parent in enumerate(parents):
-            world = multiply(worlds[parent], local[index]) if parent >= 0 else local[index]
-            worlds.append(world)
-            flat += (round(world[0][3], 4), round(world[1][3], 4), round(world[2][3], 4))
-        frames.append(flat)
-    return frames
+    frames = motion['frames']
+    if not frames:
+        return []
+    rest = matrices(*(np.array([bone[key] for bone in bones], dtype=float) for key in ('rotation', 'scale', 'translation')))
+    local = np.repeat(rest[None], len(frames), axis=0)
+    if tracks:
+        local[:, tracks] = matrices(*(np.array([[sample[key] for sample in frame] for frame in frames], dtype=float)
+                                      for key in ('rotation', 'scale', 'translation')))
+    world = np.empty_like(local)
+    for index, parent in enumerate(parents):
+        if parent < 0:
+            world[:, index] = local[:, index]
+            continue
+        above = world[:, parent]
+        world[:, index, :, :3] = above[:, :, :3] @ local[:, index, :, :3]
+        world[:, index, :, 3] = np.einsum('fij,fj->fi', above[:, :, :3], local[:, index, :, 3]) + above[:, :, 3]
+    return np.round(world[:, :, :, 3], 4).reshape(len(frames), -1).tolist()
 
 
 def detached(positions, count):
@@ -111,8 +127,11 @@ def decode(paths, decoder, oodle=''):
         return json.loads(output.read_text(encoding='utf-8-sig'))
 
 
-def preview(selection, decoder, cache, oodle=''):
-    """Joint positions of a clip for the UI's skeleton preview, cached by its inputs."""
+def preview(selection, decoder, cache, oodle='', stored_only=False):
+    """Joint positions of a clip for the UI's skeleton preview, cached by its inputs.
+
+    With stored_only, only a cached preview is returned, and None when there is none.
+    """
     paths = [selection.get(key, '') for key in ('animation', 'skeleton', 'compendium', 'skeletonCompendium')]
     for path, label in ((paths[0], 'animation'), (paths[1], 'skeleton')):
         if not path or not Path(path).is_file():
@@ -126,9 +145,14 @@ def preview(selection, decoder, cache, oodle=''):
     stored = cache / (cache_key(paths, decoder) + '.json')
     if stored.is_file():
         try:
-            return json.loads(stored.read_text(encoding='utf-8'))
-        except ValueError:
+            result = json.loads(stored.read_text(encoding='utf-8'))
+            # Cache cleanup removes the previews shown least recently first.
+            os.utime(stored)
+            return result
+        except (OSError, ValueError):
             pass
+    if stored_only:
+        return None
     motion = decode(paths, decoder, oodle)
     bones = motion['skeleton']['bones']
     count = int(motion['frameCount'])

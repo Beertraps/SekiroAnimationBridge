@@ -335,6 +335,7 @@ details.block[open]>summary{margin-bottom:14px}
 .resolved{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 12px;font-size:11.5px}
 .resolved dt{color:var(--ink-3)}
 .resolved dd{margin:0;font-family:var(--mono);word-break:break-all;color:var(--ink-2)}
+.cache-usage{margin-bottom:14px}
 .resolved dd.none{font-family:var(--sans);color:var(--ink-4)}
 .donor-card{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;border:1px solid var(--accent-line);border-radius:8px;background:var(--accent-soft)}
 .donor-card>span{flex:1;min-width:0}

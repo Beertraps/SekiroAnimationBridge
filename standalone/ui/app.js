@@ -79,6 +79,7 @@ function showPage(page){
  document.querySelectorAll('.rail-item[data-page]').forEach(el=>{const on=el.dataset.page===page;el.classList.toggle('active',on);if(on)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
  [$('page-eyebrow').textContent,$('page-title').textContent]=pageTitles[page];
  updateTopbar();closeSourceMenu();if(page==='import')requestAnimationFrame(paintClips);
+ if(page==='settings')measureCache();
 }
 function updateTopbar(){const page=currentPage();$('source-switch').hidden=!(page==='sources'||page==='import'&&inputMethod==='folder');}
 
@@ -631,12 +632,17 @@ function schedulePreview(){
  if(!ready){ClipPreview.clear(waiting);$('preview-summary').textContent='The clip’s skeleton, before import';return;}
  if(key==='closed'){ClipPreview.pause();return;}
  ClipPreview.clear('Reading the clip…');
+ let shown=false;
+ const show=data=>{
+  if(seq!==previewSequence||shown)return;shown=true;clearTimeout(previewTimer);
+  ClipPreview.show(data);
+  $('preview-summary').textContent=`${data.skeleton} · ${plural(data.bones.length,'bone')} · ${plural(data.frameCount,'frame')} at ${formatNumber(data.frameRate)} fps${data.root?' · root motion':''}`;
+ };
+ // A clip previewed before shows at once from the cache; decoding waits until the selection settles.
+ api('preview',{...inputs,storedOnly:true}).then(data=>{if(data)show(data);},()=>{});
  previewTimer=setTimeout(async()=>{
-  try{
-   const data=await api('preview',inputs);if(seq!==previewSequence)return;
-   ClipPreview.show(data);
-   $('preview-summary').textContent=`${data.skeleton} · ${plural(data.bones.length,'bone')} · ${plural(data.frameCount,'frame')} at ${formatNumber(data.frameRate)} fps${data.root?' · root motion':''}`;
-  }catch(e){if(seq!==previewSequence)return;previewKey='';ClipPreview.clear(e.message,'error');}
+  try{show(await api('preview',inputs));}
+  catch(e){if(seq!==previewSequence||shown)return;previewKey='';ClipPreview.clear(e.message,'error');}
  },300);
 }
 function schedulePartClips(){
@@ -1054,6 +1060,21 @@ async function poll(){
  catch(e){$('connection-text').textContent='Workspace disconnected';$('connection-text').previousElementSibling.classList.remove('green');}
  pollTimer=setTimeout(poll,job?.status==='running'?700:1800);
 }
+/* Cache: what work\asset-cache holds, and removing what no source uses */
+function showCache(u){
+ const rows=[['Total',u.total],['Unpacked animations',u.archives],['Scans',u.catalogs],['Skeleton previews',u.previews],['Not used by any source',u.unused]];
+ $('cache-usage').innerHTML=rows.map(([label,n])=>`<dt>${escape(label)}</dt><dd>${n?formatBytes(n):'None'}</dd>`).join('');
+ $('cache-clean').disabled=!u.unused;
+}
+let cacheBusy=false;
+async function measureCache(action){
+ if(cacheBusy)return;cacheBusy=true;$('cache-clean').disabled=true;
+ if(action)$('cache-usage').innerHTML='<dt>Total</dt><dd>Removing unused files…</dd>';
+ try{
+  const u=await api('cache',action?{action}:{});showCache(u);
+  if(action)toast(u.freed?`Removed ${formatBytes(u.freed)} of unused files.`:'Nothing to remove: every cached file is in use.');
+ }catch(e){$('cache-usage').innerHTML='<dt>Total</dt><dd>Not measured</dd>';toast(e.message,true);}finally{cacheBusy=false;}
+}
 async function checkEnvironment(){
  $('check-environment').disabled=true;
  try{
@@ -1196,6 +1217,7 @@ $('scan').addEventListener('click',()=>findModels());$('add-models').addEventLis
 $('donor-pin').addEventListener('click',()=>{try{pinDonor();}catch(e){toast(e.message,true);}});$('donor-remove').addEventListener('click',removeDonor);
 $('run-import').addEventListener('click',()=>start('import'));$('run-export').addEventListener('click',()=>start('export'));$('inspect-scene').addEventListener('click',()=>start('inspect'));
 $('check-environment').addEventListener('click',checkEnvironment);
+$('cache-clean').addEventListener('click',()=>measureCache('clean'));
 $('cancel-picker').addEventListener('click',cancelPicker);
 $('cancel-job').addEventListener('click',async()=>{try{updateJob(await api('cancel',{}));}catch(e){toast(e.message,true);}});
 $('toggle-log').addEventListener('click',()=>{$('log-panel').hidden=!$('log-panel').hidden;$('toggle-log').setAttribute('aria-expanded',String(!$('log-panel').hidden));});

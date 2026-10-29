@@ -129,7 +129,9 @@ try
     };
 
     Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-    File.WriteAllText(outputPath, JsonSerializer.Serialize(motionData, new JsonSerializerOptions { WriteIndented = true }));
+    // Compact: a long clip's indented JSON runs to tens of megabytes, and the UI preview reads it all back.
+    using (var stream = File.Create(outputPath))
+        JsonSerializer.Serialize(stream, motionData);
     Console.WriteLine($"Decoded {Path.GetFileName(animationPath)}: skeleton={skeleton.Name.GetString()}, frames={animationData.FrameCount}, tracks={trackCount}, mapped={namesByTrack.Count}, rootMotion={animationData.RootMotion?.Frames.Length ?? 0}");
     Console.WriteLine(outputPath);
     return 0;

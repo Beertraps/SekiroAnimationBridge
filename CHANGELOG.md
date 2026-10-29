@@ -1,3 +1,10 @@
+# Unreleased — faster skeleton preview, cache cleanup
+
+- The skeleton preview computes joint positions with NumPy for all frames at once, 3–5 times faster than before with identical results. The UI loads NumPy when it starts, so the first preview no longer waits for it.
+- A clip previewed before shows at once from the cache, without the 300 ms wait for the selection to settle.
+- The decoder writes compact JSON. A long clip's motion file shrinks to under 40 % of its size (Wolf's 1800-frame `a000_252000`: about 80 MB to about 30 MB), so it is written and read faster. Rebuild the decoder with `tools\SekiroMotionDecoder\build_decoder.cmd` to get this in a source checkout.
+- New **Cache** card in Setup: the size of the unpacked animations, scans and previews, and **Remove unused files now**. On every start the bridge removes the scans that no source uses, the archive folders that only they list, and previews over 256 MB, least recently shown first. Files changed in the last 10 minutes and anything a running job may need are left alone. New module `cache_cleanup.py` and unit test `test_cache_cleanup.py`.
+
 # 0.13.0 — export into the animation binder, join animations, Animate tab, body figures and Biped-style feet, Wolf's katana, alternate model meshes, skin preview
 
 Install `SekiroRetargetAssistant-0.9.0.zip` over 0.8.0 for the retarget changes.

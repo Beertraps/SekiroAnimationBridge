@@ -85,7 +85,9 @@ The **Preview** block at the top of the scene panel plays the chosen animation a
 - **Root motion** moves the skeleton along the clip's root motion and draws its path on the grid. It is off by default, so the skeleton plays in place.
 - Bones far from the rest of the skeleton, such as Wolf's camera dummy 4 m away, are left out, so the body fills the view.
 
-The preview decodes the clip with the HKX decoder from Setup and keeps the result in this tool's `work\asset-cache\previews`, so the same clip shows at once the next time; nothing is written beside your files. A very long clip shows only every second or later frame, in the preview only. It starts playing by itself unless Windows' animation effects are off, and pauses while the window is hidden. Collapse the block to stop decoding previews while you browse; the workspace remembers whether it is open.
+The preview decodes the clip with the HKX decoder from Setup and keeps the result in this tool's `work\asset-cache\previews`, so the same clip shows at once the next time; nothing is written beside your files. Up to 256 MB of previews are kept, and the ones shown least recently are removed first.
+
+The **Cache** card in Setup shows how much `work\asset-cache` holds. When the bridge starts, it removes the scans that no source uses any more, the animations unpacked only for them, and previews over the limit. Files changed in the last 10 minutes are kept. **Remove unused files now** does the same at once. Your sources and their scans stay. A very long clip shows only every second or later frame, in the preview only. It starts playing by itself unless Windows' animation effects are off, and pauses while the window is hidden. Collapse the block to stop decoding previews while you browse; the workspace remembers whether it is open.
 
 The preview has no meshes and no weapons. The weapon part clips that will play with the animation are listed below it; see [Animated weapon parts](#animated-weapon-parts).
 
