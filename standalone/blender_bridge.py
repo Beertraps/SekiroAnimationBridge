@@ -165,6 +165,8 @@ def import_motion(motion):
     rig["sekiro_bridge_source_text"] = source_text.name
     rig["sekiro_bridge_source_text_data"] = source_text
     rig["sekiro_clip"] = motion["clip"]
+    # The retarget add-on reads the bone names of this game from the bridge's games.json.
+    rig["sekiro_game"] = motion.get("game") or (motion.get("source") or {}).get("game") or ""
     rig["sekiro_skeleton"] = skeleton["name"]
     rig["sekiro_frame_count"] = frame_count
     rig["sekiro_frame_rate"] = float(motion["frameRate"])

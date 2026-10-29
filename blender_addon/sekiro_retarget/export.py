@@ -13,7 +13,7 @@ import tempfile
 import threading
 from pathlib import Path
 import bpy
-from . import retarget
+from . import mapping, retarget
 
 APP = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'SekiroAnimationBridge'
 EVENT_PREFIX = 'BRIDGE_EVENT '
@@ -74,6 +74,12 @@ def registry():
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return KNOWN_GAMES
+
+
+def bone_aliases(game):
+    """Bone name -> the name the matcher reads ('' for none), from the bone names that a game package gives its game
+    in the registry; none where the registry is missing or the game has none."""
+    return mapping.game_aliases(GAMES_FILE, game)
 
 
 def exportable(game):

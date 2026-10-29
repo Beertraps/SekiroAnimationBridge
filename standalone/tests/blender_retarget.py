@@ -188,6 +188,27 @@ for label, name in target_names.items():
         assert rows[name] == source_names[label], (name, rows[name])
 assert rows['Pelvis'] == 'mixamorig:Hips' and rows['L_Finger12'] == 'mixamorig:LeftHandIndex3'
 
+# The importer stores the clip's game. The bone names that the bridge's games.json gives that game become aliases
+# that the matcher reads, while the rows keep the real names; without games.json, or bone names in it, there are none.
+from sekiro_retarget import export
+assert target['sekiro_game'] == 'er' and 'sekiro_game' not in source
+registry = export.GAMES_FILE
+with tempfile.TemporaryDirectory() as folder:
+    export.GAMES_FILE = Path(folder) / 'games.json'
+    assert not any(bone.alias for bone in retarget.rig_bones(target))
+    export.GAMES_FILE.write_text(json.dumps({'games': [{'id': 'er', 'name': 'Elden Ring', 'bones': dict(
+        names={'Pelvis': 'Hips'}, patterns=[{'match': '(', 'as': 'broken'}, {'match': r'([LR])_Toe0', 'as': r'\1_ToeBase'}])}]}),
+        encoding='utf-8')
+    aliases = {bone.name: bone.alias for bone in retarget.rig_bones(target)}
+    assert (aliases['Pelvis'], aliases['L_Toe0'], aliases['Spine']) == ('Hips', 'L_ToeBase', ''), aliases
+    assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
+    aliased = {row.target: row for row in settings.rows if row.enabled and row.source}
+    assert {name: row.source for name, row in aliased.items()} == rows
+    assert (aliased['Pelvis'].reason, aliased['R_Toe0'].reason) == ('Same normalized name', 'Same normalized name')
+export.GAMES_FILE = registry
+assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
+assert {row.target: row.source for row in settings.rows if row.enabled and row.source} == rows
+
 # Matched stances, no root motion: limbs point like the source in world space.
 report = bake(settings, rest_mode='ALIGN', root_motion='NONE', unmapped='KEEP')
 assert report['carrier'] == 'RootPos', report

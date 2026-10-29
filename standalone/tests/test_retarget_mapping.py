@@ -1,6 +1,9 @@
 """Bone matching of the Blender retarget add-on on owned synthetic skeletons (no Blender needed)."""
 import importlib.util
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -277,6 +280,110 @@ class BodyTemplate(unittest.TestCase):
         arm = [mapping.Bone('Root', '', (0, 0, 1)), mapping.Bone('Upper', 'Root', (.2, 0, 1)), mapping.Bone('Lower', 'Upper', (.5, 0, 1))]
         self.assertIsNone(mapping.characterize(arm))
         self.assertIsNone(mapping.body_pairs(bones(humanoids.mixamo()), arm))
+
+
+GERMAN_FINGERS = dict(zip(humanoids.FINGERS, ('Daumen', 'Zeigefinger', 'Mittelfinger', 'Ringfinger', 'Kleinfinger')))
+
+
+def german():
+    """A rig named in German, which the generic name rules do not read, with a sword in its right hand, and the bone
+    names that a game package would give it."""
+    names = {'hips': 'Becken', 'spine.first': 'Wirbel_1', 'spine.mid': 'Wirbel_2', 'spine.last': 'Brustkorb', 'neck': 'Hals',
+             'head': 'Kopf'}
+    parts = dict(clavicle=('Schluesselbein', 'Clavicle'), upperarm=('Oberarm', 'UpperArm'), forearm=('Unterarm', 'Forearm'),
+                 hand=('Handgelenk', 'Hand'), thigh=('Oberschenkel', 'Thigh'), calf=('Unterschenkel', 'Calf'),
+                 foot=('Fuss', 'Foot'), toe=('Zehen', 'Toe'))
+    aliases = {'Becken': 'Pelvis', 'Brustkorb': 'Chest', 'Hals': 'Neck', 'Kopf': 'Head', 'R_Schwert': 'R_Sword'}
+    for side in 'LR':
+        for part, (word, english) in parts.items():
+            names[f'{side}.{part}'] = f'{side}_{word}'
+            aliases[f'{side}_{word}'] = f'{side}_{english}'
+        for finger, word in GERMAN_FINGERS.items():
+            for segment in (1, 2, 3):
+                names[f'{side}.{finger}.{segment}'] = f'{side}_{word}_{segment}'
+    joints = humanoids.base()
+    rig = humanoids.build(joints, names, extra=[('R_Schwert', 'R_Handgelenk', humanoids.between(joints, 'R.hand', 'R.middle.1'))])
+    patterns = [{'match': r'Wirbel_(\d)', 'as': r'Spine\1'}] + [
+        {'match': rf'([LR])_{word}_(\d)', 'as': rf'\1_{finger.title()}\2'} for finger, word in GERMAN_FINGERS.items()]
+    return rig, dict(names=aliases, patterns=patterns)
+
+
+class GameBoneNames(unittest.TestCase):
+    def test_aliases_let_a_rig_in_another_language_match_and_rows_keep_the_real_names(self):
+        rig, game = german()
+        alias = mapping.alias_rule(game)
+        standard = humanoids.mixamo()
+        german_names = {label: name for name, label in labels(rig).items() if label}
+        standard_names = {label: name for name, label in labels(standard).items() if label}
+        # Without rest positions only names tell, so the German rig matches through its aliases alone.
+        plain = [mapping.Bone(name, parent) for name, parent, head, label in rig]
+        aliased = [mapping.Bone(name, parent, None, alias(name)) for name, parent, head, label in rig]
+        self.assertEqual(aliased[0].alias, 'Pelvis')
+        for target, source in ((plain, bones(standard)), (aliased, bones(standard)), (bones(standard), plain),
+                               (bones(standard), aliased)):
+            reverse = source in (plain, aliased)
+            with self.subTest(aliases=aliased in (source, target), german='source' if reverse else 'target'):
+                rows = mapping.match_bones(source, target)
+                pairs = {(row['source'], row['target']) if reverse else (row['target'], row['source']) for row in rows}
+                matched = {label for label in CORE if (german_names[label], standard_names[label]) in pairs}
+                if aliased in (source, target):
+                    self.assertEqual(matched, CORE)
+                    self.assertEqual({row['target'] for row in rows}, {bone.name for bone in target})
+                    self.assertLessEqual({row['source'] for row in rows} - {''}, {bone.name for bone in source})
+                else:
+                    self.assertEqual(matched, set())
+        # A weapon named in German is held in the matched hand.
+        rows = {row['target']: row for row in mapping.match_bones(aliased, bones(humanoids.fromsoftware(45, 'elden')))}
+        self.assertEqual((rows['R_Weapon']['source'], rows['R_Weapon']['reason']), ('R_Schwert', 'Weapon in the matched hand'))
+        self.assertEqual(rows['L_Thigh']['source'], 'L_Oberschenkel')
+        # With rest positions, aliases make the match by name rather than by body structure.
+        rows = {row['target']: row for row in mapping.match_bones(bones(standard), bones(rig))}
+        self.assertEqual(rows['L_Oberschenkel']['reason'], 'Body structure: thigh')
+        located = [mapping.Bone(name, parent, head, alias(name)) for name, parent, head, label in rig]
+        rows = {row['target']: row for row in mapping.match_bones(bones(standard), located)}
+        self.assertEqual((rows['L_Oberschenkel']['source'], rows['L_Oberschenkel']['reason']),
+                         ('mixamorig:LeftUpLeg', 'Anatomical role: thigh'))
+        self.assertEqual((rows['R_Zeigefinger_2']['source'], rows['R_Zeigefinger_2']['reason']),
+                         ('mixamorig:RightHandIndex2', 'Finger and segment'))
+        self.assertEqual(mapping.Rig(located).counterpart('L_Kleinfinger_3'), 'R_Kleinfinger_3')
+
+    def test_real_names_pair_before_aliases(self):
+        # Two rigs of one game, only one of them with the game's bone names: every bone takes its namesake.
+        rig, game = german()
+        alias = mapping.alias_rule(game)
+        plain = [mapping.Bone(name, parent) for name, parent, head, label in rig]
+        aliased = [mapping.Bone(name, parent, None, alias(name)) for name, parent, head, label in rig]
+        for source, target in ((aliased, plain), (plain, aliased)):
+            rows = mapping.match_bones(source, target)
+            self.assertEqual({row['target']: row['source'] for row in rows}, {bone.name: bone.name for bone in target})
+            self.assertTrue(all(row['confidence'] == 1.0 for row in rows))
+
+    def test_bone_names_come_from_the_game_in_games_json(self):
+        self.assertEqual(mapping.alias_rule(None)('Becken'), '')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'games.json'
+            self.assertEqual(mapping.game_aliases(path, 'dmc5')('Becken'), '')  # No games.json yet.
+
+            def write(document, stamp):
+                path.write_text(document if isinstance(document, str) else json.dumps(document), encoding='utf-8')
+                os.utime(path, ns=(stamp, stamp))
+            bones = dict(names={'Becken': 'Pelvis', 'Kopf': 7}, patterns=[
+                {'match': '(', 'as': 'broken'}, {'match': r'([LR])_Zeh(\d)', 'as': r'\3'},
+                {'match': r'([LR])_Zeh(\d)', 'as': r'\1_Toe\2'}, {'match': r'[LR]_[A-Za-z]+', 'as': 'Arm'}, 'Hals'])
+            write({'games': [{'id': 'sekiro', 'name': 'Sekiro'}, {'id': 'dmc5', 'name': 'Devil May Cry 5', 'bones': bones}]},
+                  10 ** 18)
+            alias = mapping.game_aliases(path, 'dmc5')
+            self.assertEqual([alias(name) for name in ('Becken', 'Kopf', 'L_Zeh0', 'R_Hand', 'R_Hand2', 'Hals')],
+                             ['Pelvis', '', 'L_Toe0', 'Arm', '', ''])
+            self.assertEqual((mapping.game_aliases(path, 'sekiro')('Becken'), mapping.game_aliases(path, 'other')('Becken')), ('', ''))
+            self.assertIs(mapping.game_aliases(path, 'dmc5'), alias)  # Read once while the file stays.
+            write({'games': [{'id': 'dmc5', 'name': 'Devil May Cry 5', 'bones': {'names': {'Becken': 'Hip'}}}]}, 2 * 10 ** 18)
+            self.assertEqual(mapping.game_aliases(path, 'dmc5')('Becken'), 'Hip')
+            for broken in ('{"games": ', '{"games": 3}', '[]', json.dumps({'games': [{'id': 'dmc5', 'bones': [1]}]})):
+                write(broken, 3 * 10 ** 18 + len(broken))
+                self.assertEqual(mapping.game_aliases(path, 'dmc5')('Becken'), '', broken)
+            path.unlink()
+            self.assertEqual(mapping.game_aliases(path, 'dmc5')('Becken'), '')
 
 
 if __name__ == '__main__':

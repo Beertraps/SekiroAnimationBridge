@@ -120,6 +120,7 @@ for rig, text, root_name, game_id, count in ((target, 'Sekiro Source - a000_0030
     assert rig['sekiro_bridge_source_text'] == text and rig['sekiro_bridge_source_text_data'] == bpy.data.texts[text], rig.name
     assert root.name == root_name and rig['sekiro_root_motion_object'] == root_name, root.name
     assert (embedded_motion(rig)['game'], embedded_motion(rig)['frameCount']) == (game_id, count), rig.name
+    assert rig['sekiro_game'] == game_id, rig.name  # The retarget add-on reads the game's bone names from it.
     action = rig.animation_data.action
     assert paired_root_action(action) == root.animation_data.action, action.name
     if hasattr(rig.animation_data, 'action_slot'):

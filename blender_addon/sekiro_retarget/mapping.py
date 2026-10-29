@@ -14,10 +14,16 @@ matched hand by the weapon bone in the other rig's hand, leaving out weapons
 that the source clip hides. Where only one hand holds a weapon in the source
 and only the other one in the target, the weapon changes hands. Uncertain
 bones stay unassigned with a suggestion for review.
+
+A bone may carry an alias from the bone names of its game (games.json), such
+as Pelvis for Becken: names are read from the alias, while every result keeps
+the real bone names.
 """
 from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+import json
+from pathlib import Path
 import re
 
 
@@ -26,6 +32,7 @@ class Bone:
     name: str
     parent: str = ''
     head: tuple = None  # Rest position in armature space, when known.
+    alias: str = ''  # The name to read in place of name, from the bone names of the rig's game.
 
 
 SIDES = {'l': 'L', 'left': 'L', 'r': 'R', 'right': 'R'}
@@ -102,6 +109,62 @@ def weapon_part(name):
     return bool(set(words(name)) & (WEAPONS | STORAGE | {'shield'}))
 
 
+def alias_rule(bones):
+    """name -> alias ('' for none) from a game's bone names as games.json gives them: {"names": {name: alias},
+    "patterns": [{"match": regular expression, "as": replacement}]}.
+
+    An exact name comes first, else the first pattern that matches the whole name, with its replacement in re.sub
+    syntax. Entries that are not text, patterns that do not compile and replacements that fail are left out."""
+    bones = bones if isinstance(bones, dict) else {}
+    names = bones.get('names') if isinstance(bones.get('names'), dict) else {}
+    names = {name: alias for name, alias in names.items() if isinstance(name, str) and isinstance(alias, str)}
+    patterns = []
+    for item in bones.get('patterns') if isinstance(bones.get('patterns'), list) else ():
+        if isinstance(item, dict) and isinstance(item.get('match'), str) and isinstance(item.get('as'), str):
+            try:
+                patterns.append((re.compile(item['match']), item['as']))
+            except (re.error, OverflowError, RecursionError):
+                pass
+
+    def alias(name):
+        if name in names:
+            return names[name]
+        for pattern, replacement in patterns:
+            match = pattern.fullmatch(name)
+            if match:
+                try:
+                    return match.expand(replacement)
+                except (re.error, IndexError):
+                    continue
+        return ''
+    return alias
+
+
+ALIASES = {}  # (games.json, game) -> (the file's time and size, alias rule)
+
+
+def game_aliases(path, game):
+    """name -> alias ('' for none) from the bone names of a game in the bridge's games.json (see alias_rule), read
+    again when the file changes. A missing or broken file, an unknown game or one without bone names gives none."""
+    path = Path(path)
+    try:
+        stat = path.stat()
+        stamp = stat.st_mtime_ns, stat.st_size
+    except OSError:
+        stamp = None
+    key = str(path), game
+    if ALIASES.get(key, (False,))[0] != stamp:
+        bones = None
+        if game and stamp:
+            try:
+                games = json.loads(path.read_text(encoding='utf-8-sig'))['games']
+                bones = next((item.get('bones') for item in games if isinstance(item, dict) and item.get('id') == game), None)
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+        ALIASES[key] = stamp, alias_rule(bones)
+    return ALIASES[key][1]
+
+
 def sub(a, b):
     return a[0] - b[0], a[1] - b[1], a[2] - b[2]
 
@@ -122,10 +185,24 @@ class Info:
     tokens: tuple
     head: tuple = None
     depth: int = 0
+    alias: str = ''
+    own: tuple = None  # (side, tokens) of the real name, where any bone of the rig has an alias.
+
+    @property
+    def text(self):
+        """What the name says: the alias, where the bone has one."""
+        return self.alias or self.name
 
     @property
     def key(self):
         return self.side, ''.join(self.tokens)
+
+    @property
+    def name_key(self):
+        """key of the real name, without the alias."""
+        if self.own is None:
+            return self.key
+        return self.own[0] or self.side, ''.join(self.own[1])
 
     @property
     def letters(self):
@@ -142,18 +219,16 @@ class Rig:
             # Deform bones carry the final motion; ORG- and MCH- layers would duplicate them.
             bones = [bone for bone in bones if bone.name.startswith('DEF-')]
         names = {bone.name for bone in bones}
-        tokens = {bone.name: [t for t in words(bone.name) if t not in ('def', 'org', 'mch')] for bone in bones}
-        prefix = self.shared_prefix(list(tokens.values()))
+        read = self.normalize({bone.name: bone.alias or bone.name for bone in bones})
+        # The real names too, where aliases stand in for some of them, for exact names that two rigs share.
+        own = self.normalize({bone.name: bone.name for bone in bones}) if any(bone.alias for bone in bones) else {}
+        self.aliased = bool(own)
         self.bones = {}
         for bone in bones:
-            items = tokens[bone.name]
-            if prefix and tuple(items[:len(prefix)]) == prefix and len(items) > len(prefix):
-                items = items[len(prefix):]
-            side, items = split_side(items)
-            if items and items[0] == 'f' and len(items) > 1 and items[1] in FINGERS:
-                items = items[1:]  # Rigify finger prefix: f_index.01.L
+            side, items = read[bone.name]
             head = tuple(float(value) for value in bone.head) if bone.head is not None else None
-            self.bones[bone.name] = Info(bone.name, bone.parent if bone.parent in names else '', side, tuple(items), head)
+            self.bones[bone.name] = Info(bone.name, bone.parent if bone.parent in names else '', side, items, head,
+                                         alias=bone.alias, own=own.get(bone.name))
         for info in self.bones.values():
             parent, depth = info.parent, 0
             while parent:
@@ -175,6 +250,22 @@ class Rig:
             self.fingers = dict(self.body['fingers'])
             self.inferred.add('fingers')
         self.roles = self.find_roles()
+
+    @classmethod
+    def normalize(cls, texts):
+        """(side, tokens) of each bone from the text of its name, without Rigify's layer words, a prefix shared by most
+        bones and the side marker."""
+        tokens = {name: [t for t in words(text) if t not in ('def', 'org', 'mch')] for name, text in texts.items()}
+        prefix = cls.shared_prefix(list(tokens.values()))
+        result = {}
+        for name, items in tokens.items():
+            if prefix and tuple(items[:len(prefix)]) == prefix and len(items) > len(prefix):
+                items = items[len(prefix):]
+            side, items = split_side(items)
+            if items and items[0] == 'f' and len(items) > 1 and items[1] in FINGERS:
+                items = items[1:]  # Rigify finger prefix: f_index.01.L
+            result[name] = side, tuple(items)
+        return result
 
     @staticmethod
     def shared_prefix(token_lists):
@@ -511,7 +602,7 @@ class Rig:
             name = stack.pop()
             if self.finger(name):
                 continue
-            if weapon_name(name):
+            if weapon_name(self.bones[name].text):
                 found.append(name)
             stack.extend(self.children.get(name, ()))
         return found
@@ -582,7 +673,8 @@ def match_bones(source, target, hidden=()):
         return True
 
     def same_name(target_name, source_name):
-        return dst.bones[target_name].key == src.bones[source_name].key
+        t, s = dst.bones[target_name], src.bones[source_name]
+        return t.name_key == s.name_key or t.key == s.key
 
     def by_role(key):
         t, s = dst.roles.get(key), src.roles.get(key)
@@ -648,7 +740,10 @@ def match_bones(source, target, hidden=()):
             if len(candidates) == 1:
                 assign(name, candidates[0], confidence, reason)
 
-    unique_phase(lambda info: info.key, 1.0, 'Same normalized name')
+    # Real names first, so that two rigs of one game pair as they are named, then the names that aliases give.
+    unique_phase(lambda info: info.name_key, 1.0, 'Same normalized name')
+    if src.aliased or dst.aliased:
+        unique_phase(lambda info: info.key, 1.0, 'Same normalized name')
     unique_phase(lambda info: (info.side, ROLES.get(info.letters, info.letters)), .94, 'Common bone-name alias')
 
     # The weapon in a matched hand: Sekiro's R_Weapon dummy takes an enemy's R_Katana. Isshin's hand also
@@ -784,16 +879,17 @@ def foot_targets(bones):
     when the game blends into another clip.
     """
     bones = list(bones)
-    named = {identity(bone.name): bone.name for bone in bones}
+    read = {bone.name: identity(bone.alias or bone.name) for bone in bones}
+    named = {read[bone.name]: bone.name for bone in bones}
     parents = {bone.name: bone.parent for bone in bones}
     targets = {}
     for bone in bones:
-        side, stem = identity(bone.name)
+        side, stem = read[bone.name]
         foot = named.get((side, 'foot'))
         if not side or stem != 'foottarget' or not foot:
             continue
         chain, parent = [], parents[bone.name]
-        while parent in parents and identity(parent)[0] == side and re.fullmatch(r'foottarget\d+', identity(parent)[1]):
+        while parent in parents and read[parent][0] == side and re.fullmatch(r'foottarget\d+', read[parent][1]):
             chain.insert(0, parent)
             parent = parents[parent]
         targets[bone.name] = (foot, chain)

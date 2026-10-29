@@ -212,8 +212,12 @@ def rig_bones(rig, bones=None):
 
     A bone whose parent is left out hangs from its nearest included ancestor,
     so the hierarchy stays connected when only HKX tracks or Rigify's deform
-    bones are matched. The control rig's bones are left out.
+    bones are matched. The control rig's bones are left out. Each bone takes
+    its alias from the bone names of the rig's game, which the importer stores
+    as sekiro_game.
     """
+    from . import export  # Imported here, since export imports this module.
+    alias = export.bone_aliases(rig.get('sekiro_game', ''))
     bones = [bone for bone in (rig.data.bones if bones is None else bones) if 'sekiro_control' not in bone]
     bones = [bone for bone in bones if bone.name.startswith('DEF-')] or bones
     names = {bone.name for bone in bones}
@@ -223,7 +227,7 @@ def rig_bones(rig, bones=None):
         parent = bone.parent
         while parent and parent.name not in names:
             parent = parent.parent
-        result.append(matching.Bone(bone.name, parent.name if parent else '', tuple(turn @ bone.head_local)))
+        result.append(matching.Bone(bone.name, parent.name if parent else '', tuple(turn @ bone.head_local), alias(bone.name)))
     return result
 
 
