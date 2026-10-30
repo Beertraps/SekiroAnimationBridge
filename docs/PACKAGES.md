@@ -154,6 +154,7 @@ A package that needs a program declares it in `package.json`:
 - `runtime: "dotnet-9"`: the tool is a framework-dependent .NET 9 program. The bridge points `DOTNET_ROOT` at its shared runtime, so the package does not carry its own (about 68 MB). Publish it with `dotnet publish -r win-x64 --self-contained false`.
 - A tool on another .NET version leaves `runtime` out and carries its own runtime: publish it with `--self-contained true`. The Unreal Engine package does this, because CUE4Parse needs .NET 10.
 - `build` names a script in the package that builds the tool into `tools/`. Keep `tools/` out of Git; `.gitignore` already ignores `packages/*/tools/`.
+- A missing tool is reported as soon as a source folder of the package's game is chosen, not only when its scan fails. For a package in the bridge folder with its `build` script, such as a source checkout or GitHub's *Source code* ZIP, the message says to run the script. For an installed package it says to install the package ZIP again.
 
 ## Bone names
 

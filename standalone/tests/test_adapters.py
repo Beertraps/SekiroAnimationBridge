@@ -223,8 +223,10 @@ class Tools(PackageCase):
         super().setUp()
         tool = dict(id='decoder', name='Example decoder', path='tools/decoder.exe', version=['--version'], expect='Example 1',
                     build='decoder/build.cmd')
-        folder = self.write_package(self.user, self.manifest(id='tooled', games=[dict(self.manifest()['games'][0], id='tooled')],
-                                                             tools=[tool]))
+        code = (FIXTURES / 'example' / '__init__.py').read_text(encoding='utf-8').replace("game='example'", "game='tooled'")
+        # In the bridge folder, as a copy of the package's sources is.
+        folder = self.write_package(self.bridge, self.manifest(id='tooled', games=[dict(self.manifest()['games'][0], id='tooled')],
+                                                               tools=[tool]), code)
         (folder / 'decoder').mkdir()
         (folder / 'decoder' / 'build.cmd').write_text('', encoding='utf-8')
         games.reload()
@@ -232,11 +234,32 @@ class Tools(PackageCase):
         self.ctx = api.Context(self.package, self.temp / 'tool-cache')
 
     def test_a_missing_tool_names_its_build_script(self):
-        with self.assertRaisesRegex(ValueError, r'Example decoder is missing: .*Build it with .*build\.cmd'):
+        with self.assertRaisesRegex(ValueError, r'Example decoder is not built yet: .*Build it once by running .*build\.cmd'):
             self.ctx.run('decoder', 'list')
         ready, detail = self.package.tool_status(self.package.tool('decoder'))
         self.assertFalse(ready)
         self.assertIn('build.cmd', detail)
+
+    def test_the_source_dialog_hears_of_a_missing_tool_when_the_folder_is_chosen(self):
+        # A copy of the package's sources, such as the one in GitHub's Source code ZIP, has no built tools.
+        root = self.source()
+        found = games.adapter('tooled').detect(root)
+        self.assertEqual(found['missingTools'], ['Example decoder'])
+        self.assertRegex(found['note'], r'Example decoder is not built yet: .*build\.cmd')
+        (self.package.folder / 'tools').mkdir()
+        (self.package.folder / 'tools' / 'decoder.exe').write_bytes(b'')
+        found = games.adapter('tooled').detect(root)
+        self.assertNotIn('missingTools', found)
+        self.assertEqual(found['note'], '')
+
+    def test_an_installed_package_without_its_tool_is_installed_again(self):
+        # Its package ZIP came with the tool, although it holds the tool's build script as well.
+        shutil.move(self.package.folder, self.user / 'tooled')
+        games.reload()
+        package = games.adapter('tooled').package
+        self.assertTrue(package.installed)
+        with self.assertRaisesRegex(ValueError, r'Example decoder is missing: .*Install the package again from its package ZIP'):
+            package.tool_path('decoder')
 
     def test_run_returns_output_and_reports_the_last_error_line(self):
         (self.package.folder / 'tools').mkdir()

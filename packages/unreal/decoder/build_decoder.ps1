@@ -78,6 +78,26 @@ foreach ($notice in 'LICENSE', 'NOTICE') {
     $source = Join-Path $CUE4ParseRoot $notice
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $OutputDirectory "CUE4Parse-$notice.txt") -Force }
 }
+# The licenses of what the folder also carries, so a package ZIP of it can be handed on: the .NET runtime, from the
+# runtime pack the publish took it from, and ACL and RTM, which the native library compiles in. Its Oodle folder stays
+# empty in the bridge's checkout, so no Oodle code is built into it.
+$nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
+$runtimePack = Join-Path $nugetRoot "microsoft.netcore.app.runtime.win-x64\$runtime"
+$notices = [ordered]@{
+    'dotnet-LICENSE.txt' = Join-Path $runtimePack 'LICENSE.TXT'
+    'dotnet-THIRD-PARTY-NOTICES.txt' = Join-Path $runtimePack 'THIRD-PARTY-NOTICES.TXT'
+}
+if (Test-Path -LiteralPath (Join-Path $OutputDirectory 'CUE4Parse-Natives.dll')) {
+    $notices['ACL-LICENSE.txt'] = Join-Path $CUE4ParseRoot 'CUE4Parse-Natives\ACL\external\acl\LICENSE'
+    $notices['RTM-LICENSE.txt'] = Join-Path $CUE4ParseRoot 'CUE4Parse-Natives\ACL\external\acl\external\rtm\LICENSE'
+}
+foreach ($name in $notices.Keys) {
+    if (Test-Path -LiteralPath $notices[$name]) {
+        Copy-Item -LiteralPath $notices[$name] -Destination (Join-Path $OutputDirectory $name) -Force
+    } else {
+        Write-Warning "$($notices[$name]) was not found, so the decoder folder has no $name."
+    }
+}
 $decoder = Join-Path $OutputDirectory 'UnrealDecoder.exe'
 & $decoder selftest
 if ($LASTEXITCODE -ne 0) { throw "The Unreal decoder failed its self-test." }

@@ -931,7 +931,7 @@ function renderDetection(){
  const title=custom?'Custom layout':game?`Game folder · ${gameNames[d.game]||'game not identified'}`:c.animations?'Collected folder':nested?'A folder of games':'No animation archives here';
  const lines=(custom?[c.animations?'Files are matched by character across these folders.':'The animation folders hold no ANIBND archives yet.',missingFolders.size?`${plural(missingFolders.size,'folder')} not found; ${missingFolders.size===1?'it is':'they are'} skipped.`:'',d.custom.limited?'Counted the first 50,000 files of each folder.':'']
   :[game?(d.evidence?`Identified by ${d.evidence}.`:'No executable or archive names the game; choose it below.'):c.animations?'Archives that share a folder are matched together.':nested?'Choose one of the game folders inside.':'A source needs ANIBND archives such as c0000.anibnd.dcx.',d.note,d.limited?'Counted the first 50,000 files.':'']).filter(Boolean);
- $('src-detect').className='detect '+((game||c.animations)&&!(custom&&missingFolders.size)?'ok':'warn');
+ $('src-detect').className='detect '+((game||c.animations)&&!(custom&&missingFolders.size)&&!d.missingTools?.length?'ok':'warn');
  $('src-detect').innerHTML=`${game?glyphHtml({game:d.game,name:d.name}):`<span class="glyph" data-game="custom">${icon(c.animations?'folder':'warn')}</span>`}<div class="grow"><b>${escape(title)}</b>${lines.map(escape).join('<br>')}${chips?`<div class="chips">${chips}</div>`:''}${nested?`<div class="nested">${nested}</div>`:''}</div>`;
 }
 /* A package's declared source options, such as an Unreal game's engine version and AES key */

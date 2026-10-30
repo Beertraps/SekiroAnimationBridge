@@ -165,11 +165,23 @@ class Package:
         tool = self.tool(tool_id)
         path = (self.folder / tool['path']).resolve()
         if not path.is_file():
-            build = tool.get('build')
-            how = (f'Build it with {(self.folder / build)}.' if build and (self.folder / build).is_file()
-                   else 'Install the package again from its release ZIP.')
-            raise ValueError(f'{tool["name"]} is missing: {path}. {how}')
+            raise ValueError(self.missing_tool_message(tool))
         return path
+
+    def missing_tools(self):
+        """The declared tools whose program is not in the package folder, such as a decoder not built yet."""
+        return [t for t in self.tools if not (self.folder / t['path']).is_file()]
+
+    def missing_tool_message(self, tool):
+        """What to do about a missing tool. An installed package came with its tools, so it is installed again; a package
+        in the bridge folder with the tool's build script is a copy of its sources, such as the one in GitHub's Source
+        code ZIP of a release, so it is built."""
+        path = (self.folder / tool['path']).resolve()
+        build = tool.get('build')
+        if not self.installed and build and (self.folder / build).is_file():
+            return (f'{tool["name"]} is not built yet: {path} is missing. Build it once by running {self.folder / build} '
+                    'in a command prompt; it says what to install first if something is missing.')
+        return f'{tool["name"]} is missing: {path}. Install the package again from its package ZIP.'
 
     def tool_status(self, tool):
         """(ready, detail) of one tool, for the Setup page."""
@@ -344,8 +356,14 @@ class PackageEngine:
                         name=Path(root).name, counts={}, note='', evidence='', archives=[], needs=[])
         # The declared options this source shows in the source dialog; the file list has a field of its own.
         fields = [o for o in self.package.source_options if o['id'] in shown and o['id'] != 'fileList']
-        return {**defaults, **found, 'engine': self.package.id, 'package': self.package.id, 'needsFileList': 'fileList' in shown,
-                'optionFields': fields}
+        result = {**defaults, **found, 'engine': self.package.id, 'package': self.package.id, 'needsFileList': 'fileList' in shown,
+                  'optionFields': fields}
+        # Said when the folder is chosen, not only when its scan fails.
+        missing = self.package.missing_tools()
+        if missing:
+            result['note'] = ' '.join(filter(None, [result['note'], self.package.missing_tool_message(missing[0])]))
+            result['missingTools'] = [t['name'] for t in missing]
+        return result
 
     def catalog_path(self, cache, found, options):
         identity = json.dumps(dict(package=self.package.id, root=str(found['root']), options=options), sort_keys=True)

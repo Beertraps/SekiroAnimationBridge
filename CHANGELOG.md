@@ -1,3 +1,8 @@
+# Unreleased
+
+- **A missing package tool is named when the folder is chosen.** A game package whose decoder is not built, such as the `packages\unreal` folder of GitHub's *Source code* ZIP unpacked into a release, failed only at the scan, with *Unreal decoder is missing*. The source dialog now says so as soon as the game folder is chosen, and shows the detection as a warning. In the bridge folder the message says to run the package's build script; for an installed package it says to install its package ZIP again.
+- The Unreal decoder's build copies the licenses of the .NET runtime it carries, and of ACL and RTM when it builds the native library, next to the decoder, so its package ZIP can be handed on. The [Unreal guide](docs/games/unreal.md) says how to build that ZIP and install it into a release.
+
 # 0.14.2 — game packages, Devil May Cry 5 import, full-body bake, faster skeleton preview, cache cleanup
 
 Install `SekiroRetargetAssistant-0.10.0.zip` over 0.9.0 for the retarget changes. 0.14.0 and 0.14.1 were tagged but not released, because the release checks of their ZIPs failed.

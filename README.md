@@ -111,7 +111,7 @@ A source checkout also loads the experimental DOOM Eternal package from `package
 python tools\package_game_package.py packages\doom_eternal --output dist\AnimationBridge-package-doom_eternal.zip
 ```
 
-The experimental Unreal Engine package in `packages\unreal` loads in a source checkout too. It reads Unreal Engine 4 and 5 games with a decoder that `packages\unreal\decoder\build_decoder.cmd` builds from a pinned [CUE4Parse](https://github.com/FabianFG/CUE4Parse) commit; the [Unreal guide](docs/games/unreal.md) says what it needs. Releases do not include it.
+The experimental Unreal Engine package in `packages\unreal` loads in a source checkout too. It reads Unreal Engine 4 and 5 games with a decoder that `packages\unreal\decoder\build_decoder.cmd` builds from a pinned [CUE4Parse](https://github.com/FabianFG/CUE4Parse) commit; the [Unreal guide](docs/games/unreal.md) says what it needs. Releases do not include it. To use it with a release, build the decoder, then the package ZIP with the decoder in it, as the guide describes, and install that ZIP with **Install package…**. Do not unpack GitHub's *Source code* ZIP into a release folder: its `packages\unreal` has no decoder, and the bridge uses it instead of an installed package.
 
 Run the unit tests with that Python, from the repository folder:
 

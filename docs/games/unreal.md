@@ -7,7 +7,7 @@ The bridge does not write Unreal's formats, so an Unreal clip goes back into a g
 - **Edit it in Blender** as a reference, a render or a starting point.
 - **Retarget it onto a Sekiro, Dark Souls or Elden Ring character** with the Retarget add-on, and export that character's scene as HKX for that game.
 
-**Status: experimental.** The package has been checked with the files of Deep Rock Galactic (the Xbox app version, Unreal Engine 4.27): the scan, and imports of the dwarves and Glyphids with their models into Blender. With Star Wars Zero Company (Unreal Engine 5) the scan was checked as far as it goes without a mappings file, which it asks for. Imports from Unreal Engine 5 games, ACL-compressed clips, AES keys, mappings files and retargeting an Unreal clip are not checked with a real game yet. The package is not in the release ZIPs: it loads in a source checkout of the bridge.
+**Status: experimental.** The package has been checked with the files of Deep Rock Galactic (the Xbox app version, Unreal Engine 4.27): the scan, and imports of the dwarves and Glyphids with their models into Blender. With Star Wars Zero Company (Unreal Engine 5) the scan was checked as far as it goes without a mappings file, which it asks for. Imports from Unreal Engine 5 games, ACL-compressed clips, AES keys, mappings files and retargeting an Unreal clip are not checked with a real game yet. The package is not in the release ZIPs: it loads in a source checkout of the bridge, or from its own package ZIP.
 
 What is imported:
 
@@ -20,8 +20,12 @@ The game folder is only read. The decoder reads the PAK or IoStore archives in p
 ## What you need
 
 1. The game installed.
-2. A source checkout of the bridge, set up as the README's *Build from source* describes. The Unreal package is in `packages\unreal`.
-3. The package's decoder, built once. It needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (not only the runtime) and [Git](https://git-scm.com/):
+2. The Unreal package, in one of two ways:
+   - **Its package ZIP**, `AnimationBridge-package-unreal-<version>.zip`, which holds the package with its decoder built. In the bridge, open **Settings & setup**, click **Install package…** under **Game packages**, choose the ZIP and confirm. **Unreal decoder: READY** then shows there, and you skip step 3.
+
+     Install it into a bridge folder unpacked from the release ZIP alone. GitHub's *Source code* ZIP of a release has a `packages\unreal` folder without the decoder, and the bridge uses a package in its own folder instead of the installed one. If you unpacked that ZIP into the bridge folder, delete the bridge's `packages\unreal` folder first.
+   - **A source checkout** of the bridge, set up as the README's *Build from source* describes. The Unreal package is in `packages\unreal`.
+3. In a source checkout, the package's decoder, built once. It needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (not only the runtime) and [Git](https://git-scm.com/):
    1. Open a command prompt in the bridge folder.
    2. Run `packages\unreal\decoder\build_decoder.cmd`.
    3. The script downloads [CUE4Parse](https://github.com/FabianFG/CUE4Parse) at a fixed commit into `%LOCALAPPDATA%\SekiroAnimationBridge\CUE4Parse`, builds `packages\unreal\tools\unreal-decoder\UnrealDecoder.exe` and tests it. It ends with *Unreal decoder ready*.
@@ -39,6 +43,12 @@ The game folder is only read. The decoder reads the PAK or IoStore archives in p
 
       Windows asks for permission for each installer; click **Yes**. If no window appears, click the flashing shield icon in the taskbar. The second installer shows its own progress window and takes several minutes.
    2. Open a new command prompt, so that it finds CMake, and run `packages\unreal\decoder\build_decoder.cmd` again. It now prints *Native ACL decoding: available*.
+
+   The script copies the licenses of what the decoder folder carries next to it: CUE4Parse's `LICENSE` and `NOTICE`, the .NET runtime's `LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT`, and, with the native library, the licenses of ACL and RTM. To give the package to someone without a source checkout, build its package ZIP from the bridge folder:
+
+   ```
+   python tools\package_game_package.py packages\unreal --output dist\AnimationBridge-package-unreal-0.1.0.zip --tool decoder=packages\unreal\tools\unreal-decoder
+   ```
 4. Depending on the game, one or more of these. The source dialog asks for the ones your game needs.
    - **The AES key**, when the game's archives are encrypted. It is `0x` followed by 64 hexadecimal digits. The bridge does not include keys: use the one published for your game version, for example by the game's modding community.
    - **A mappings file** (`.usmap`), when the game's packages store their properties without names, which many Unreal Engine 5 games do. It is made while the game runs, by a dumper such as [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS). The bridge does not include mappings files.
@@ -84,6 +94,8 @@ This puts both characters in one scene; the add-on then moves the Unreal motion 
 
 To change a source's fields, click **Edit** on its card on the **Sources** page, change them and click **Save and scan**.
 
+- **Unreal decoder is not built yet**: the bridge folder has the package's sources but no decoder, as a folder unpacked from GitHub's *Source code* ZIP has. The source dialog says so as soon as you choose the game folder. Build the decoder (step 3 of *What you need*), or delete the bridge's `packages\unreal` folder and install the package ZIP.
+- **Unreal decoder is missing … Install the package again from its package ZIP**: the installed package lost its decoder, for example to a virus scanner. Install the ZIP again.
 - **This game stores properties without names**: it needs a mappings file. Edit the source and choose its `.usmap` under **Mappings file**.
 - **… package headers could not be read, so their assets name no skeleton**: the scan found the animations but could not read which skeleton each one uses. The last line says what to do: choose the game's mappings file, or another engine version. When the engine version was a guess, try the next newer version first.
 - **… uses ACL compression, and this decoder was built without CUE4Parse's native ACL library**: install CMake and the Visual Studio C++ build tools and run `packages\unreal\decoder\build_decoder.cmd` again.

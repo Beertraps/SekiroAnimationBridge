@@ -1,3 +1,9 @@
+# Unreleased — missing package tools, Unreal package ZIP
+
+- A user unpacked 0.14.2 together with GitHub's *Source code* ZIP and got *Unreal decoder is missing* at the scan: the bridge folder's `packages\unreal` came from the sources and had no decoder. The 203 unit tests in `standalone/tests`, with three for the new messages, and the 9 RE Engine and 12 Unreal Engine package tests pass; `node --check` passes on `app.js`. The tests check that a package in the bridge folder names its build script, that the detection reports the missing tool before any scan and stops once the tool exists, and that an installed package without its tool says to install its ZIP again although the ZIP holds the build script.
+- The Unreal decoder, rebuilt with the new script and CMake on `PATH`, carries `dotnet-LICENSE.txt` and `dotnet-THIRD-PARTY-NOTICES.txt` from the runtime pack it was published with (10.0.14), `ACL-LICENSE.txt`, `RTM-LICENSE.txt` and CUE4Parse's two notices, and passes its self-test (17 checks, *Native ACL decoding: available*). `CUE4Parse-Natives.dll` holds no Oodle code: CUE4Parse's Oodle folder is empty in the checkout, so its CMake file leaves Oodle out.
+- `AnimationBridge-package-unreal-0.1.0.zip` (252 files, 48,234,912 bytes) was installed through the bridge API into the unpacked 0.14.2 release ZIP with an empty profile: the inspection names no package that shadows it, **Unreal decoder** is ready (UnrealDecoder 0.1.0, CUE4Parse 460fc477), the Deep Rock Galactic folder is detected without a note, and its scan finds 227 characters and 1,792 clips without warnings. The installed decoder copy passes its self-test.
+
 # 0.14.2 — import from other games: Unreal Engine
 
 ## Before the release
