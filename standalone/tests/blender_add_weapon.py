@@ -6,7 +6,8 @@ blade 1.2 long, an object scaled by 1.2 and turned, with a Bevel modifier, and a
 Ctrl+P > Bone parents it. Checked:
 - Add weapon gives the rig R_Weapon under R_Hand, from the point of the blade's axis nearest the hand to the blade's
   far end, with its roll following the hand's, and binds both meshes to it alone with an Armature modifier, the
-  blade's bevel applied.
+  blade's bevel applied. The bone list lists R_Weapon with Only bones the clip animates on, although the rig's HKX
+  tracks do not include it.
 - On frame 10 every vertex is where it was before, within 0.01 mm; on frames 1 and 20 the sword follows the hand as
   one piece.
 - A dagger in the left hand becomes L_Weapon, a knife in the right hand R_Weapon2, and a scabbard on Spine2 the bone
@@ -107,6 +108,10 @@ scene.frame_start, scene.frame_end = 1, 20
 rig = armature('Hero', humanoids.proportioned())
 swing(rig)
 settings = scene.sekiro_weapon
+# HKX tracks on every bone but Spine2, as on a rig the bridge imports: Only bones the clip animates lists tracked bones.
+for index, pose_bone in enumerate(rig.pose.bones):
+    if pose_bone.name != 'Spine2':
+        pose_bone['hkx_track_index'] = index
 
 # The sword, placed in the posed hand on frame 10: the blade along a direction of the hand, scaled, with a bevel.
 hand = hand_pose(rig, 10)
@@ -134,6 +139,9 @@ for obj in (blade, guard):
     assert all(len(v.groups) == 1 and v.groups[0].weight == 1.0 for v in obj.data.vertices), obj.name
     assert obj.parent == rig and obj.parent_type == 'OBJECT', (obj.name, obj.parent, obj.parent_type)
 assert len(blade.data.vertices) > 8, 'the bevel was not applied'
+# The bone list lists the weapon bone with Only bones the clip animates on, although it has no track.
+listed = [b.name for b in sekiro_retarget.retarget.bone_infos(rig, tracked_only=True)]
+assert 'R_Weapon' in listed and 'Spine2' not in listed, listed
 
 # Where it was placed on frame 10, and with the hand as one piece on the other frames.
 worst = 0.0

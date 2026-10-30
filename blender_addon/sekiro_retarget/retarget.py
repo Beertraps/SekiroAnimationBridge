@@ -203,7 +203,8 @@ def hidden_bones(rig):
 def bone_infos(rig, tracked_only=True):
     bones = [b for b in rig.data.bones if 'sekiro_control' not in b]  # Not the control rig's bones.
     if tracked_only and any('hkx_track_index' in b for b in rig.pose.bones):
-        bones = [b for b in bones if 'hkx_track_index' in rig.pose.bones[b.name]]
+        # A weapon bone from Add weapon has no track, but it is there to be matched.
+        bones = [b for b in bones if 'hkx_track_index' in rig.pose.bones[b.name] or 'sekiro_added_weapon' in b]
     return bones
 
 

@@ -190,6 +190,25 @@ class Bones(unittest.TestCase):
                          ['R_Thigh','L_Hand','RightEye','Spine'])
         with self.assertRaisesRegex(ValueError,'four digits'):character_export.check_ids('c1010','c180')
         with self.assertRaisesRegex(ValueError,'differs'):character_export.check_ids('c1010','c1010')
+    def test_a_model_only_export_gives_extra_bones_to_their_skeleton_ancestor(self):
+        # The skeleton: Master, Pelvis, Spine, R_Hand. The scene adds a weapon bone under R_Hand and a blade under it.
+        skeleton=[dict(name=n) for n in ('Master','Pelvis','Spine','R_Hand')]
+        manifest=dict(bones=[dict(name='Master',parent=-1),dict(name='Pelvis',parent=0),dict(name='Spine',parent=1),
+                             dict(name='R_Hand',parent=2),dict(name='R_Weapon',parent=3),dict(name='Blade',parent=4)])
+        target,gave=character_export.model_bones(manifest,skeleton,'c1010')
+        self.assertEqual((target.tolist(),gave),([0,1,2,3,3,3],[4,5]))
+        # The scene's bones may come in another order; they map by name.
+        manifest['bones']=[dict(name='Pelvis',parent=-1),dict(name='Master',parent=-1),dict(name='R_Hand',parent=3),
+                           dict(name='Spine',parent=0)]
+        self.assertEqual(character_export.model_bones(manifest,skeleton,'c1010')[0].tolist(),[1,0,3,2])
+    def test_a_model_only_export_needs_the_characters_skeleton(self):
+        skeleton=[dict(name=f'b{i}') for i in range(10)]
+        manifest=dict(bones=[dict(name=f'b{i}',parent=i-1) for i in range(8)])
+        with self.assertRaisesRegex(ValueError,"8 of c1010's 10 bones"):
+            character_export.model_bones(manifest,skeleton,'c1010')
+        manifest['bones']+=[dict(name='b8',parent=7),dict(name='b9',parent=8),dict(name='Prop',parent=-1)]
+        with self.assertRaisesRegex(ValueError,"Prop hangs below no bone of c1010's skeleton"):
+            character_export.model_bones(manifest,skeleton,'c1010')
     def test_the_me3_profile_names_the_mod_folder(self):
         with tempfile.TemporaryDirectory() as temp:
             profile=character_export.me3_profile(Path(temp)/'dante','dante')

@@ -10,7 +10,8 @@ and matches standalone/schemas/character_export.schema.json.
 Then, with the head turned on the current frame: a helmet parented to the head bone comes back to where it rests,
 weighted wholly to the head; a weapon rig on a socket that follows the head, as the bridge builds one, adds its two
 bones below the head, its Root renamed SWORD_Root, with their rest and their part clip's motion, and its sword mesh
-keeps its weights on them. A mesh bound to another armature, one bound to a bind adapter, one parented to the rig
+keeps its weights on them. A mesh on a bind adapter that rests where the rig does is the rig's, as c1010's meshes
+are. A mesh bound to another armature, one bound to a bind adapter whose bones are moved, one parented to the rig
 object and one bound to nothing are left out with their reasons; an unrendered mesh and a body figure are not listed.
 """
 import json
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import bpy
 import numpy as np
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from blender_character import make_material  # noqa: E402
@@ -36,6 +37,23 @@ def write_image(path, rgba):
     image.save()
     bpy.data.images.remove(image)
     return str(path)
+
+
+def bind_adapter(name, rig, moved=0.0):
+    """A bind adapter on the rig, as the import adds one, with the rig's bones raised by moved."""
+    adapter = bpy.data.objects.new(f'{name} | Bind adapter', bpy.data.armatures.new(f'{name} bind'))
+    adapter['sekiro_internal_bind_adapter'] = True
+    bpy.context.scene.collection.objects.link(adapter)
+    adapter.parent = rig
+    bpy.context.view_layer.objects.active = adapter
+    bpy.ops.object.mode_set(mode='EDIT')
+    for bone in rig.data.bones:
+        edit = adapter.data.edit_bones.new(bone.name)
+        edit.head, edit.tail = bone.head_local + Vector((0, 0, moved)), bone.tail_local + Vector((0, 0, moved))
+        if bone.parent:
+            edit.parent = adapter.data.edit_bones[bone.parent.name]
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return adapter
 
 
 def rig_with_bones():
@@ -194,12 +212,11 @@ with tempfile.TemporaryDirectory() as temp:
     scene.collection.objects.link(donor)
     cape = box_object('Cape', (1, 0, 1), .2)
     cape.modifiers.new('Armature', 'ARMATURE').object = donor
-    adapter = bpy.data.objects.new('Coat | Bind adapter', bpy.data.armatures.new('Coat bind'))
-    adapter['sekiro_internal_bind_adapter'] = True
-    scene.collection.objects.link(adapter)
-    adapter.parent = rig
     coat = box_object('Coat', (0, 0, 1), .25)
-    coat.modifiers.new('Armature', 'ARMATURE').object = adapter
+    coat.modifiers.new('Armature', 'ARMATURE').object = bind_adapter('Coat', rig, moved=.05)
+    vest = box_object('Vest', (0, 0, .8), .2)  # On an adapter that rests where the rig does, as c1010's meshes are.
+    vest.vertex_groups.new(name='Spine').add(list(range(8)), 1.0, 'REPLACE')
+    vest.modifiers.new('Armature', 'ARMATURE').object = bind_adapter('Vest', rig)
     badge = box_object('Badge', (0, .2, 1), .02)
     badge.parent = rig
     box_object('Floor', (0, 0, 0), 2)
@@ -220,7 +237,9 @@ with tempfile.TemporaryDirectory() as temp:
         assert np.allclose(np.reshape(parts['bones'][index]['rest'], (4, 4)), np.array(wanted), atol=1e-5), bone
     found = {m['name']: m for m in parts['meshes']}
     assert {name: (m['bound'], m.get('bone')) for name, m in found.items()} == \
-        {'Box': ('rig', None), 'Helmet': ('bone', 'Head'), 'Sword': ('armature', 'Head')}, found
+        {'Box': ('rig', None), 'Helmet': ('bone', 'Head'), 'Sword': ('armature', 'Head'), 'Vest': ('rig', None)}, found
+    with np.load(found['Vest']['data']) as data:
+        assert (data['bone_indices'][:, 0] == 1).all() and (data['bone_weights'][:, 0] == 1).all()
     with np.load(found['Helmet']['data']) as data:
         assert np.abs(data['positions'] - resting['Helmet']).max() < 1e-5
         assert (data['bone_indices'][:, 0] == 2).all() and (data['bone_weights'][:, 0] == 1).all()

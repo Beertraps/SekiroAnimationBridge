@@ -23,7 +23,7 @@ The **Sekiro Retarget Assistant** panel leads through four steps, each a sub-pan
 4. In **3. Bake motion**, click **Bake motion onto target**. **Bake method** above it stays at *Bone by bone* for most clips; *Full body* needs no bone list for the body, see [Full-body bake](#full-body-bake). The closed groups under the button hold the bake options (see below). By default the bake is raw: the weapon keeps the source's grip, and the corrections for hands, arms and a second hand on the weapon are off until you turn them on. The bake creates a new action and keeps the original one. Bake again at any time with other options or a corrected map: each bake starts from the original clip, not from the previous result.
 5. In **4. Export HKX**, choose an **Output** `.hkx` and click **Export HKX**. **Export settings**, closed at first, hold the game, the format and the other options; see [Export](#export). Export runs in the background; its progress shows under the button, the result goes to the **Log**, and Esc cancels. The bridge writes the HKX with a `.motion.json` sidecar beside it. To put the HKX into the game's animation binder too, turn on **Add to animation binder**; see [Export](#export). Otherwise pack it with a binder tool such as WitchyBND.
 
-**Only bones the clip animates**, in step 2 and on by default, matches only the bones that a bridge rig's HKX clip animates, its tracks; the model's other bones, such as cloth and helper bones, follow their parents. Switch it off to match every bone of the model. It takes effect at the next match.
+**Only bones the clip animates**, in step 2 and on by default, matches only the bones that a bridge rig's HKX clip animates, its tracks, and the weapon bones made with [Add weapon](#add-weapon); the model's other bones, such as cloth and helper bones, follow their parents. Switch it off to match every bone of the model. It takes effect at the next match.
 
 To export with the bridge UI or CLI instead, click **Use target in the bridge UI**, save the `.blend`, and export that scene as usual.
 
@@ -353,7 +353,7 @@ What it does:
 - The weapon stays exactly where it was on the frame you added it, and follows the hand on every other frame.
 - Meshes bound to the armature already are not offered again. A name the armature has is refused.
 
-After **Add weapon**, click **Match bones again** in the **Retarget** tab to list the new bone in the bone list, where you can give it a source bone and set its **Held in** and **Show**; see [Weapons and props in the bone list](#weapons-and-props-in-the-bone-list). **Export HKX** leaves the new bone out: the game's skeleton for the clip does not have it.
+After **Add weapon**, click **Match bones again** in the **Retarget** tab to list the new bone in the bone list, also with **Only bones the clip animates** on, where you can give it a source bone and set its **Held in** and **Show**; see [Weapons and props in the bone list](#weapons-and-props-in-the-bone-list). **Export HKX** leaves the new bone out: the game's skeleton for the clip does not have it.
 
 On an owned test rig whose right arm swings, a sword of two meshes placed on frame 10 stayed within 0.0003 mm of where it was placed and followed the hand on frames 1 and 20; its bone ran from the blade's axis at the hand to the blade's far end.
 

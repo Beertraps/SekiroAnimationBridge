@@ -18,6 +18,7 @@ them. The exit code is 0 when the command ran and 1 otherwise; then the result i
   export SCENE               write the edited animation as HKX
   character-parts GAME       the template's enemy parts in a map, which a new character can replace
   character-export SCENE     write the scene's rig, meshes and action as a new Sekiro character in a mod folder
+  character-model SCENE      write a scene of a vanilla character as its model only; it keeps its clips and behavior
   character-clone GAME       write the template itself under the new ID, to test the files in the game
   character-verify FOLDER    read a written character back and check that its files fit together
   run REQUEST                any request as the UI and sekiro_animation_cli.ps1 send it to bridge_runtime.py
@@ -321,6 +322,11 @@ def command_character_export(args, settings, saved):
     return character_request(args, settings, 'character-export', **extra)
 
 
+def command_character_model(args, settings, saved):
+    return character_request(args, settings, 'character-model', inputBlend=path(args.scene), textureSize=args.texture_size,
+                             force=args.force)
+
+
 def command_character_clone(args, settings, saved):
     args.game_folder = args.game
     return character_request(args, settings, 'character-clone', force=args.force)
@@ -458,6 +464,17 @@ def parser():
                      help="name a template bone's partner when the matcher misses it; repeat for more")
     new.add_argument('--texture-size', type=int, default=2048, help='the longest side of a written texture (default 2048)')
     new.add_argument('--force', action='store_true', help='write into a mod folder that is not empty')
+    model = command('character-model', "write a scene of a vanilla Sekiro character as its model only; it keeps its "
+                                       "skeleton, clips and behavior")
+    model.add_argument('scene', help='the .blend with the character as the bridge imports it, such as c1010 with a new weapon')
+    model.add_argument('--template', required=True, help='the vanilla character whose model the scene replaces, such as c1010')
+    model.add_argument('--game-folder', required=True, help="Sekiro's unpacked game folder, which holds the character")
+    model.add_argument('--output', required=True, help='the mod folder to write; a .work folder goes beside it')
+    model.add_argument('--id', default='', help="write under a new ID with copies of the character's other files; "
+                                                "the character's own ID by default")
+    placement(model)
+    model.add_argument('--texture-size', type=int, default=2048, help='the longest side of a written texture (default 2048)')
+    model.add_argument('--force', action='store_true', help='write into a mod folder that is not empty')
     clone = character('character-clone', 'write the template itself under the new ID, to test the files in the game',
                       'game', "Sekiro's unpacked game folder")
     clone.add_argument('--id', required=True)
@@ -465,7 +482,7 @@ def parser():
     placement(clone)
     clone.add_argument('--force', action='store_true')
     check = character('character-verify', 'read a written character back and check that its files fit together',
-                      'folder', 'the mod folder that character-export or character-clone wrote')
+                      'folder', 'the mod folder that character-export, character-model or character-clone wrote')
     check.add_argument('--id', required=True)
     check.add_argument('--game-folder', default='', help='the game folder, to compare the clip count with the template')
     run = command('run', 'any request as the UI and sekiro_animation_cli.ps1 send it to bridge_runtime.py')
@@ -477,7 +494,8 @@ COMMANDS = dict(env=command_env, games=command_games, detect=command_detect, sca
                 select=command_select, masks=command_masks, inspect=command_inspect, verify=command_verify,
                 export=command_export, run=command_run, **{'import': command_import,
                 'character-parts': command_character_parts, 'character-export': command_character_export,
-                'character-clone': command_character_clone, 'character-verify': command_character_verify})
+                'character-model': command_character_model, 'character-clone': command_character_clone,
+                'character-verify': command_character_verify})
 
 
 def main(argv=None):

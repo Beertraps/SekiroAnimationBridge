@@ -7,7 +7,8 @@ ID in member paths and file names, and points chosen map parts at the new charac
 the game's relative paths. Nothing is written into the game folder.
 
 The model comes from a character export manifest that blender_character_export.py writes from any imported scene.
-`clone` writes the template itself under the new ID, which tests the writer in the game without a new model.
+`clone` writes the template itself under the new ID, which tests the writer in the game without a new model. `model`
+writes a scene of a vanilla character as that character's model only, and keeps its skeleton, clips and behavior.
 """
 from __future__ import annotations
 
@@ -700,9 +701,10 @@ def material_textures(material, stem, folder, size, normal_fill, cache):
             albedo[..., 3] = 255
         made['albedo'] = (f'{stem}_a', write_texture(albedo, f'{stem}_a', 'a', folder, cutout='opacity' in roles),
                           FORMATS['a'][0])
-    elif material.get('color'):
+    else:
         # No color image: a small one in the material's fixed color, so the game does not show its default texture.
-        linear = np.clip(np.asarray(material['color'][:3], np.float64), 0, 1)
+        # A mesh without a material gets Blender's default gray.
+        linear = np.clip(np.asarray((material.get('color') or (.8, .8, .8))[:3], np.float64), 0, 1)
         srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * linear ** (1 / 2.4) - 0.055)
         pixels = np.empty((4, 4, 4), np.uint8)
         pixels[..., :3], pixels[..., 3] = np.round(srgb * 255), 255
@@ -965,16 +967,213 @@ def edit_pwv(data, weight_source):
     return bytes(header) + data[32:start] + b''.join(rows[i] for i in weight_source) + data[start + 8 * bones:]
 
 
+def add_dummies(info, nodes):
+    """Add the template's dummy poly holders to the model's nodes. Returns, for each template bone that a dummy poly
+    hangs on and the nodes lack, its nearest ancestor that they have: the dummy polys follow it."""
+    flver_bones = info['flver']['bones']
+    for b in flver_bones:
+        if b['flags'] == 2:
+            nodes.append(dict(name=b['name'], parent=-1, kind='dummy', copy=b['name']))
+    present = {node['name'] for node in nodes}
+    dummy_bones = {}
+    for b in flver_bones:
+        if b['flags'] & 8 and b['name'] not in present:
+            j = b['parent']
+            while j >= 0 and flver_bones[j]['name'] not in present:
+                j = flver_bones[j]['parent']
+            if j >= 0:
+                dummy_bones[b['name']] = flver_bones[j]['name']
+    return dummy_bones
+
+
+def write_model(manifest, info, nodes, node_of_source, dummy_bones, new_id, work, texture_size, report):
+    """The manifest's materials, textures and meshes as work/<new_id>.tpf and work/<new_id>.flver, the meshes skinned to
+    nodes (node_of_source: the node of each manifest bone). One node per mesh part is added to nodes."""
+    # Materials and textures. A material whose fixed alpha is 0 is invisible in the scene, such as an eye's wetness
+    # overlay; its triangles are left out, since the game would draw them opaque.
+    hidden = {i for i, m in enumerate(manifest['materials']) if m.get('alpha') == 0}
+    report['hiddenMaterials'] = [manifest['materials'][i]['name'] for i in sorted(hidden)]
+    template_materials = info['flver']['materials']
+    plain = next((i for i, m in enumerate(template_materials) if '_e_' not in m['mtd'].lower()), 0)
+    cutout = next((i for i, m in enumerate(template_materials) if '_e_' in m['mtd'].lower()), plain)
+    folder = work / 'textures'
+    normal_fill = template_normal_fill(info, folder / 'template')
+    textures, flver_materials, cache, by_roles = [], [], {}, {}
+    for index, material in enumerate(manifest['materials']):
+        short = re.sub(r'[^A-Za-z0-9]+', '_', material['name'].split(' / ')[-1]).strip('_')[:24] or f'm{index}'
+        key = json.dumps([material.get('roles', {}), material.get('color') if 'albedo' not in material.get('roles', {}) else None],
+                         sort_keys=True)
+        if key not in by_roles:
+            by_roles[key] = material_textures(material, f'{new_id}_{short}', folder, texture_size, normal_fill, cache)
+            textures += [dict(name=name, dds=str(path), format=fmt) for name, path, fmt in by_roles[key].values()]
+        made = by_roles[key]
+        cut = 'opacity' in material.get('roles', {})
+        flver_materials.append(dict(name=short, mtd=MTD_CUTOUT if cut else MTD, template=cutout if cut else plain,
+                                    textures={role: f'N:\\NTC\\data\\Model\\chr\\{new_id}\\tex\\{name}.tif'
+                                              for role, (name, _, _) in made.items()}))
+    report['textures'] = run_writer('tpf', dict(template=info['paths']['tpf'], textures=textures,
+                                                output=str(work / f'{new_id}.tpf')), work)
+
+    # Meshes.
+    mesh_folder = work / 'meshes'
+    mesh_folder.mkdir(parents=True, exist_ok=True)
+    flver_meshes = []
+    for m in manifest['meshes']:
+        for k, (material, floats, bones, triangles) in enumerate(mesh_parts(m['data'], node_of_source, hidden)):
+            name = re.sub(r'[^A-Za-z0-9_]+', '_', m['name'])[:40] + f'_{k}'
+            nodes.append(dict(name=name, parent=-1, kind='mesh'))
+            vertices, indices = write_mesh(mesh_folder, name, floats, bones, triangles)
+            flver_meshes.append(dict(material=material, node=len(nodes) - 1, vertices=vertices, indices=indices,
+                                     cullBackfaces=not manifest['materials'][material].get('doubleSided', False)))
+    report['model'] = run_writer('flver', dict(template=info['paths']['flver'], nodes=nodes, materials=flver_materials,
+                                               meshes=flver_meshes, dummyBones=dummy_bones,
+                                               output=str(work / f'{new_id}.flver')), work)
+
+
+def load_manifest(manifest_path):
+    manifest = json.loads(Path(manifest_path).read_text(encoding='utf-8'))
+    if manifest.get('format') != 'sekiro-animation-bridge-character-export':
+        raise ValueError('This file is not a character export manifest. Write one with blender_bridge.py export-character.')
+    check_character_export(manifest)
+    return manifest
+
+
+def model_bones(manifest, skeleton_bones, character):
+    """Which bone of a vanilla character's own skeleton takes each scene bone's weights, for a model-only export.
+
+    A bone of the skeleton keeps its weights. Any other bone gives them to its nearest ancestor in the skeleton: a
+    weapon bone from Add weapon, a weapon rig's bones, a model-only bone of the FLVER. None of them has a track in the
+    character's clips, so in Blender too they move with that ancestor as a whole. Returns (skeleton index of each scene
+    bone, the scene bones that gave their weights away).
+    """
+    index = {b['name']: i for i, b in enumerate(skeleton_bones)}
+    bones = manifest['bones']
+    present = sum(1 for b in skeleton_bones if any(s['name'] == b['name'] for s in bones))
+    if present < 0.9 * len(skeleton_bones):
+        raise ValueError(f"The scene's armature has {present} of {character}'s {len(skeleton_bones)} bones. A model-only "
+                         f"export keeps {character}'s skeleton and clips, so it needs {character} as the bridge imports it. "
+                         "To give a model a skeleton of its own, write a new character.")
+    target, gave = [], []
+    for i, bone in enumerate(bones):
+        j = i
+        while j >= 0 and bones[j]['name'] not in index:
+            j = bones[j]['parent']
+        if j < 0:
+            raise ValueError(f"{bone['name']} hangs below no bone of {character}'s skeleton. Parent it to one in Blender.")
+        target.append(index[bones[j]['name']])
+        if j != i:
+            gave.append(i)
+    return np.array(target, np.int64), gave
+
+
+def model(manifest_path, game_root, character, output, new_id='', map_name='', parts=(), work=None, texture_size=2048):
+    """Write the scene of an export manifest as the model of a vanilla character that keeps its skeleton, clips,
+    behavior and ragdoll. Returns a report of what was written and checked.
+
+    Without new_id, or with the character's own ID, only the model and texture binders are written, under the
+    character's ID: every instance of it in the game changes. With another new_id the character's other files are
+    copied under it, as clone writes them, and map parts can use it.
+    """
+    from dcx_codec import configure_oodle
+    new_id = new_id or character
+    own = new_id == character
+    if not ID.fullmatch(character) or not ID.fullmatch(new_id):
+        raise ValueError('Character IDs look like c1010: a c and four digits.')
+    if own and parts:
+        raise ValueError(f'Map parts need a new ID. Written under {character}, the model replaces every {character} '
+                         'in the game already.')
+    configure_oodle()
+    manifest = load_manifest(manifest_path)
+    output = Path(output)
+    work = Path(work) if work else output.with_name(output.name + '.work')
+    files = template_files(game_root, character, map_name if parts else '')
+    info = inspect_template(files, character, work)
+    report = dict(mode='model', template=character, id=new_id, output=str(output), warnings=list(manifest.get('warnings', [])))
+
+    # The character's skeleton, with the scene's rest where the scene has the bone: the model binds as Blender shows it.
+    skeleton = info['skeleton']['bones']
+    t_parents = [b['parent'] for b in skeleton]
+    t_worlds = worlds_of([matrix(b['translation'], b['rotation'], b['scale']) for b in skeleton], t_parents)
+    target, gave = model_bones(manifest, skeleton, character)
+    gave = set(gave)
+    src_worlds = to_game(np.array([np.reshape(b['rest'], (4, 4)) for b in manifest['bones']]))
+    worlds = list(t_worlds)
+    moved = []
+    for i, bone in enumerate(manifest['bones']):
+        if i not in gave:
+            worlds[target[i]] = src_worlds[i]
+            moved.append((float(np.linalg.norm(src_worlds[i][:3, 3] - t_worlds[target[i]][:3, 3])), bone['name']))
+    worst = max(moved, default=(0.0, ''))
+    in_scene = {b['name'] for b in manifest['bones']}
+    report['bones'] = dict(skeleton=len(skeleton), scene=len(manifest['bones']),
+                           missing=[b['name'] for b in skeleton if b['name'] not in in_scene],
+                           worstRestOffset=worst[0], worstRestBone=worst[1])
+    if worst[0] > 0.01:
+        report['warnings'].append(f"{sum(1 for d, _ in moved if d > 0.01)} bones rest away from {character}'s skeleton, "
+                                  f"{worst[1]} by {worst[0] * 100:.1f} cm. The game's clips move the bones from {character}'s "
+                                  "rest, so the model there may not match Blender.")
+
+    meshes = [np.load(m['data']) for m in manifest['meshes']]
+    weighted = set()
+    for data in meshes:
+        weighted.update(np.unique(target[data['bone_indices'][data['bone_weights'] > 0]]).tolist())
+    carried = sorted({manifest['bones'][i]['name'] for i in gave
+                      if any((data['bone_weights'][np.isin(data['bone_indices'], [i])] > 0).any() for data in meshes)})
+    report['bones']['gaveWeights'] = carried
+    if carried:
+        which = ('1 bone is', 'moves with its') if len(carried) == 1 else (f'{len(carried)} bones are', 'move with their')
+        report['warnings'].append(f"{which[0]} not in {character}'s skeleton and {which[1]} parent bone in the game: " +
+                                  ', '.join(carried[:12]) + (' ...' if len(carried) > 12 else ''))
+    needed = set()
+    for b in weighted:
+        while b >= 0 and b not in needed:
+            needed.add(b)
+            b = t_parents[b]
+    order = list(range(len(skeleton)))
+    if max(weighted, default=0) > 255:
+        # Byte bone indices: the weighted bones and their ancestors first.
+        order = [i for i in order if i in needed] + [i for i in order if i not in needed]
+    nodes, flver_index = [], {}
+    for i in order:
+        flver_index[i] = len(nodes)
+        nodes.append(dict(name=skeleton[i]['name'], parent=flver_index.get(t_parents[i], -1),
+                          world=[float(v) for v in np.asarray(worlds[i]).T.ravel()]))
+    node_of_source = np.array([flver_index[t] for t in target.tolist()], np.int32)
+    if any(flver_index[b] > 255 for b in weighted):
+        raise ValueError(f"{len(needed)} bones of {character}'s skeleton carry weights or hold weighted bones; a Sekiro "
+                         'model holds 256.')
+    dummy_bones = add_dummies(info, nodes)
+    write_model(manifest, info, nodes, node_of_source, dummy_bones, new_id, work, texture_size, report)
+
+    chrbnd, kind = read_binder(files['chrbnd'])
+    member(chrbnd, lambda n: n.lower().endswith('.flver'))[2] = (work / f'{new_id}.flver').read_bytes()
+    texbnd, tex_kind = read_binder(files['texbnd'])
+    member(texbnd, lambda n: n.lower().endswith('.tpf'))[2] = (work / f'{new_id}.tpf').read_bytes()
+    if own:
+        # The character's other model files, such as its ragdoll and cloth, stay as they are.
+        report['files'] = [write_binder(chrbnd, kind, output / f'chr/{new_id}.chrbnd.dcx', character, new_id),
+                           write_binder(texbnd, tex_kind, output / f'chr/{new_id}.texbnd.dcx', character, new_id)]
+    else:
+        chrbnd.members = [m for m in chrbnd.members
+                          if PureWindowsPath(m[1]).suffix.lower() == '.flver' or ragdoll_member(character, m[1])]
+        identity = list(range(len(skeleton)))
+        behaviors = edit_behaviors(info, character, new_id, identity, identity, None, len(identity))
+        written = [write_binder(chrbnd, kind, output / f'chr/{new_id}.chrbnd.dcx', character, new_id),
+                   write_binder(texbnd, tex_kind, output / f'chr/{new_id}.texbnd.dcx', character, new_id)]
+        write_common(files, character, new_id, output, report, parts, behaviors, None, None, work)
+        report['files'] = written + report['files']
+    report['profile'] = str(me3_profile(output, output.name))
+    report['verify'] = verify(output, new_id, game_root, '' if own else character, work / 'verify')
+    return report
+
+
 def export(manifest_path, game_root, template, new_id, output, map_name='', parts=(), work=None, pairs=None,
            texture_size=2048, clip_format='spline'):
     """Write the scene of an export manifest as a new character. Returns a report of what was written and checked."""
     from dcx_codec import configure_oodle
     check_ids(template, new_id)
     configure_oodle()
-    manifest = json.loads(Path(manifest_path).read_text(encoding='utf-8'))
-    if manifest.get('format') != 'sekiro-animation-bridge-character-export':
-        raise ValueError('This file is not a character export manifest. Write one with blender_bridge.py export-character.')
-    check_character_export(manifest)
+    manifest = load_manifest(manifest_path)
     output = Path(output)
     work = Path(work) if work else output.with_name(output.name + '.work')
     files = template_files(game_root, template, map_name if parts else '')
@@ -1040,60 +1239,8 @@ def export(manifest_path, game_root, template, new_id, output, map_name='', part
     if any(node_of_source[b] > 255 for b in weighted):
         raise ValueError(f'{len(needed)} bones carry weights or hold weighted bones; a Sekiro model holds 256. '
                          'Remove weights from helper bones or join small meshes onto fewer bones.')
-    flver_bones = info['flver']['bones']
-    holders = [b for b in flver_bones if b['flags'] == 2]
-    for b in holders:
-        add_node(dict(name=b['name'], parent=-1, kind='dummy', copy=b['name']))
-    # Template bones that a dummy poly hangs on and the new model lacks follow their nearest present ancestor.
-    present = set(node_names)
-    dummy_bones = {}
-    for b in flver_bones:
-        if b['flags'] & 8 and b['name'] not in present:
-            j = b['parent']
-            while j >= 0 and flver_bones[j]['name'] not in present:
-                j = flver_bones[j]['parent']
-            if j >= 0:
-                dummy_bones[b['name']] = flver_bones[j]['name']
-
-    # Materials and textures. A material whose fixed alpha is 0 is invisible in the scene, such as an eye's wetness
-    # overlay; its triangles are left out, since the game would draw them opaque.
-    hidden = {i for i, m in enumerate(manifest['materials']) if m.get('alpha') == 0}
-    report['hiddenMaterials'] = [manifest['materials'][i]['name'] for i in sorted(hidden)]
-    template_materials = info['flver']['materials']
-    plain = next((i for i, m in enumerate(template_materials) if '_e_' not in m['mtd'].lower()), 0)
-    cutout = next((i for i, m in enumerate(template_materials) if '_e_' in m['mtd'].lower()), plain)
-    folder = work / 'textures'
-    normal_fill = template_normal_fill(info, folder / 'template')
-    textures, flver_materials, cache, by_roles = [], [], {}, {}
-    for index, material in enumerate(manifest['materials']):
-        short = re.sub(r'[^A-Za-z0-9]+', '_', material['name'].split(' / ')[-1]).strip('_')[:24] or f'm{index}'
-        key = json.dumps([material.get('roles', {}), material.get('color') if 'albedo' not in material.get('roles', {}) else None],
-                         sort_keys=True)
-        if key not in by_roles:
-            by_roles[key] = material_textures(material, f'{new_id}_{short}', folder, texture_size, normal_fill, cache)
-            textures += [dict(name=name, dds=str(path), format=fmt) for name, path, fmt in by_roles[key].values()]
-        made = by_roles[key]
-        cut = 'opacity' in material.get('roles', {})
-        flver_materials.append(dict(name=short, mtd=MTD_CUTOUT if cut else MTD, template=cutout if cut else plain,
-                                    textures={role: f'N:\\NTC\\data\\Model\\chr\\{new_id}\\tex\\{name}.tif'
-                                              for role, (name, _, _) in made.items()}))
-    report['textures'] = run_writer('tpf', dict(template=info['paths']['tpf'], textures=textures,
-                                                output=str(work / f'{new_id}.tpf')), work)
-
-    # Meshes.
-    mesh_folder = work / 'meshes'
-    mesh_folder.mkdir(parents=True, exist_ok=True)
-    flver_meshes = []
-    for m, data in zip(manifest['meshes'], meshes):
-        for k, (material, floats, bones, triangles) in enumerate(mesh_parts(m['data'], node_of_source, hidden)):
-            name = re.sub(r'[^A-Za-z0-9_]+', '_', m['name'])[:40] + f'_{k}'
-            node = add_node(dict(name=name, parent=-1, kind='mesh'))
-            vertices, indices = write_mesh(mesh_folder, name, floats, bones, triangles)
-            flver_meshes.append(dict(material=material, node=node, vertices=vertices, indices=indices,
-                                     cullBackfaces=not manifest['materials'][material].get('doubleSided', False)))
-    report['model'] = run_writer('flver', dict(template=info['paths']['flver'], nodes=node_specs, materials=flver_materials,
-                                               meshes=flver_meshes, dummyBones=dummy_bones,
-                                               output=str(work / f'{new_id}.flver')), work)
+    dummy_bones = add_dummies(info, node_specs)
+    write_model(manifest, info, node_specs, node_of_source, dummy_bones, new_id, work, texture_size, report)
 
     # The clip, into every slot of the template's animation binder.
     frames, rate = sample_motion(manifest, skeleton)
@@ -1143,8 +1290,15 @@ def verify(output, new_id, game_root='', template='', work=None):
         checks.append(dict(name=name, passed=bool(passed), detail=detail))
 
     paths = {kind: output / f'chr/{new_id}.{kind}.dcx' for kind in ('chrbnd', 'texbnd', 'anibnd', 'behbnd')}
+    # A model-only export writes only the model and textures; the skeleton, clips and behavior are the game's.
+    borrowed = [kind for kind in ('anibnd', 'behbnd') if not paths[kind].is_file() and paths['chrbnd'].is_file()
+                and game_root and (Path(game_root) / f'chr/{new_id}.{kind}.dcx').is_file()]
+    for kind in borrowed:
+        paths[kind] = Path(game_root) / f'chr/{new_id}.{kind}.dcx'
     missing = [str(p) for p in paths.values() if not p.is_file()]
-    check('files', not missing, 'all four binders are present' if not missing else 'missing: ' + ', '.join(missing))
+    check('files', not missing, ('the model and texture binders are present; the skeleton, clips and behavior are the '
+                                 "game's" if borrowed else 'all four binders are present') if not missing
+          else 'missing: ' + ', '.join(missing) + ('' if game_root else '; a model-only folder needs the game folder'))
     if missing:
         return dict(passed=False, checks=checks)
     binders = {kind: read_binder(path)[0] for kind, path in paths.items()}
@@ -1193,7 +1347,8 @@ def verify(output, new_id, game_root='', template='', work=None):
     check('behavior bones', not out_of_range, 'every bone number names a bone of the skeleton' if not out_of_range
           else 'out of range: ' + '; '.join(out_of_range[:4]))
     old_names = [s['value'] for b in info['behaviors'] for s in b['strings']] if template else []
-    check('behavior names', not old_names, f'no file name names {template}' if not old_names else 'still named: ' + ', '.join(old_names[:4]))
+    check('behavior names', not old_names, 'still named: ' + ', '.join(old_names[:4]) if old_names else
+          f'no file name names {template}' if template else 'no template ID to look for')
     check('ragdoll', *ragdoll_check(binders['chrbnd'], new_id, [b['name'] for b in bones]))
     flver = info['flver']
     model_bones = [b['name'] for b in flver['bones'] if b['flags'] & 8]

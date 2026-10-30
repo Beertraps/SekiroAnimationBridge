@@ -163,6 +163,17 @@ class Commands(unittest.TestCase):
         code,result,_=self.call('character-export',self.base/'dante.blend','--game-folder',self.base/'Sekiro','--id','c1800',
                                 '--output',self.base/'mods'/'dante','--pair','Neck')
         self.assertEqual(code,1);self.assertIn('TEMPLATE=SOURCE',result['error']);self.assertEqual(self.jobs,[])
+    def test_character_model_keeps_the_characters_id_unless_given_one(self):
+        output=self.base/'mods'/'c1010_model'
+        self.call('character-model',self.base/'wolf.blend','--template','c1010','--game-folder',self.base/'Sekiro',
+                  '--output',output)
+        request=self.jobs[-1]
+        expected=dict(mode='character-model',template='c1010',characterId='',gameFolder=str(self.base/'Sekiro'),
+                      outputFolder=str(output),inputBlend=str(self.base/'wolf.blend'),textureSize=2048,force=False)
+        self.assertEqual({k:request[k] for k in expected},expected)
+        self.assertNotIn('pairs',request)
+        with self.assertRaises(SystemExit),redirect_stderr(io.StringIO()):
+            self.call('character-model',self.base/'wolf.blend','--game-folder',self.base/'Sekiro','--output',output)
     def test_character_parts_and_verify_name_their_folders(self):
         self.call('character-parts',self.base/'Sekiro','--map','m11_00_00_00','--template','c1020')
         self.call('character-verify',self.base/'mods'/'dante','--id','c1800')

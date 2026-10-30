@@ -116,7 +116,16 @@ The writer starts from the template FLVER with SoulsFormats `FLVER2`. It keeps t
   - A FromSoftware weapon from a weapon slot, or a model part, has its own armature (`NAME | Weapon rig`), which follows a rig bone through its socket. Its bones join the skeleton under that bone, parents first; a taken name gets the model name in front, such as `WP_A_0310_Blade00` (`bound: "armature"`). Their motion is sampled from the scene as the rig's is.
   - Each is written where it rests when the rig stands in its rest pose: `settle(rig, bone)` carries it from the current frame back.
   - The export leaves out a mesh it cannot place and lists it in `leftOut` with the reason: not bound to the rig, parented to the rig object without a bone, bound to another armature, or bound to a cutscene bind adapter. A notice names each reason.
+  - A mesh on a bind adapter whose bones rest within 1 mm of the rig's is the rig's (`same_rest`). The import adds such an adapter to `c1010`, within 0.0003.
   - The Retarget Assistant's **Add weapon** binds a mesh to a new bone under a hand, for a weapon placed by hand.
+
+### 3.5a Model only: a vanilla character's new model
+
+`character-model` (`model()`) writes a scene of a vanilla character as that character's FLVER and TPF only; its skeleton, clips, behavior and ragdoll stay the game's.
+
+- The scene's bones map onto the character's skeleton by name (`model_bones`). A bone outside the skeleton, such as an Add weapon bone, a weapon rig's bones or a model-only FLVER bone, gives its weights to its nearest skeleton ancestor: it has no track in the clips, so in Blender too it moves with that ancestor as one piece. The export stops when the scene has fewer than 90% of the skeleton's bones, or a bone hangs below none of them.
+- Nodes: the skeleton's bones in the skeleton's order, at the scene's rest where the scene has the bone, else at the skeleton's; then the template's dummy holders and one node per mesh. Weighted bones go first only when one would sit above node 255. A rest more than 1 cm off the skeleton's gives a notice, since the game's clips move bones from the skeleton's rest.
+- Under the character's own ID only `chrbnd` (its FLVER replaced, every other member kept) and `texbnd` are written, and `character-verify` reads the skeleton, clips and behavior from the game folder. With a new ID the other files are copied under it as `character-clone` copies them, and map parts can place it.
 - Wolf from `work/weapons_review/wolf_attack_weapons.blend`: his 146 bones, rests, motion and 4 body meshes stay the same, and his weapon rigs come along with 14 bones (160 in all) and 5 meshes: `WP_A_0300` on `R_Weapon` with its sheath on `Sheath`, `WP_A_0310` and its sheath on `LargeSheath`, `WP_A_0700` on `L_Forearm`.
 
 ### 3.6 Materials and textures
@@ -157,8 +166,8 @@ The export (`edit_ragdoll`) puts the new skeleton in the copy and gives the mapp
 | Orchestration | `standalone/character_export.py`: bone pairs, skeleton, behavior edits, model nodes, textures, clip, binders, map, profile and `verify` |
 | Havok files | `standalone/havok_tagfile.py` |
 | .NET writer | `tools/SekiroCharacterWriter/`: `inspect` (FLVER, TPF, map parts), `flver`, `tpf`, `msb`. One JSON job in, one JSON report out. `build_decoder.cmd` publishes it next to the decoder, which shares its runtime and SoulsAssetPipeline. |
-| Requests | `bridge_runtime.character()`: `character-export`, `character-clone`, `character-verify`, `character-parts` |
-| CLI | `bridge_cli character-parts`, `character-export`, `character-clone`, `character-verify` |
+| Requests | `bridge_runtime.character()`: `character-export`, `character-model`, `character-clone`, `character-verify`, `character-parts` |
+| CLI | `bridge_cli character-parts`, `character-export`, `character-model`, `character-clone`, `character-verify` |
 | UI | the **Character** page (`ui/index.html`, `ui/app.js`); `bridge_ui.py` maps its fields to the request |
 | Interchange | `standalone/schemas/character_export.schema.json`; the character manifest's image `packed` and material `metalness` and `roughness` |
 

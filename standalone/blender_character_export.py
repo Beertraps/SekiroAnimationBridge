@@ -64,6 +64,24 @@ def hidden(obj):
     return obj.hide_render or bool(obj.users_collection) and all(c.hide_render for c in obj.users_collection)
 
 
+def same_rest(adapter, rig, tolerance=1e-3):
+    """Whether a bind adapter changes nothing: each of its bones rests where the rig's bone of the same name does.
+
+    The import adds an adapter when a model's bind pose seems to differ from the skeleton's. c1010's adapter rests
+    within 0.0003 of its rig, so its meshes are the rig's.
+    """
+    if not adapter.get('sekiro_internal_bind_adapter') or adapter.parent != rig or not adapter.data.bones:
+        return False
+    for bone in adapter.data.bones:
+        own = rig.data.bones.get(bone.name)
+        if own is None:
+            return False
+        a, b = adapter.matrix_world @ bone.matrix_local, rig.matrix_world @ own.matrix_local
+        if max(abs(a[i][j] - b[i][j]) for i in range(3) for j in range(4)) > tolerance:
+            return False
+    return True
+
+
 def bound_meshes(rig):
     """(bound, left out) for the scene's visible meshes.
 
@@ -76,7 +94,7 @@ def bound_meshes(rig):
         if obj.type != 'MESH' or hidden(obj) or obj.get('sekiro_figure_of'):
             continue
         armature = bound_armature(obj)
-        if armature == rig:
+        if armature == rig or armature is not None and same_rest(armature, rig):
             bound.append((obj, 'rig', '', None))
         elif armature is not None:
             bone = followed_bone(armature, rig)

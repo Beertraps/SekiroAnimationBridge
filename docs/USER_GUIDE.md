@@ -314,7 +314,7 @@ What you need: Sekiro unpacked with UXM (a game folder with `chr` and `map`), [m
 7. Click **Write new character**. Blender reads the scene, then the bridge writes the files. Activity shows each step and the notices. The result line names the meshes, bones, textures and how many checks pass.
 8. Click **Show me3 profile**: it shows `dante.me3` beside the mod folder. Start Sekiro with me3 and this profile, as me3's documentation describes. Go to the place of `c1010_0000` in Ashina Outskirts.
 
-**Write template only** writes the template itself under the new ID, with the same map change. Try it first if Dante does not load: when the copied soldier loads, the problem is in the new model, textures or skeleton, not in the renames or the map. **Check mod folder** runs the checks again on a written folder.
+**Write model only** keeps a Sekiro character and gives it the scene's model; see [A new model for a Sekiro character](#a-new-model-for-a-sekiro-character). **Write template only** writes the template itself under the new ID, with the same map change. Try it first if Dante does not load: when the copied soldier loads, the problem is in the new model, textures or skeleton, not in the renames or the map. **Check mod folder** runs the checks again on a written folder.
 
 ### Weapons and other meshes
 
@@ -352,21 +352,36 @@ Into the mod folder, with the game's paths: `chr\c1800.chrbnd.dcx` (the model), 
 
 - **Bones.** The character keeps its own bones. The bridge pairs the template's body bones with the scene's by name, side and position, as the Retarget Assistant does, and paired bones take the template's names, such as `Pelvis`, `L_Thigh` and `Head`. The template's behavior then points at the new bones: foot placement, head turning and the per-bone weights. The export stops when the pelvis, a thigh, a calf or a foot has no partner; name it with `--pair` on the command line, such as `--pair L_Thigh=thigh_l`. For Dante, 66 bones pair and none needs help.
 - **256 bones.** A Sekiro model skins with 256 bones at most. When a character has more, the lightest small bones, such as face bones, give their weights to their parents, and a notice lists them. Dante's 150 face bones are merged so.
-- **Materials.** Each material gets an albedo (`_a`), normal (`_n`) and, where the source has one, metalness (`_m`) texture. A transparent overlay without an image, such as Dante's eye wetness, is left out, because Sekiro would draw it opaque. A material without a color image gets a small one in its color. Textures are at most 2048 pixels (**Texture size**).
+- **Materials.** Each material gets an albedo (`_a`), normal (`_n`) and, where the source has one, metalness (`_m`) texture. A transparent overlay without an image, such as Dante's eye wetness, is left out, because Sekiro would draw it opaque. A material without a color image gets a small one in its color, and a mesh without a material gets Blender's default gray. Textures are at most 2048 pixels (**Texture size**).
 - **Animation.** The action becomes clip `a000_000000` and fills every clip slot of the template, so the character idles in every state. The feet's IK target bones follow the feet.
+
+### A new model for a Sekiro character
+
+**Write model only** gives a Sekiro character a new look, such as a new weapon, and keeps everything else: its skeleton, all its clips, its behavior and its hit bodies. It fights as before. The bridge writes only the model (`chr\c1010.chrbnd.dcx`) and the textures (`chr\c1010.texbnd.dcx`); the game's own files give the rest.
+
+1. Import the character from Sekiro. On the **Import** page, choose the Sekiro source, the character, such as `c1010`, and any of its clips. Keep **Include the character model** on and click **Create Blender scene**.
+2. Change the model in Blender. Add a weapon with **Add weapon** (see [Weapons and other meshes](#weapons-and-other-meshes)): choose **Held in** > **Bone** and the bone that holds the character's own weapon, such as `Spear` for `c1010`, so the new weapon moves as the old one does. Hide meshes that should go (camera icon off in the Outliner). Do not move, add or delete bones of the character's skeleton: the game's clips move its bones from their own rest places. Save the file.
+3. On the **Character** page, choose the scene under **Character scene**, the **Sekiro game folder**, and the character under **Template**, such as `c1010`. Leave **New character ID** empty.
+4. Choose an empty **Mod folder** and click **Write model only**.
+
+Written under the character's own ID, the new model replaces that character everywhere in the game. To keep the original too, type a **New character ID**, such as `c1810`: the bridge then copies the character's skeleton, clips and behavior under that ID, and you can tick map parts to place it.
+
+A bone that is not in the character's skeleton, such as the weapon bone that Add weapon makes, gives its weights to the skeleton bone it hangs from. In the game it moves with that bone as one piece, as in Blender, and a notice names it. The export stops when the scene has fewer than 90% of the character's bones, such as a scene of another character.
 
 ### Command line
 
 ```bat
 standalone\bridge_cli.cmd character-parts "D:\Games\Sekiro" --map m11_00_00_00
 standalone\bridge_cli.cmd character-export "D:\SekiroWork\dante.blend" --game-folder "D:\Games\Sekiro" --id c1800 --output "D:\SekiroMods\dante" --map m11_00_00_00 --part c1010_0000
+standalone\bridge_cli.cmd character-model "D:\SekiroWork\c1010_gun.blend" --template c1010 --game-folder "D:\Games\Sekiro" --output "D:\SekiroMods\c1010_gun"
 standalone\bridge_cli.cmd character-clone "D:\Games\Sekiro" --id c1800 --output "D:\SekiroMods\c1800_clone" --map m11_00_00_00 --part c1010_0000
 standalone\bridge_cli.cmd character-verify "D:\SekiroMods\dante" --id c1800 --game-folder "D:\Games\Sekiro"
 ```
 
 | Option | Purpose |
 | --- | --- |
-| `--template` | The Sekiro character to copy; `c1010` by default |
+| `--template` | The Sekiro character to copy; `c1010` by default. For `character-model`, the character whose model the scene replaces |
+| `--id` | The new character ID. `character-model` without it writes under the template's own ID |
 | `--map`, `--part` | The map, and a part name from `character-parts`; repeat `--part` for more |
 | `--action`, `--frame-start`, `--frame-end` | Another action than the active one, and its frames |
 | `--pair TEMPLATE=SOURCE` | A template bone's partner when the matcher misses it; `TEMPLATE=` removes a pair |

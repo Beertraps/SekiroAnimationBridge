@@ -44,6 +44,7 @@ CHARACTER_KEYS={'characterBlend':'inputBlend','characterAction':'action','charac
 CHARACTER_REQUIRED={'character-parts':['writer','characterGameFolder','characterMap'],
                     'character-clone':['writer','characterGameFolder','characterId','characterOutput'],
                     'character-export':['writer','blender','characterBlend','characterGameFolder','characterId','characterOutput'],
+                    'character-model':['writer','blender','characterBlend','characterGameFolder','characterOutput'],
                     'character-verify':['writer','characterId','characterOutput']}
 
 

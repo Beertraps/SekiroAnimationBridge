@@ -159,7 +159,7 @@ For `bone` and `armature`, the mesh and the bones are carried back from the scen
 | `rig` | the armature object's name |
 | `bones[]` | `name`, `parent` (−1 for a root; parents come first), `rest`: the bone's world rest matrix, 16 numbers row by row |
 | `meshes[]` | `name`, `data` (path of the mesh's `.npz`), `bound` (`rig`, `bone` or `armature`), `bone` (for `bone` and `armature`: the rig's bone it moves with), `vertices`, `triangles`, `uvSets`, `unweightedVertices`, `weightsOutsideRig` |
-| `leftOut[]` | `name` and `reason` of each visible mesh left out: bound to another armature, to a bind adapter that keeps a cutscene bind pose, to the rig object without a bone, or to nothing of the rig |
+| `leftOut[]` | `name` and `reason` of each visible mesh left out: bound to another armature, to a bind adapter that keeps a cutscene bind pose (an adapter whose bones rest within 1 mm of the rig's counts as the rig), to the rig object without a bone, or to nothing of the rig |
 | `materials[]` | `name`, `roles`, `alpha`, `color`, `doubleSided`, `cutOut` |
 | `materials[].roles` | `albedo`, `opacity`, `normal`, `metalness`, `roughness`, `emissive`, each `image` (the Blender image's name), `channel` (`RGB`, `R`, `G`, `B` or `A`), `path` (the image saved beside the manifest) and, for `normal`, `convention` |
 | `materials[].alpha`, `color` | the shader's alpha and linear RGBA base color where no image drives them, else null. Alpha 0 marks an overlay the game cannot draw, such as eye wetness. |

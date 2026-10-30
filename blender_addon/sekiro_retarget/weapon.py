@@ -17,6 +17,8 @@ from . import control_rig, figure, mapping, mirror, retarget
 
 HANDS = {'LEFT': 'L', 'RIGHT': 'R'}
 LENGTH = .05  # The shortest weapon bone, in the armature's units: a weapon's length along its long axis, or this.
+# Marks an added weapon bone, so that the bone list lists it although the rig's HKX clip has no track for it.
+ADDED = 'sekiro_added_weapon'
 
 
 def target(context):
@@ -147,9 +149,10 @@ def add(context, rig, objects, hand, bone='', name=''):
     for collection in edits[holder_name].collections:
         collection.assign(edit)
     bpy.ops.object.mode_set(mode='OBJECT')
+    rig.data.bones[name][ADDED] = True
     rig.pose.bones[name].rotation_mode = rig.pose.bones[holder_name].rotation_mode
     settings = context.scene.sekiro_retarget
-    if settings.target == rig and settings.rows:
+    if rig in (settings.source, settings.target) and settings.rows:
         notes.append('Match bones again in the Retarget tab to list it in the bone list.')
     return dict(rig=rig.name, bone=name, holder=holder_name, meshes=[obj.name for obj in objects],
                 length=(tail - head).length * retarget.uniform_scale(rig), frame=context.scene.frame_current, notes=notes)

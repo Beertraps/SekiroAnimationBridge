@@ -579,18 +579,19 @@ def convert(request):
         return str(output)
 
 
-CHARACTER_MODES = ('character-export', 'character-clone', 'character-verify', 'character-parts')
+CHARACTER_MODES = ('character-export', 'character-model', 'character-clone', 'character-verify', 'character-parts')
 
 
 def character(request):
-    """A new Sekiro character (docs/CHARACTER_EXPORT_PLAN.md): export a scene as one, write the template under the new
-    ID, check a written mod folder, or list the template's parts in a map."""
+    """A new Sekiro character (docs/CHARACTER_EXPORT_PLAN.md): export a scene as one, write a scene of a vanilla
+    character as its model only, write the template under the new ID, check a written mod folder, or list the
+    template's parts in a map."""
     import character_export
     mode = request['mode']
     if mode not in CHARACTER_MODES:
-        raise ValueError('Choose character-export, character-clone, character-verify or character-parts.')
+        raise ValueError('Choose character-export, character-model, character-clone, character-verify or character-parts.')
     template = request.get('template') or 'c1010'
-    new_id = request.get('characterId', '')
+    new_id = request.get('characterId', '') or (template if mode == 'character-model' else '')
     game_root = request.get('gameFolder', '')
     map_name = request.get('map', '')
     parts = list(request.get('parts') or [])
@@ -634,9 +635,16 @@ def character(request):
                   if request.get(key) is not None for arg in (flag, request[key])]
         run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export-character',
              '--output-dir', manifest, *(['--action', request['action']] if request.get('action') else []), *frames])
-        event('character', 'Writing the model, textures, skeleton, behavior and clip', 40)
-        report = character_export.export(manifest / 'manifest.json', game_root, template, new_id, output, map_name, parts, work,
-                                         pairs=request.get('pairs') or None, texture_size=int(request.get('textureSize') or 2048))
+        if mode == 'character-model':
+            event('character', f"Writing the model and textures of {new_id}; {template}'s skeleton, clips and behavior "
+                               'stay', 40)
+            report = character_export.model(manifest / 'manifest.json', game_root, template, output, new_id, map_name,
+                                            parts, work, texture_size=int(request.get('textureSize') or 2048))
+        else:
+            event('character', 'Writing the model, textures, skeleton, behavior and clip', 40)
+            report = character_export.export(manifest / 'manifest.json', game_root, template, new_id, output, map_name,
+                                             parts, work, pairs=request.get('pairs') or None,
+                                             texture_size=int(request.get('textureSize') or 2048))
     for warning in report.get('warnings', []):
         print('NOTICE: ' + warning, flush=True)
     checks = report.get('verify', {}).get('checks', [])

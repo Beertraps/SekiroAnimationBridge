@@ -32,8 +32,8 @@ const help={
  characterAction:['Action','The action written as the new character’s idle clip, a000_000000. Empty: the rig’s active action in the saved scene.'],
  characterTextureSize:['Texture size','The longest side of each written texture. Larger images are scaled down; smaller ones keep their size. 2048 pixels matches most Sekiro characters.'],
  characterGameFolder:['Sekiro game folder','The Sekiro folder that holds chr and map, unpacked with UXM or Mod Engine. The template’s files are read from it and never changed. The bridge refuses to write into it.'],
- characterTemplate:['Template','The Sekiro character whose files the new one starts from: its behavior, animations, parameters and map placements. Empty: c1010, the Ashina soldier. A humanoid template suits a humanoid character.'],
- characterId:['New character ID','The ID under which the new character is written, such as c1800. Choose an ID that Sekiro does not use, so the template stays as it is in every other place.'],
+ characterTemplate:['Template','The Sekiro character whose files the new one starts from: its behavior, animations, parameters and map placements. Empty: c1010, the Ashina soldier. A humanoid template suits a humanoid character.\n\nWith Write model only, the template is the character whose model the scene replaces. The scene must be that character, imported by Animation Bridge.'],
+ characterId:['New character ID','The ID under which the new character is written, such as c1800. Choose an ID that Sekiro does not use, so the template stays as it is in every other place.\n\nWith Write model only, leave it empty to write the model under the template’s own ID: every one of that character in the game then gets the new model.'],
  characterMap:['Map','The map whose enemies become the new character, such as m11_00_00_00 for Ashina Outskirts. List parts shows the enemies in that map that use the template; tick the ones to replace. Empty, or no part ticked: the character is written but not placed.'],
  characterOutput:['Mod folder','An empty folder for the mod. It gets chr\\<ID>.chrbnd.dcx and the other character files, and with parts chosen, map\\mapstudio\\<map>.msb.dcx. A .me3 profile of the same name is written beside it; open it with me3 to start the game with the mod.'],
  source:['Sources','A source is a folder the bridge reads game files from: an unpacked game, a mod folder in the game’s own structure, or a folder of archives you collected. Add as many as you like and switch between them; each one remembers its layout, game and your last selection.\n\nSource files are only read. Extracted animation inputs are cached in the bridge’s work folder, and scenes are saved where you choose.'],
@@ -1091,26 +1091,30 @@ async function startCharacter(mode){
  try{
   if(job?.status==='running')throw Error('Wait for the current operation, or cancel it first.');
   const keys={'character-parts':['characterGameFolder','characterMap'],'character-clone':['characterGameFolder','characterId','characterOutput'],
-   'character-export':['blender','characterBlend','characterGameFolder','characterId','characterOutput'],'character-verify':['characterId','characterOutput']}[mode];
+   'character-export':['blender','characterBlend','characterGameFolder','characterId','characterOutput'],'character-model':['blender','characterBlend','characterGameFolder','characterOutput'],
+   'character-verify':['characterId','characterOutput']}[mode];
   requireFields(keys);
-  if(mode!=='character-parts'&&!/^c\d{4}$/i.test($('characterId').value.trim()))throw Error('Write the new character ID like Sekiro’s, a c and four digits, such as c1800.');
+  const id=$('characterId').value.trim();
+  if(mode!=='character-parts'&&!(mode==='character-model'&&!id)&&!/^c\d{4}$/i.test(id))throw Error('Write the new character ID like Sekiro’s, a c and four digits, such as c1800.');
   const found=new Set((config.characterPartsFound||[]).map(p=>p.name));
   const chosen=(config.characterParts||[]).filter(name=>found.has(name));
   if(chosen.length&&!$('characterMap').value.trim())throw Error('Name the map whose parts become the new character.');
-  const extra={mode,characterParts:chosen};if(mode==='character-export'||mode==='character-clone')extra.force=$('character-force').checked;
+  if(mode==='character-model'&&!id&&chosen.length)throw Error('Map parts need a new character ID. Without one, the model replaces every one of the template in the game already.');
+  const extra={mode,characterParts:chosen};if(['character-export','character-clone','character-model'].includes(mode))extra.force=$('character-force').checked;
   await startJob(extra);
-  toast({'character-parts':'Reading the map…','character-clone':'Writing the template under the new ID…','character-export':'Writing the new character…','character-verify':'Checking the mod folder…'}[mode]);
+  toast({'character-parts':'Reading the map…','character-clone':'Writing the template under the new ID…','character-export':'Writing the new character…','character-model':'Writing the model…','character-verify':'Checking the mod folder…'}[mode]);
  }catch(e){toast(e.message,true);}
 }
 function characterChecks(r){return r.checks||r.verify?.checks||[];}
 const stageSets={'character-parts':[['character','Read map'],['done','Parts listed']],'character-verify':[['validate','Check'],['character','Read back'],['done','Ready']],
  'character-clone':[['validate','Check'],['character','Write files'],['done','Ready']],'character-export':[['validate','Check'],['blender','Read scene'],['character','Write files'],['done','Ready']],
+ 'character-model':[['validate','Check'],['blender','Read scene'],['character','Write model'],['done','Ready']],
  discover:[['inventory','Scan source'],['done','Choose a character']],inventory:[['inventory','Read archives'],['done','Animations listed']],inspect:[['validate','Check'],['blender','Read scene'],['done','Ready']],
  import:[['validate','Check'],['decode','Decode'],['character','Character'],['blender','Blender'],['done','Ready']],export:[['validate','Check'],['blender','Sample'],['write','Write HKX'],['done','Ready']]};
 function updateJob(value){
  if(!value)return;job=value;
  const running=value.status==='running',success=value.status==='success',error=value.status==='failed';
- ['run-import','run-export','inspect-scene','rescan','run-character','character-clone','character-verify','character-list-parts'].forEach(id=>$(id).disabled=running);
+ ['run-import','run-export','inspect-scene','rescan','run-character','character-clone','character-model','character-verify','character-list-parts'].forEach(id=>$(id).disabled=running);
  $('rescan').classList.toggle('spinning',running&&value.mode==='discover');
  $('cancel-job').hidden=!running;
  const dock=$('activity');dock.classList.toggle('running',running);dock.classList.toggle('error',error);dock.classList.toggle('success',success);
@@ -1463,7 +1467,7 @@ document.querySelectorAll('[name="format"]').forEach(el=>el.addEventListener('ch
 ['import-force','export-force','character-force'].forEach(id=>$(id).addEventListener('change',()=>{config.force=$(id).checked;saveSoon();}));
 $('character-parts').addEventListener('change',e=>{const name=e.target.dataset.characterPart;if(!name)return;const chosen=new Set(config.characterParts||[]);if(e.target.checked)chosen.add(name);else chosen.delete(name);config.characterParts=[...chosen];saveSoon();});
 $('character-list-parts').addEventListener('click',()=>startCharacter('character-parts'));$('run-character').addEventListener('click',()=>startCharacter('character-export'));
-$('character-clone').addEventListener('click',()=>startCharacter('character-clone'));$('character-verify').addEventListener('click',()=>startCharacter('character-verify'));
+$('character-clone').addEventListener('click',()=>startCharacter('character-clone'));$('character-model').addEventListener('click',()=>startCharacter('character-model'));$('character-verify').addEventListener('click',()=>startCharacter('character-verify'));
 $('character-use-import').addEventListener('click',()=>{const path=config.lastImportedBlend||'';if(!path)return toast('Import a character first, or browse to an existing scene.');$('characterBlend').value=path;saveSoon();toast('Using '+basename(path)+'.');});
 $('scan').addEventListener('click',()=>findModels());$('add-models').addEventListener('click',()=>pick('models',{multiple:true}));
 $('donor-pin').addEventListener('click',()=>{try{pinDonor();}catch(e){toast(e.message,true);}});$('donor-remove').addEventListener('click',removeDonor);
