@@ -32,6 +32,20 @@ def preview_sampler_kind(info):
     return target
 
 
+def export_texture(texture, target, color):
+    """Write a TPF texture as a PNG image; returns the image's path and whether its values are linear.
+
+    Preserve the DDS transfer function. Most Sekiro albedo TPFs are sRGB BC7 or BC1. texconv's plain RGBA output
+    decodes sRGB to linear values, which Blender would read as sRGB and show too dark: color images keep their stored
+    sRGB values, data images get the linear values the game's shader samples.
+    """
+    data = texture.data
+    dx10 = len(data) >= 132 and data[84:88] == b'DX10'
+    keep_srgb = color and dx10 and int.from_bytes(data[128:132], 'little') in {29, 72, 75, 78, 91, 93, 99}
+    texture.export_png(target, fmt='R8G8B8A8_UNORM_SRGB' if keep_srgb else 'rgba')
+    return dict(path=str(target.resolve()), linear=bool(dx10 and not keep_srgb))
+
+
 def selected_mesh_indices(flver, masks=None):
     if masks is None:
         return list(range(len(flver.meshes)))
@@ -277,14 +291,8 @@ def prepare_character(sources, output_dir, texture_dir="", material_binder="", t
         if stem in converted:
             return converted[stem]
         if stem in textures:
-            texture = textures[stem]
             target = texture_out / f"{re.sub(r'[^a-zA-Z0-9_.-]', '_', stem)}.png"
-            texture.export_png(target)
-            # Most Sekiro albedo TPFs are linear UNORM. Preserve the DDS transfer function.
-            data = texture.data
-            dx10 = len(data) >= 132 and data[84:88] == b'DX10'
-            srgb = dx10 and int.from_bytes(data[128:132], 'little') in {29, 72, 75, 78, 91, 93, 99}
-            value = dict(path=str(target.resolve()), linear=bool(dx10 and not srgb), stem=stem)
+            value = dict(export_texture(textures[stem], target, is_color), stem=stem)
         elif stem in images:
             value = dict(path=images[stem], linear=False, stem=stem)
         else:

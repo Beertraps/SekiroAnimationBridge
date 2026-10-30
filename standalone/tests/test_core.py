@@ -1,13 +1,15 @@
 """Owned synthetic fixtures only; integration evidence is recorded separately."""
+import struct
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 from types import SimpleNamespace as S
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from flver_geometry import influences, extract_model
-from character_assets import PRESETS, scan_character, sampler_priority, preview_sampler_kind, material_uses_alpha, mesh_mask, selected_mesh_indices
+from character_assets import PRESETS, scan_character, sampler_priority, preview_sampler_kind, material_uses_alpha, mesh_mask, selected_mesh_indices, export_texture
 from bridge_runtime import output_file, sampling_arguments, writer_arguments
 
 
@@ -99,6 +101,32 @@ class Discovery(unittest.TestCase):
         self.assertEqual(preview_sampler_kind(dict(semantic='Character_snp_Texture2D_1_EmissiveMap',texture='owned_glow_e')),'emissive')
         self.assertEqual(mesh_mask('#11# shige body'),'11')
         self.assertEqual(mesh_mask('eye'),'')
+    def test_srgb_textures_keep_their_stored_values_for_color(self):
+        from soulstruct.containers.tpf import TPFTexture
+        def dds(dxgi):
+            # A 4x4 uncompressed DX10 DDS filled with gray 128.
+            header=struct.pack('<4s7I44x',b'DDS ',124,0x100F,4,4,16,0,1)+struct.pack('<2I4s5I',32,4,b'DX10',0,0,0,0,0)
+            return header+struct.pack('<4I4x',0x1000,0,0,0)+struct.pack('<5I',dxgi,3,0,1,0)+bytes([128,128,128,255])*16
+        def first_pixel(path):
+            # The first pixel of a PNG is stored as is under every row filter.
+            data=Path(path).read_bytes();pos=8;idat=b''
+            while pos<len(data):
+                length,kind=struct.unpack('>I4s',data[pos:pos+8])
+                if kind==b'IDAT':idat+=data[pos+8:pos+8+length]
+                pos+=12+length
+            return list(zlib.decompress(idat)[1:4])
+        with tempfile.TemporaryDirectory() as temp:
+            def export(dxgi,color):
+                target=Path(temp)/f'owned_{dxgi}_{color}.png'
+                return export_texture(TPFTexture(stem='owned_a',data=dds(dxgi)),target,color),first_pixel(target)
+            # R8G8B8A8_UNORM_SRGB: color keeps 128 and is read as sRGB; data gets the linear value the shader samples.
+            image,pixel=export(29,True)
+            self.assertFalse(image['linear']);self.assertEqual(pixel,[128]*3)
+            image,pixel=export(29,False)
+            self.assertTrue(image['linear']);self.assertTrue(all(abs(v-55)<=1 for v in pixel),pixel)
+            # R8G8B8A8_UNORM stays as stored and linear.
+            image,pixel=export(28,True)
+            self.assertTrue(image['linear']);self.assertEqual(pixel,[128]*3)
     def test_wolf_includes_kusabimaru_only_when_available(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)

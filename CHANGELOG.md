@@ -2,6 +2,7 @@
 
 - **A missing package tool is named when the folder is chosen.** A game package whose decoder is not built, such as the `packages\unreal` folder of GitHub's *Source code* ZIP unpacked into a release, failed only at the scan, with *Unreal decoder is missing*. The source dialog now says so as soon as the game folder is chosen, and shows the detection as a warning. In the bridge folder the message says to run the package's build script; for an installed package it says to install its package ZIP again.
 - The Unreal decoder's build copies the licenses of the .NET runtime it carries, and of ACL and RTM when it builds the native library, next to the decoder, so its package ZIP can be handed on. The [Unreal guide](docs/games/unreal.md) says how to build that ZIP and install it into a release.
+- **FromSoftware characters show their true colors in Blender.** Imported characters looked too dark. Soulstruct's PNG conversion turned sRGB textures, such as Sekiro's BC7 and BC1 albedo, into linear values, and Blender then read those values as sRGB a second time. Color images (albedo, tint and emissive) now keep their stored sRGB values. Normal maps stay Non-Color and do not change. Only the preview changes: catalogs and HKX exports are the same. Scenes imported before keep their dark images; import them again.
 
 ## Retarget Assistant 0.11.0: weapons and props, bone list search
 
