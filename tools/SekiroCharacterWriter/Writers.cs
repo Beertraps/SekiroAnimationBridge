@@ -55,9 +55,9 @@ static class FlverWriter
                 var m = Matrix(Json.Floats(world));
                 Matrix4x4.Invert(parentWorld, out var inverse);
                 var local = m * inverse;
-                if (!Matrix4x4.Decompose(local, out var scale, out var rotation, out var translation))
+                if (!Matrix4x4.Decompose(local, out var scale, out _, out var translation))
                     throw new InvalidDataException($"The bind transform of {node.Name} cannot be split into scale, rotation and translation.");
-                (node.Translation, node.Rotation, node.Scale) = (translation, Euler(rotation), scale);
+                (node.Translation, node.Rotation, node.Scale) = (translation, Euler(local, scale), scale);
                 worlds[i] = node.ComputeLocalTransform() * parentWorld;
                 worstNode = Math.Max(worstNode, Difference(worlds[i], m));
             }
@@ -252,14 +252,41 @@ static class FlverWriter
         return new[] { d.M11, d.M12, d.M13, d.M21, d.M22, d.M23, d.M31, d.M32, d.M33, d.M41, d.M42, d.M43 }.Max(v => Math.Abs((double)v));
     }
 
-    // Angles for FLVER.Node.ComputeLocalTransform, which rotates about X, then Z, then Y.
-    public static Vector3 Euler(Quaternion q)
+    // Angles for FLVER.Node.ComputeLocalTransform, which rotates about X, then Z, then Y, from a local transform and the
+    // scale Matrix4x4.Decompose found in it. They come from the rotation rows in double, not through a float quaternion:
+    // that round trip left a bone turned exactly 90° about Z (Wolf's B_Wepon_Case0_R) just off the gimbal, where X and Y
+    // then followed rounding noise and the node missed its bind by 0.0142. Near 90° about Z, X and Y turn about one axis,
+    // so both splits are tried and the one that rebuilds the rotation better is kept.
+    public static Vector3 Euler(Matrix4x4 local, Vector3 scale)
     {
-        var m = Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(q));
-        float z = MathF.Asin(Math.Clamp(m.M12, -1f, 1f));
-        if (MathF.Abs(MathF.Cos(z)) > 1e-5f)
-            return new Vector3(MathF.Atan2(-m.M32, m.M22), MathF.Atan2(-m.M13, m.M11), z);
-        return new Vector3(0, MathF.Atan2(m.M31, m.M33), z);
+        var r = new double[3, 3]
+        {
+            { local.M11 / (double)scale.X, local.M12 / (double)scale.X, local.M13 / (double)scale.X },
+            { local.M21 / (double)scale.Y, local.M22 / (double)scale.Y, local.M23 / (double)scale.Y },
+            { local.M31 / (double)scale.Z, local.M32 / (double)scale.Z, local.M33 / (double)scale.Z },
+        };
+        double z = Math.Asin(Math.Clamp(r[0, 1], -1, 1));
+        var split = (X: Math.Atan2(-r[2, 1], r[1, 1]), Y: Math.Atan2(-r[0, 2], r[0, 0]));
+        var gimbal = (X: 0.0, Y: Math.Atan2(r[2, 0], r[2, 2]));
+        var best = Miss(split.X, split.Y, z, r) <= Miss(gimbal.X, gimbal.Y, z, r) ? split : gimbal;
+        return new Vector3((float)best.X, (float)best.Y, (float)z);
+    }
+
+    // How far the rotation X, then Z, then Y (row vectors, as System.Numerics) lies from r.
+    static double Miss(double x, double y, double z, double[,] r)
+    {
+        double cx = Math.Cos(x), sx = Math.Sin(x), cy = Math.Cos(y), sy = Math.Sin(y), cz = Math.Cos(z), sz = Math.Sin(z);
+        var m = new double[3, 3]
+        {
+            { cz * cy, sz, -cz * sy },
+            { -cx * sz * cy + sx * sy, cx * cz, cx * sz * sy + sx * cy },
+            { sx * sz * cy + cx * sy, -sx * cz, -sx * sz * sy + cx * cy },
+        };
+        double miss = 0;
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                miss = Math.Max(miss, Math.Abs(m[i, j] - r[i, j]));
+        return miss;
     }
 
     static void Link(List<FLVER.Node> nodes)

@@ -104,6 +104,7 @@ The Retarget Assistant's matcher (`blender_addon/sekiro_retarget/mapping.py`) pa
 The writer starts from the template FLVER with SoulsFormats `FLVER2`. It keeps the header, the vertex buffer layout and the GX lists of a `c1010` material, and replaces bones, meshes, materials and dummy polys.
 
 - Nodes: `Master`, `Root`, the scene's bones (weighted ones and their ancestors first), the template's dummy poly holders, one node per mesh.
+- A node stores its rotation as angles about X, then Z, then Y. The writer (`Euler` in `Writers.cs`) takes them from the local rotation matrix in double. Near 90° about Z, X and Y turn about one axis, so it tries both ways of splitting them and keeps the one that rebuilds the rotation better. A node whose rebuilt bind differs by more than 1e-3 stops the export. Wolf's `B_Wepon_Case0_R` and `B_Wepon_Case0_L` turn exactly 90° about Z: through a float quaternion they missed by 0.0142, now Wolf's worst node misses by 0.00025.
 - A vertex names its bones with one byte, so a model skins with 256 nodes at most. Until the weighted bones and their ancestors fit in 254, the lightest bone that holds no other needed bone gives its weights to its parent (`reduce_weighted_bones`). Dante: 150 face bones merged, 218 weighted nodes.
 - Vertices: position, normal, tangent, four bone indices and weights, two UV sets, converted from Blender to the FromSoftware space.
 - Bounding boxes for the model, each mesh and each bone. The full mesh is written into each face-set variant of the template.
