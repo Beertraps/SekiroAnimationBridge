@@ -2,7 +2,8 @@
 
 Checks that FromSoftware's conversion is unchanged, that an RE Engine motion (and one with a unit scale)
 imports, exports and round-trips in its own space, and that a version 5 character manifest builds its
-meshes, model bones and materials in that space.
+meshes, model bones and materials in that space. A triangle wound as a left-handed (FromSoftware, Unreal) or
+right-handed (RE Engine) source winds a front face comes into Blender wound with its custom normals, which stay.
 """
 import json
 import math
@@ -18,9 +19,11 @@ from mathutils import Matrix, Quaternion, Vector
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from blender_bridge import bl_to_game_trs, export_motion, game_to_bl_trs, import_motion  # noqa: E402
 from blender_character import import_character  # noqa: E402
-from games.space import RE_ENGINE, RE_ENGINE_BASIS, Space  # noqa: E402
+from games.space import FROMSOFT, RE_ENGINE, RE_ENGINE_BASIS, Space  # noqa: E402
 
 COUNT = 8
+# Unreal: Z up, left-handed, centimetres.
+UNREAL_BASIS = ((1, 0, 0), (0, -1, 0), (0, 0, 1))
 
 
 def turn(axis, angle):
@@ -255,10 +258,44 @@ def check_weapon(rig, temp):
     bpy.context.scene.frame_set(1)
 
 
+def check_winding(rig, motion, temp, space, label):
+    """A triangle wound as the source winds a front face: clockwise around its normal in a left-handed space, such as
+    FLVER's or Unreal's, counter-clockwise in a right-handed one. Blender winds it with its custom normals, which stay."""
+    bones = motion['skeleton']['bones']
+    normal = np.asarray([.2, .3, .9], np.float32) / np.linalg.norm([.2, .3, .9])
+    # Counter-clockwise around the source's +Z.
+    positions = np.asarray([[0, 1, .1], [.1, 1, .1], [0, 1.1, .1]], np.float32)
+    faces = np.asarray([[0, 2, 1] if space.reflects else [0, 1, 2]], np.int32)
+    data = Path(temp) / f'winding_{label}.npz'
+    np.savez(data, positions=positions, normals=np.tile(normal, (3, 1)), uvs=np.zeros((3, 2), np.float32),
+             uv_0=np.zeros((3, 2), np.float32), bone_indices=np.asarray([[1, 0, 0, 0]] * 3, np.int32),
+             bone_weights=np.asarray([[1, 0, 0, 0]] * 3, np.float32), faces=faces,
+             face_materials=np.asarray([0], np.int32), vertex_materials=np.zeros(3, np.int32),
+             bone_names=np.asarray([b['name'] for b in bones]), bone_parents=np.asarray([b['parent'] for b in bones], np.int32),
+             bone_translations=np.asarray([b['translation'] for b in bones], np.float32),
+             bone_quaternions=np.asarray([b['rotation'] for b in bones], np.float32),
+             bone_scales=np.ones((len(bones), 3), np.float32), material_names=np.asarray(['skin']))
+    skin = dict(name='skin', mtd='Skin.mtd', family='Owned', albedo=None, normal=None, emissive=None, samplers=[],
+                alpha=False, color=[.8, .7, .6])
+    manifest = dict(version=5, game='owned', boneRotation='quaternion', warnings=[], material_library='', texture_count=0,
+                    models=[dict(name=f'winding_{label}', source=f'owned/winding_{label}', data=str(data), materials=[skin],
+                                 stats=dict(vertices=3, triangles=1), attachment=None, role='Body')], **space.to_json())
+    path = Path(temp) / f'winding_{label}.json'
+    path.write_text(json.dumps(manifest), encoding='utf-8')
+    mesh = import_character(path, rig)[0].data
+    assert close(mesh.polygons[0].normal, space.vector((0, 0, 1)), 1e-5), (label, mesh.polygons[0].normal)
+    expected = Vector(space.vector(normal)).normalized()
+    for corner in mesh.corner_normals:
+        assert close(corner.vector, expected, 1e-4), (label, corner.vector, expected)
+
+
 with tempfile.TemporaryDirectory() as temp:
     check_motion(Space(RE_ENGINE_BASIS, .01), temp)
     rig, motion = check_motion(RE_ENGINE, temp)
     check_character(rig, motion, temp)
     check_weapon(rig, temp)
+    for space, label in ((FROMSOFT, 'fromsoft'), (Space(UNREAL_BASIS, .01), 'unreal'), (RE_ENGINE, 're_engine')):
+        check_winding(rig, motion, temp, space, label)
 print('PASS: FromSoftware conversion unchanged; RE Engine and scaled motions import, export and round-trip in their space; '
-      'manifest 5 meshes, model bones and materials follow it; a weapon on a joint hangs below it and follows it', flush=True)
+      'manifest 5 meshes, model bones and materials follow it; a weapon on a joint hangs below it and follows it; '
+      'FromSoftware, Unreal and RE Engine front faces wind with their custom normals, which stay', flush=True)

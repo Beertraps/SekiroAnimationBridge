@@ -393,8 +393,9 @@ def import_preview_model(preview_data_path: Path, rig, texture_path: Path | None
 
     # Sekiro uses Y-up and a left-handed basis. The animation bridge maps positions to Blender by swapping Y/Z.
     blender_vertices = [(float(x), float(z), float(y)) for x, y, z in positions]
-    # The Y/Z swap reflects the basis, so reverse each triangle's winding to preserve its front face.
-    blender_faces = [(int(face[0]), int(face[2]), int(face[1])) for face in faces]
+    # FLVER winds front faces clockwise in its left-handed space; the Y/Z swap reflects, so the triangles keep their
+    # order and wind counter-clockwise, as Blender winds them.
+    blender_faces = [(int(face[0]), int(face[1]), int(face[2])) for face in faces]
 
     mesh_data = bpy.data.meshes.new("Sekiro Preview Mesh")
     mesh_data.from_pydata(blender_vertices, [], blender_faces)

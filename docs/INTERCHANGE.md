@@ -32,7 +32,7 @@ From these two values:
 | Scale | the components reordered like *B*'s columns, without signs |
 | Quaternion (x, y, z, w) | w unchanged, (x, y, z) becomes `det(B) · B · (x, y, z)` |
 | Normal | `B · n` |
-| Triangle | winding reversed when `det(B) = −1` |
+| Triangle | corner order kept (see below) |
 | Bone rest matrix *M* | `C · M · C⁻¹` with `C = unitScale · B` |
 
 Known spaces:
@@ -42,6 +42,8 @@ Known spaces:
 | FromSoftware (Havok, FLVER) | `[[1,0,0],[0,0,1],[0,1,0]]` | 1 | Y up, left-handed: swap Y and Z, which reflects |
 | RE Engine | `[[1,0,0],[0,0,-1],[0,1,0]]` | 1 | Y up, right-handed: +90° about X, no reflection |
 | Unreal Engine 4 and 5 | `[[1,0,0],[0,-1,0],[0,0,1]]` | 0.01 | Z up, left-handed, centimetres: flip Y, which reflects |
+
+A triangle keeps its corner order. Seen from the front, its corners run counter-clockwise in a right-handed source and clockwise in a left-handed one (`det(B) = −1`), as FLVER and Unreal meshes do. The mirror of a left-handed basis turns them counter-clockwise, which is how Blender winds a front face. A source that winds the other way reverses its triangles when it writes `faces`: id Tech is right-handed and winds clockwise, so the DOOM Eternal package swaps two corners of each triangle.
 
 A document without `basis` uses the FromSoftware space. This keeps every motion JSON and manifest written before version 2 valid, including the ones embedded in existing `.blend` files. The conversion code is `standalone/games/space.py`; with the FromSoftware basis it gives exactly the results of the bridge's earlier, fixed Y/Z swap.
 
@@ -129,7 +131,7 @@ One compressed NumPy archive per model, loaded with `allow_pickle=False`.
 | `uv_0`, `uv_1`, … | (n, 2) float32 | every UV set; materials name theirs by number |
 | `bone_indices` | (n, 4) int32 | indices into `bone_names` |
 | `bone_weights` | (n, 4) float32 | weights summing to 1 |
-| `faces` | (m, 3) int32 | triangles in the source's winding |
+| `faces` | (m, 3) int32 | triangles, front faces wound as the source's handedness winds them (see Source space) |
 | `face_materials` | (m,) int32 | index into the model's materials |
 | `vertex_materials` | (n,) int32 | the material of the submesh each vertex belongs to |
 | `bone_names` | (b,) str | the model's bones |
