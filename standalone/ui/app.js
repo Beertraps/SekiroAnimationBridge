@@ -421,8 +421,9 @@ async function resolveClip(restore=false){
   selection=resolved;
   for(const key of ['animation','skeleton','compendium','skeletonCompendium','characterSource','preset'])$(key).value=resolved[key]||'';
   for(const key of ['materialBinder','textureDirectory','referenceModel'])$(key).value=state.overrides?.[key]||resolved[key]||'';
-  const npc=clip.character!=='c0000',saved=state.modelChoices?.[clip.character]||(restore&&state.character===characterId?(state.models||config.models||[])[0]:'');
-  const models=new Set(restore?state.models||config.models||[]:[]);
+  const npc=clip.character!=='c0000'&&!catalog.engine,choice=state.modelChoices?.[clip.character];
+  const saved=npc&&(choice||(restore&&state.character===characterId?(state.models||config.models||[])[0]:''));
+  const models=new Set(Array.isArray(choice)?choice:restore&&!catalog.engine?state.models||config.models||[]:[]);
   parts=resolved.parts;
   if(npc&&saved&&parts.some(p=>p.path===saved))parts.forEach(p=>p.selected=p.path===saved);
   else if(!npc&&models.size&&parts.some(p=>models.has(p.path)))parts.forEach(p=>p.selected=models.has(p.path));
@@ -449,6 +450,8 @@ let partView=false,weapons=null,weaponsFor=null,weaponSequence=0,weaponPath='',w
 try{partView=localStorage.getItem('bridge-part-view')==='1';}catch(e){}
 const sekiroSource=()=>{const source=activeSource();return !!source&&(catalog?catalog.game==='sekiro'||(catalog.games||[]).includes('sekiro'):sourceGame(source)==='sekiro');};
 const showsParts=()=>partView&&inputMethod==='folder'&&sekiroSource();
+// A game package's character is made of several parts, such as a body, a head and weapons: each gets a checkbox.
+const packageSource=()=>inputMethod==='folder'&&!!catalog?.engine;
 const partPlayer=()=>catalog?.characters.find(c=>c.id===weaponData?.characterKey);
 const partClipRows=()=>weaponData?.models?weaponData.models.flatMap(m=>m.clips.map(c=>({...c,model:m.model,modelName:m.name,key:m.model+'|'+c.id}))):[];
 const currentPartClip=()=>partClipRows().find(r=>r.key===weaponClip);
@@ -810,7 +813,7 @@ function renderParts(){
  $('manual-model-tools').hidden=folder;$('scan').hidden=folder;document.querySelector('.model-tools').hidden=folder&&!clip;
  $('preset').hidden=folder&&!(clip?.character==='c0000'&&clip?.game==='sekiro');
  if(!parts.length){box.innerHTML='';renderModelMasks();updateAssembly();return;}
- if(folder&&clip&&clip.character!=='c0000'){
+ if(folder&&clip&&clip.character!=='c0000'&&!packageSource()){
   const selected=parts.find(p=>p.selected),options=parts.map(p=>`<option value="${escape(p.path)}" ${p===selected?'selected':''}>${escape(p.name)} · ${escape(basename(p.path))}</option>`).join('');
   box.innerHTML=`<div class="part-row"><span>Model file</span><select data-npc-model aria-label="Character model for this animation" title="${escape(selected?.path||'')}"><option value="">Choose a model</option>${options}</select></div>`;
   renderModelMasks();updateAssembly();return;
@@ -819,7 +822,7 @@ function renderParts(){
  const roles=wolf?wolfRoles:player?playerRoles.filter(([r])=>parts.some(p=>prefix(p)===r)):[];
  const regions=new Set(roles.map(([r])=>r)),weapons=parts.filter(p=>/^wp_/i.test(p.id)),others=parts.filter(p=>!regions.has(prefix(p))&&!/^wp_/i.test(p.id));
  const pieces=others.some(p=>p.role==='Head'||p.joints);
- let html=roles.length?(player?'<p class="note">One piece per region is chosen when only one is available. Pick the outfit pieces you want.</p>':'')+roles.map(regionRow).join(''):(others.length?`<p class="note">${pieces?'A body marked “without head” needs a Head and a Hair part; one marked “with head” is complete. A weapon hangs on the joint chosen beside it.':'Select the model that matches the animation’s skeleton. One model is enough.'}</p>${others.map(modelRow).join('')}`:'');
+ let html=roles.length?(player?'<p class="note">One piece per region is chosen when only one is available. Pick the outfit pieces you want.</p>':'')+roles.map(regionRow).join(''):(others.length?`<p class="note">${pieces?'A body marked “without head” needs a Head and a Hair part; one marked “with head” is complete. A weapon hangs on the joint chosen beside it.':packageSource()?'Tick each mesh the character is made of.':'Select the model that matches the animation’s skeleton. One model is enough.'}</p>${others.map(modelRow).join('')}`:'');
  const extras=roles.length?[...others,...weapons]:weapons;
  if(extras.length)html+=extrasBlock(extras,roles.length?'Weapons & extra parts':'Weapon placement');
  box.innerHTML=html;renderModelMasks();updateAssembly();
@@ -1407,7 +1410,10 @@ $('parts').addEventListener('change',event=>{
   renderParts();return saveSoon();
  }
  if(d.joint){config.weaponAttachments={...config.weaponAttachments,[d.joint]:el.value};return saveSoon();}
- if(d.model||d.extra){const part=parts.find(p=>p.path===(d.model||d.extra));if(part)part.selected=el.checked;if(d.extra&&!el.checked&&document.getElementById('extra-input'))renderParts();else{renderModelMasks();updateAssembly();}return saveSoon();}
+ if(d.model||d.extra){const part=parts.find(p=>p.path===(d.model||d.extra));if(part)part.selected=el.checked;
+  const source=activeSource(),clip=currentClip();
+  if(packageSource()&&source&&clip)source.state={...source.state,modelChoices:{...source.state?.modelChoices,[clip.character]:parts.filter(p=>p.selected).map(p=>p.path)}};
+  if(d.extra&&!el.checked&&document.getElementById('extra-input'))renderParts();else{renderModelMasks();updateAssembly();}return saveSoon();}
  if(d.region!==undefined){parts.filter(p=>prefix(p)===d.region).forEach(p=>p.selected=p.path===el.value);renderParts();return saveSoon();}
  if(d.regionInput!==undefined){
   const value=el.value.trim().toLowerCase(),matches=parts.filter(p=>prefix(p)===d.regionInput),found=matches.find(p=>p.id.toLowerCase()===value||p.name.toLowerCase()===value);

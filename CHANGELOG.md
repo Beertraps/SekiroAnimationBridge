@@ -6,6 +6,7 @@
 
 ## Devil May Cry 5: whole characters and their weapons
 
+- **The source library lists every part with a checkbox.** A character from a game package (Devil May Cry 5, DOOM Eternal, Unreal Engine) had one *Model file* menu there, so only one part could be imported. Now each part has a checkbox, its note and, for a weapon, the joint menu. The ticks are remembered for each character. FromSoftware characters keep the menu.
 - **Weapons are model parts.** A character's weapons are listed under its model parts, with their names from the game's gallery: Dante has Rebellion (`wp01_000`), Ebony and Ivory, Coyote-A, Balrog and 16 more. A menu beside each weapon chooses the joint it hangs on: *Right hand*, *Left hand*, *Back* or *Waist*. In Blender the weapon's bones hang below that joint, so it moves with the character, and a new Sekiro character made from the scene keeps it in its model. Weapons with their own animation, such as Cavaliere, stay in their rest pose.
 - **Each body says whether it has a head.** *without head* means the body needs a Head and a Hair part, as Dante's, Nero's and Vergil's do; *with head* means it is complete, as the devil trigger forms and the enemies are. The import says so when none of the ticked parts has a head.
 - **Playable Vergil (`pl0800`) has a head.** His folder holds only a body, so he came in headless. He now gets Vergil's head and hair (`pl0300_01`, `pl0300_03`), ticked by default.
