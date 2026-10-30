@@ -123,6 +123,8 @@ Each material uses a generic MTD and names its textures in the FLVER: `C[AMSN]_D
 
 A material without an albedo image gets a 4×4 `_a` in its shader color. Images are read with `texconv -srgb` and compressed with `texconv`, which comes with Soulstruct in the conversion Python. The longest side is 2048 pixels by default (`--texture-size`).
 
+An `_a` with opacity gets its mips from the export, not from texconv (`coverage_mips`). Each mip's alpha is scaled so that as many texels pass the alpha test (128) as in the full image, and color is averaged by alpha. With texconv's mips, averaged alpha fell under the test: Dante's hair kept 85% of its passing texels in mip 3, 60% in mip 5, 23% in mip 6 and none in mip 7, and vanished in the game where it was seen at a slant. `c1010_hairmerge_a` keeps 93% to 101% down to mip 7; the export's hair now keeps 98% to 104%. The texconv that comes with Soulstruct has no `--keep-coverage`.
+
 The roles come from the Blender material: `bridge_texture_roles`, which the import stores from the character manifest's `packed`, `metalness` and `roughness` fields, else the node tree. DMC5's ALBM albedo holds metalness in alpha, and NRMR holds roughness in alpha; the RE Engine package says so with `packed`. Roughness is recorded but not written: Sekiro's characters have no texture for it.
 
 ### 3.7 Clip

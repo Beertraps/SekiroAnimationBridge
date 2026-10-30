@@ -567,12 +567,44 @@ def write_mesh(folder, name, floats, bones, triangles):
 
 # Textures ------------------------------------------------------------------------------------------------------------
 
-def dds_header(width, height, dxgi):
+def dds_header(width, height, dxgi, mips=1):
     """The 148-byte header of an uncompressed DDS with a DX10 extension: magic, DDS_HEADER, DDS_HEADER_DXT10."""
-    flags = 0x1 | 0x2 | 0x4 | 0x8 | 0x1000  # caps, height, width, pitch, pixel format
-    return (struct.pack('<4s7I44s2I4s5I5I', b'DDS ', 124, flags, height, width, width * 4, 0, 1, b'\0' * 44,
-                        32, 0x4, b'DX10', 0, 0, 0, 0, 0, 0x1000, 0, 0, 0, 0)
+    flags = 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | (0x20000 if mips > 1 else 0)  # caps, height, width, pitch, format, mips
+    caps = 0x1000 | (0x400008 if mips > 1 else 0)  # texture, mipmap and complex
+    return (struct.pack('<4s7I44s2I4s5I5I', b'DDS ', 124, flags, height, width, width * 4, 0, mips, b'\0' * 44,
+                        32, 0x4, b'DX10', 0, 0, 0, 0, 0, caps, 0, 0, 0, 0)
             + struct.pack('<5I', dxgi, 3, 0, 1, 0))
+
+
+def coverage_mips(pixels, cutoff=128):
+    """A full mip chain whose alpha keeps the share of texels that pass the alpha test.
+
+    Averaged alpha falls below the test in small mips, so hair and other thin cutouts vanish at a distance and where
+    they are seen at a slant: Dante's hair kept 23% of its texels in mip 6. Each mip's alpha is scaled so that as many
+    of its texels pass as in the full image, as FromSoftware's hair textures do (c1010_hairmerge_a: 93% to 101% down
+    to mip 7). Color is averaged by alpha, so the empty texels around a strand do not darken it.
+    """
+    passing = np.mean(pixels[..., 3] >= cutoff)
+    level = pixels.astype(np.float64)
+    level[..., :3] *= level[..., 3:4]
+    levels = [pixels]
+    while max(level.shape[:2]) > 1:
+        h, w = level.shape[:2]
+        if h > 1:
+            level = (level[0:h // 2 * 2:2] + level[1:h // 2 * 2:2]) / 2
+        if w > 1:
+            level = (level[:, 0:w // 2 * 2:2] + level[:, 1:w // 2 * 2:2]) / 2
+        alpha = level[..., 3]
+        out = np.empty(level.shape, np.float64)
+        out[..., :3] = np.where(alpha[..., None] > 0, level[..., :3] / np.maximum(alpha, 1e-9)[..., None], 0)
+        out[..., 3] = alpha
+        if 0 < passing < 1:
+            reference = np.quantile(alpha, 1 - passing)
+            if reference <= 0:
+                reference = alpha[alpha > 0].min() if np.any(alpha > 0) else cutoff
+            out[..., 3] = alpha * (cutoff / reference)
+        levels.append(np.clip(np.round(out), 0, 255).astype(np.uint8))
+    return levels
 
 
 def read_rgba(path, folder, size=0):
@@ -599,17 +631,19 @@ def read_rgba(path, folder, size=0):
     return np.frombuffer(raw, np.uint8, width * height * 4, 148).reshape(height, width, 4).copy()
 
 
-def write_texture(pixels, name, kind, folder):
-    """Compress RGBA pixels into a DDS of the kind's format. Returns its path."""
+def write_texture(pixels, name, kind, folder, cutout=False):
+    """Compress RGBA pixels into a DDS of the kind's format. Returns its path. A cutout's mips keep its alpha
+    coverage (coverage_mips); texconv makes the other textures' mips."""
     folder.mkdir(parents=True, exist_ok=True)
     height, width = pixels.shape[:2]
     # Both sides a multiple of 4 for block compression.
     if width % 4 or height % 4:
         pixels = np.pad(pixels, ((0, -height % 4), (0, -width % 4), (0, 0)), mode='edge')
         height, width = pixels.shape[:2]
-    # The source as sRGB data for color, so texconv does not convert its values.
+    # The source as sRGB data for color, so texconv does not convert its values. texconv keeps a source's mips.
+    levels = coverage_mips(pixels.astype(np.uint8)) if cutout else [pixels.astype(np.uint8)]
     source = folder / f'{name}.source.dds'
-    source.write_bytes(dds_header(width, height, 29 if kind == 'a' else 28) + pixels.astype(np.uint8).tobytes())
+    source.write_bytes(dds_header(width, height, 29 if kind == 'a' else 28, len(levels)) + b''.join(l.tobytes() for l in levels))
     out = folder / 'dds'
     out.mkdir(exist_ok=True)
     result = subprocess.run([str(texconv_path()), '-nologo', '-f', FORMATS[kind][1], '-dx10', '-y', '-o', str(out), str(source)],
@@ -664,7 +698,8 @@ def material_textures(material, stem, folder, size, normal_fill, cache):
             albedo[..., 3] = mask
         else:
             albedo[..., 3] = 255
-        made['albedo'] = (f'{stem}_a', write_texture(albedo, f'{stem}_a', 'a', folder), FORMATS['a'][0])
+        made['albedo'] = (f'{stem}_a', write_texture(albedo, f'{stem}_a', 'a', folder, cutout='opacity' in roles),
+                          FORMATS['a'][0])
     elif material.get('color'):
         # No color image: a small one in the material's fixed color, so the game does not show its default texture.
         linear = np.clip(np.asarray(material['color'][:3], np.float64), 0, 1)

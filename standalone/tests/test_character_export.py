@@ -214,6 +214,23 @@ class Meshes(unittest.TestCase):
             self.assertTrue(np.all(facing<0),material)
 
 
+class Textures(unittest.TestCase):
+    def test_a_cutouts_mips_keep_the_texels_that_pass_the_alpha_test(self):
+        # Alpha mostly below the test: averaging alone leaves almost no texel above it a few mips down.
+        pixels=np.zeros((64,64,4),np.uint8);pixels[...,:3]=200
+        pixels[...,3]=np.random.default_rng(1).integers(0,161,(64,64))
+        passing=np.mean(pixels[...,3]>=128)
+        levels=character_export.coverage_mips(pixels)
+        self.assertEqual([l.shape[:2] for l in levels[:2]]+[levels[-1].shape[:2]],[(64,64),(32,32),(1,1)])
+        for level in levels[1:4]:
+            self.assertAlmostEqual(np.mean(level[...,3]>=128),passing,delta=0.03)
+        self.assertEqual(struct.unpack_from('<I',character_export.dds_header(64,64,29,len(levels)),28)[0],7)
+
+    def test_empty_texels_do_not_darken_a_cutouts_mips(self):
+        pixels=np.zeros((64,64,4),np.uint8);pixels[:,::8,:3]=200;pixels[:,::8,3]=255
+        self.assertTrue(np.all(character_export.coverage_mips(pixels)[3][...,:3]==200))
+
+
 def placed(x,y,z):
     world=np.eye(4);world[:3,3]=(x,y,z)
     return world
