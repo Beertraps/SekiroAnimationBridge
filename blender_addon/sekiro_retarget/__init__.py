@@ -3,7 +3,7 @@ bl_info = {
     'version': (0, 11, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget and Animate', 'category': 'Animation',
     'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, mirror and join animations, '
-                   'add a control rig with fixes and export HKX',
+                   'add a control rig with fixes, add weapons and export HKX',
 }
 
 import json
@@ -18,7 +18,7 @@ from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProp
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, UIList
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from mathutils import Matrix
-from . import control_rig, export, figure, fixes, join, mapping, mirror, retarget
+from . import control_rig, export, figure, fixes, join, mapping, mirror, retarget, weapon
 
 
 def armature_poll(self, obj):
@@ -374,6 +374,17 @@ class SKR_Join(PropertyGroup):
     blend: FloatProperty(name='Blend',default=.2,min=0,soft_max=1,step=5,precision=2,unit='TIME_ABSOLUTE',
         description='How long the end of the first animation and the start of the second play at once, the pose '
                     'easing from the one to the other. 0 cuts from the one to the other')
+
+
+class SKR_Weapon(PropertyGroup):
+    hand: EnumProperty(name='Held in',items=[
+        ('RIGHT','Right hand','The right hand that the bone matcher finds'),
+        ('LEFT','Left hand','The left hand that the bone matcher finds'),
+        ('BONE','Bone','Another bone, such as the back or the hip for a weapon carried on the body')],default='RIGHT',
+        description='The bone that holds the weapon: the new weapon bone hangs from it')
+    bone: StringProperty(name='Bone',description='The bone that holds the weapon')
+    bone_name: StringProperty(name='Name',
+        description='The new weapon bone\'s name; empty: R_Weapon or L_Weapon, numbered where the armature has it already')
 
 
 def fix_limb(rig,fix):
@@ -894,6 +905,33 @@ class SKR_OT_join(Operator):
                              context.scene.sekiro_join.blend)
             context.scene.sekiro_join.second=None
             tell(self,context,join.summary(result),bool(result['warnings']))
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
+
+class SKR_OT_add_weapon(Operator):
+    bl_idname='sekiro_retarget.add_weapon'
+    bl_label='Add weapon'
+    bl_description=('Give the armature a weapon bone under the chosen hand and bind the selected meshes to it where they '
+                    'are now: the weapon follows the hand on every frame, and the character export writes it with the '
+                    'model')
+    bl_options={'REGISTER','UNDO'}
+    @classmethod
+    def poll(cls,context):
+        rig=weapon.target(context)
+        if rig is None:
+            cls.poll_message_set('Select the armature to arm.');return False
+        if not weapon.meshes(context,rig):
+            cls.poll_message_set("Select the weapon's meshes.");return False
+        return True
+    def execute(self,context):
+        settings=context.scene.sekiro_weapon
+        try:
+            rig=weapon.target(context)
+            result=weapon.add(context,rig,weapon.meshes(context,rig),settings.hand,settings.bone,settings.bone_name)
+            settings.bone_name=''
+            tell(self,context,weapon.summary(result))
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -1568,20 +1606,41 @@ class SKR_PT_fixes(Panel):
         if fix.status:text(layout.box(),context,fix.status,boxed=True)
 
 
+class SKR_PT_weapon(Panel):
+    bl_label='Add weapon'
+    bl_idname='SKR_PT_animate_weapon'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category=ANIMATE;bl_options={'DEFAULT_CLOSED'}
+    def draw(self,context):
+        layout=self.layout;settings=context.scene.sekiro_weapon;rig=weapon.target(context)
+        if not rig:
+            text(layout,context,"Select the armature to arm and the weapon's meshes.",icon='INFO');return
+        layout.label(text=rig.name,icon='ARMATURE_DATA')
+        found=weapon.meshes(context,rig)
+        if found:text(layout,context,'Weapon: '+mirror.listed([obj.name for obj in found],3),icon='MESH_DATA')
+        else:text(layout,context,"Place the weapon's meshes in the hand on any frame, then select them. They stay where "
+                                 "they are on that frame and follow the hand on every frame.",icon='INFO')
+        menu(layout,settings,'hand')
+        if settings.hand=='BONE':layout.prop_search(settings,'bone',rig.data,'bones',text='Bone')
+        column=layout.column(align=True);column.prop(settings,'bone_name')
+        default=weapon.default_name(rig,settings.hand,settings.bone)
+        if default and not settings.bone_name.strip():column.label(text='Uses '+default,icon='INFO')
+        row=layout.row();row.scale_y=1.3;row.enabled=bool(found);row.operator('sekiro_retarget.add_weapon',icon='ADD')
+
+
 class SKR_PT_animate_log(LogPanel,Panel):
     bl_idname='SKR_PT_animate_log'
     bl_category=ANIMATE
 
 
-CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_GripOffset,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_Join,SKR_OT_match,SKR_OT_use_active,
-    SKR_OT_append,SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,SKR_OT_export_hkx,
-    SKR_OT_grip_adjust,SKR_OT_grip_apply,SKR_OT_grip_cancel,SKR_OT_grip_reset,SKR_OT_save_map,
+CLASSES=(SKR_Preferences,SKR_BoneMap,SKR_GripOffset,SKR_Settings,SKR_FixPose,SKR_Fix,SKR_Join,SKR_Weapon,SKR_OT_match,
+    SKR_OT_use_active,SKR_OT_append,SKR_OT_suggestion,SKR_OT_accept_all,SKR_OT_mirror,SKR_OT_bake,SKR_OT_export_target,
+    SKR_OT_export_hkx,SKR_OT_grip_adjust,SKR_OT_grip_apply,SKR_OT_grip_cancel,SKR_OT_grip_reset,SKR_OT_save_map,
     SKR_OT_load_map,SKR_OT_add_control_rig,SKR_OT_remove_control_rig,SKR_OT_mirror_animation,SKR_OT_join_load,SKR_OT_join,
-    SKR_OT_control_rig_switch,SKR_OT_fix_frame,
+    SKR_OT_add_weapon,SKR_OT_control_rig_switch,SKR_OT_fix_frame,
     SKR_OT_fix_pose,SKR_OT_fix_clear,SKR_OT_fix_apply,SKR_OT_figure_create,SKR_OT_figure_save,SKR_OT_figure_remove,
     SKR_OT_figure_forget,SKR_UL_bones,SKR_PT_panel)
 # The Animate tab's panels, in the order they are shown.
-CLASSES+=(SKR_PT_clip,SKR_PT_join,SKR_PT_control_rig,SKR_PT_fixes,SKR_PT_animate_log)
+CLASSES+=(SKR_PT_clip,SKR_PT_join,SKR_PT_control_rig,SKR_PT_fixes,SKR_PT_weapon,SKR_PT_animate_log)
 # The steps of the retarget panel, after it and in the order they are shown.
 CLASSES+=(SKR_PT_rigs,SKR_PT_figures,SKR_PT_bones,SKR_PT_bake,SKR_PT_bake_pose,SKR_PT_bake_travel,SKR_PT_bake_biped,
           SKR_PT_bake_arms,SKR_PT_bake_weapons,SKR_PT_bake_grip,
@@ -1593,6 +1652,7 @@ def register():
     bpy.types.Scene.sekiro_retarget=PointerProperty(type=SKR_Settings)
     bpy.types.Scene.sekiro_fix=PointerProperty(type=SKR_Fix)
     bpy.types.Scene.sekiro_join=PointerProperty(type=SKR_Join)
+    bpy.types.Scene.sekiro_weapon=PointerProperty(type=SKR_Weapon)
     from . import imported_pair
     imported_pair.register()
 
@@ -1600,6 +1660,7 @@ def register():
 def unregister():
     from . import imported_pair
     imported_pair.unregister()
+    del bpy.types.Scene.sekiro_weapon
     del bpy.types.Scene.sekiro_join
     del bpy.types.Scene.sekiro_fix
     del bpy.types.Scene.sekiro_retarget

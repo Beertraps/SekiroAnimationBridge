@@ -17,6 +17,14 @@
     "materials": {"type": "array", "items": {"$ref": "#/$defs/material"}},
     "images": {"type": "object"},
     "warnings": {"type": "array", "items": {"type": "string"}},
+    "leftOut": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "reason"],
+        "properties": {"name": {"type": "string"}, "reason": {"type": "string", "minLength": 1}}
+      }
+    },
     "motion": {"$ref": "#/$defs/motion"}
   },
   "$defs": {
@@ -35,7 +43,9 @@
       "required": ["name", "data"],
       "properties": {
         "name": {"type": "string"},
-        "data": {"type": "string", "minLength": 1}
+        "data": {"type": "string", "minLength": 1},
+        "bound": {"enum": ["rig", "bone", "armature"]},
+        "bone": {"type": "string", "minLength": 1}
       }
     },
     "role": {

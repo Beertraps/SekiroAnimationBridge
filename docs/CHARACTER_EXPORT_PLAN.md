@@ -111,6 +111,13 @@ The writer starts from the template FLVER with SoulsFormats `FLVER2`. It keeps t
 - Dummy polys: the template's 76, moved to the new bones by name. A dummy on a template bone the model lacks follows the nearest ancestor it has.
 - A material whose shader alpha is 0 and has no opacity image is left out, since the game would draw it opaque. Dante: `m_eyewet` and `m_eyeouter`.
 - Weapons: a game package's weapon hangs on a joint of the rig (`attachment` `{"kind": "joint"}`), its bones below the joint and its mesh skinned to the rig. The export writes it like any other mesh, so it is part of the model and moves with its joint, as the weapons of Sekiro's own enemies do. Dante with Rebellion on `WeaponConst` and Ebony and Ivory in his hands: 20 meshes, 200,862 triangles, 3 weapons' 29,090 of them; 481 bones.
+- Meshes that follow the rig in other ways (`bound_meshes` in `blender_character_export.py`):
+  - A mesh parented to a bone, or held on one by a full Copy Transforms or Child Of constraint, is weighted wholly to that bone (`bound: "bone"`).
+  - A FromSoftware weapon from a weapon slot, or a model part, has its own armature (`NAME | Weapon rig`), which follows a rig bone through its socket. Its bones join the skeleton under that bone, parents first; a taken name gets the model name in front, such as `WP_A_0310_Blade00` (`bound: "armature"`). Their motion is sampled from the scene as the rig's is.
+  - Each is written where it rests when the rig stands in its rest pose: `settle(rig, bone)` carries it from the current frame back.
+  - The export leaves out a mesh it cannot place and lists it in `leftOut` with the reason: not bound to the rig, parented to the rig object without a bone, bound to another armature, or bound to a cutscene bind adapter. A notice names each reason.
+  - The Retarget Assistant's **Add weapon** binds a mesh to a new bone under a hand, for a weapon placed by hand.
+- Wolf from `work/weapons_review/wolf_attack_weapons.blend`: his 146 bones, rests, motion and 4 body meshes stay the same, and his weapon rigs come along with 14 bones (160 in all) and 5 meshes: `WP_A_0300` on `R_Weapon` with its sheath on `Sheath`, `WP_A_0310` and its sheath on `LargeSheath`, `WP_A_0700` on `L_Forearm`.
 
 ### 3.6 Materials and textures
 

@@ -306,7 +306,7 @@ What you need: Sekiro unpacked with UXM (a game folder with `chr` and `map`), [m
 ### Step by step: Dante as c1800
 
 1. Import the character. On the **Import** page, add the Devil May Cry 5 folder as a source ([docs/games/dmc5.md](games/dmc5.md)), choose Dante (`pl0100`) and his idle `pl0100_Idle_Normal`, keep **Include the character model** on, and click **Create Blender scene**. To give him his weapons, tick them under the model parts first, such as `WP01_000 · Rebellion` on **Back** ([Model parts](games/dmc5.md#model-parts)); the new character holds them in its model.
-2. Check the scene in Blender, if you like. The character must have one armature, its meshes must follow it with an Armature modifier, and the action you want must be on the armature. Hidden meshes (camera icon off in the Outliner) are left out. Modifiers other than the Armature are not applied: apply them first (**Object > Apply**) if the game should see their result. Save the file.
+2. Check the scene in Blender, if you like. The character must have one armature, and the action you want must be on the armature. The export takes every visible mesh that moves with the armature (see [Weapons and other meshes](#weapons-and-other-meshes)). Hidden meshes (camera icon off in the Outliner) are left out. Modifiers other than the Armature are not applied: apply them first (**Object > Apply**) if the game should see their result. Save the file.
 3. Open the **Character** page. Under **Character scene**, click **Use the last imported scene**, or **Browse** to the `.blend`. Leave **Action** empty to use the armature's active action.
 4. Under **Sekiro mod**, choose the **Sekiro game folder**. Leave **Template** empty for `c1010`, the Ashina soldier. Type the **New character ID**: `c1800`.
 5. Type the **Map**, `m11_00_00_00` (Ashina Outskirts), and click **List parts**. The list shows the template's enemies in that map with their entity and NPC parameter IDs. Tick `c1010_0000`.
@@ -315,6 +315,34 @@ What you need: Sekiro unpacked with UXM (a game folder with `chr` and `map`), [m
 8. Click **Show me3 profile**: it shows `dante.me3` beside the mod folder. Start Sekiro with me3 and this profile, as me3's documentation describes. Go to the place of `c1010_0000` in Ashina Outskirts.
 
 **Write template only** writes the template itself under the new ID, with the same map change. Try it first if Dante does not load: when the copied soldier loads, the problem is in the new model, textures or skeleton, not in the renames or the map. **Check mod folder** runs the checks again on a written folder.
+
+### Weapons and other meshes
+
+The new character holds its weapons in its model: each weapon is a mesh weighted to a bone of the character. The export takes these meshes:
+
+- **Meshes with an Armature modifier on the character's armature.** These are the body and anything bound the same way.
+- **Meshes that follow one bone.** A mesh parented to a bone (**Ctrl+P > Bone**), or one with a Copy Transforms or Child Of constraint to a bone, becomes a mesh weighted wholly to that bone.
+- **Weapons and parts the bridge imported.** A Sekiro weapon from a weapon slot, or a model part from another game, comes with an armature of its own that follows a bone of the character. Its bones join the character's skeleton under that bone. Where a name is taken, the bone gets the weapon's name in front, such as `WP_A_0310_Blade00`.
+
+To give the character a weapon of your own, use **Add weapon** in the Retarget Assistant's **Animate** tab. It makes a weapon bone under the hand and binds the weapon's meshes to it:
+
+1. Import or model the weapon, and pose the character on a frame where the hand is clear.
+2. Move and turn the weapon into the hand, as it should be held.
+3. Click the armature, then Shift+click each mesh of the weapon. The panel lists them under **Weapon**.
+4. Choose **Held in**: **Right hand**, **Left hand**, or **Bone** for a weapon carried on the body, such as a scabbard on the hip.
+5. Leave **Name** empty for `R_Weapon` or `L_Weapon`, or type one.
+6. Click **Add weapon**. The weapon stays where it is on that frame and follows the hand on every frame.
+
+The add-on's [Add weapon](../blender_addon/sekiro_retarget/README.md#add-weapon) section says more.
+
+The export leaves out what it cannot place, and Activity names each mesh with the reason:
+
+| Reason | What to do |
+| --- | --- |
+| `not bound to <armature>` | The mesh does not move with the character. Bind it with Add weapon or an Armature modifier, or hide it if it does not belong to the character. |
+| `moves with <armature> but with none of its bones` | The mesh is parented to the armature object, not to a bone. Bind it with Add weapon. |
+| `bound to another armature, <name>` | The mesh follows another armature that does not follow a bone of the character. Bind it to the character instead. |
+| `bound to <name>, which keeps a cutscene bind pose that the export does not convert` | A bind adapter from a cutscene import. Import the character from its own model instead. |
 
 ### What the bridge writes
 

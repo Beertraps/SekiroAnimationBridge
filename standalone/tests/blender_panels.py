@@ -502,6 +502,14 @@ def states():
     settings.export_binder = True
     yield 'Joined, export to a binder'
 
+    # The blade parented to R_Weapon, chosen as the meshes of a second weapon in the right hand.
+    activate(target)
+    blade.select_set(True)
+    yield 'Add weapon: meshes chosen'
+
+    assert bpy.ops.sekiro_retarget.add_weapon() == {'FINISHED'}, settings.status
+    yield 'Weapon added'
+
 
 # What each state's outline must show and must not show, in the words of its rows, however they wrap; a row
 # starting with ! is an alert's first line.
@@ -516,7 +524,7 @@ EXPECTED = {
     'Bones matched': (['(Match bones again)', '55 of 58 bones matched, 3 to review.', '*All* | To review | Carried',
                        '{list: 58 of 58 rows', 'Master: Same normalized name', '(Export HKX) (greyed out)',
                        'Choose the Output file first.', 'Role: [Other v]', 'Show: [Automatic v]'],
-                      ['(Bake motion onto target) (greyed out)', 'Match bones first.', 'Held in']),
+                      ['(Bake motion onto target) (greyed out)', 'Match bones first.', 'Held in: [']),
     'Weapon row chosen': (['[weap]', 'All | To review | *Carried*', '{list: 2 of 58 rows', 'Role: [Weapon v]',
                            'Held in: [Automatic v]', 'Carried where the source carries R_Weapon; thrown and caught as '
                            'R_Weapon is.', '2 weapons and props in the bone list.'],
@@ -551,6 +559,10 @@ EXPECTED = {
     'Joined, export to a binder': (['Joined ', '[x] Add to animation binder',
                                     'Uses a000_000401.hkx',
                                     'This scene does not record the archive its clip came from. Choose the binder.'], []),
+    'Add weapon: meshes chosen': (['> Add weapon (starts closed)', 'Weapon: Blade', 'Held in [Right hand v]', 'Uses R_Weapon2',
+                                   '(Add weapon)'], ['(Add weapon) (greyed out)', "Place the weapon's meshes"]),
+    'Weapon added': (['Added R_Weapon2 under R_Hand with Blade', "Place the weapon's meshes in the hand on any frame",
+                      '(Add weapon) (greyed out)', 'Uses R_Weapon3'], ['Weapon: Blade']),
 }
 
 

@@ -1,13 +1,13 @@
 # Sekiro Retarget Assistant 0.11.0
 
-An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, can [mirror an animation](#mirror-animation) left to right, and can [join two animations](#join-animations) into one clip. The bridge's own import and export need no add-on.
+An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, can [mirror an animation](#mirror-animation) left to right, can [join two animations](#join-animations) into one clip, and can [add a weapon](#add-weapon) of your own to a hand. The bridge's own import and export need no add-on.
 
 ## Install
 
 In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.11.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N. They sit in two tabs on the sidebar's edge:
 
 - **Retarget** holds the four retarget steps below.
-- **Animate** holds the tools that change an armature's own animation: **Animation**, with [Mirror animation](#mirror-animation) and [Join animations](#join-animations), then the [Control rig](#control-rig) and its [Fixes](#fixes).
+- **Animate** holds the tools that change an armature's own animation: **Animation**, with [Mirror animation](#mirror-animation) and [Join animations](#join-animations), then the [Control rig](#control-rig) and its [Fixes](#fixes), and [Add weapon](#add-weapon).
 
 At the bottom of each tab, a **Log** panel holds the result of the last action, such as a match, bake, export, mirror or join. It starts closed. Its header says **Warnings**, with a warning sign, when that result warned; click the header to read it. Blender's status bar shows the same message for a few seconds.
 
@@ -334,6 +334,28 @@ On an owned test rig whose left and right bones rest at random turns, the mirror
 The blend shortens the clip: with 0.2 s at 30 fps, the second clip starts 6 frames before the first ends. A second clip keyed at another frame rate plays at its own speed, and the **Log** says so. Bones that only the second clip keys are joined too; the **Log** names any that are no track of the original clip, so export them with **Tracks** > *Original tracks + keyed bones*. With a control rig on the armature, the button is greyed out: remove the control rig, keeping the edited motion, join, and add the control rig again. Mute the armature's NLA tracks first, if it has any.
 
 On owned test clips, frames outside the blend matched each clip's pose exactly, the blend eased from one to the other, and the root moved on without a jump.
+
+## Add weapon
+
+**Add weapon**, in the **Animate** tab, gives an armature a weapon of your own: a sword, a gun or a prop that you import from a file or model in Blender. The weapon gets a bone under the hand, so it moves with the hand on every frame. The bake treats that bone like any other weapon bone, and the bridge's **Character** page writes the weapon with the model when it makes a new Sekiro character (see *New Sekiro character* in the bridge's user guide).
+
+1. Import the weapon with File > Import, for example as FBX, glTF or OBJ. Its parts may be several objects.
+2. Go to a frame where the hand is easy to see. Move (G), turn (R) and scale (S) the weapon until the hand holds it as you want. You can place it on any frame: the weapon keeps that place in the hand.
+3. Select the weapon's objects. Then Shift-click the armature, so that it is the active object. The **Add weapon** panel names the armature and the weapon.
+4. Set **Held in** to *Right hand* or *Left hand*. For a weapon carried on the body, such as a sheathed sword on the back, choose *Bone* and pick the bone under **Bone**.
+5. Leave **Name** empty for `R_Weapon`, `L_Weapon` or `Weapon`, numbered from 2 when the armature has that bone already; the panel shows the name it uses. Or type your own.
+6. Click **Add weapon**. The **Log** says which bone it added and how long it is.
+
+What it does:
+
+- The new bone starts at the weapon's grip, the point of its long axis nearest the hand. It points along that axis to the end farther from the hand, as a blade or a barrel goes, and turns like the hand.
+- Every selected mesh is bound to the new bone alone with an Armature modifier, weight 1 on every vertex. Its other modifiers and shape keys are applied first, so it keeps the shape it shows. Its own vertex groups, parent and constraints give way to the new bone. An animation of the object itself stops playing, and the **Log** says so.
+- The weapon stays exactly where it was on the frame you added it, and follows the hand on every other frame.
+- Meshes bound to the armature already are not offered again. A name the armature has is refused.
+
+After **Add weapon**, click **Match bones again** in the **Retarget** tab to list the new bone in the bone list, where you can give it a source bone and set its **Held in** and **Show**; see [Weapons and props in the bone list](#weapons-and-props-in-the-bone-list). **Export HKX** leaves the new bone out: the game's skeleton for the clip does not have it.
+
+On an owned test rig whose right arm swings, a sword of two meshes placed on frame 10 stayed within 0.0003 mm of where it was placed and followed the hand on frames 1 and 20; its bone ran from the blade's axis at the hand to the blade's far end.
 
 ## Current scope
 

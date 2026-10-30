@@ -144,17 +144,26 @@ One compressed NumPy archive per model, loaded with `allow_pickle=False`.
 
 ## Character export manifest
 
-`manifest.json`, written by `blender --background SCENE --python blender_bridge.py -- export-character --output-dir FOLDER`: one rig, the meshes bound to it with an Armature modifier, their materials and one action. `format` is `"sekiro-animation-bridge-character-export"` and `version` is 1. Everything is in Blender's space (`space` `blender`, `unit` `meter`, Z up, world coordinates); the game writer converts it to the game's space.
+`manifest.json`, written by `blender --background SCENE --python blender_bridge.py -- export-character --output-dir FOLDER`: one rig, the meshes that move with it, their materials and one action. `format` is `"sekiro-animation-bridge-character-export"` and `version` is 1. Everything is in Blender's space (`space` `blender`, `unit` `meter`, Z up, world coordinates); the game writer converts it to the game's space.
+
+A visible mesh moves with the rig in one of three ways, which `meshes[].bound` names:
+
+- `rig`: an Armature modifier binds it to the rig.
+- `bone`: it moves with one bone as a whole. It is parented to that bone, or it hangs below an object that a Child Of or Copy Transforms constraint holds on the bone. All its vertices take that bone, with weight 1.
+- `armature`: an Armature modifier binds it to another armature that moves with a bone of the rig as a whole, as the bridge's weapon rigs follow their sockets. That armature's bones come after the rig's in `bones[]`, below the bone, and its motion is sampled with theirs. A name the rig has already takes the armature's name before it, such as `WP_A_0300_Blade00`.
+
+For `bone` and `armature`, the mesh and the bones are carried back from the scene's current frame to where they are when the bone rests. Visible meshes that move with the rig in none of these ways are listed in `leftOut[]`.
 
 | Field | Meaning |
 | --- | --- |
 | `rig` | the armature object's name |
 | `bones[]` | `name`, `parent` (−1 for a root; parents come first), `rest`: the bone's world rest matrix, 16 numbers row by row |
-| `meshes[]` | `name`, `data` (path of the mesh's `.npz`), `vertices`, `triangles`, `uvSets`, `unweightedVertices`, `weightsOutsideRig` |
+| `meshes[]` | `name`, `data` (path of the mesh's `.npz`), `bound` (`rig`, `bone` or `armature`), `bone` (for `bone` and `armature`: the rig's bone it moves with), `vertices`, `triangles`, `uvSets`, `unweightedVertices`, `weightsOutsideRig` |
+| `leftOut[]` | `name` and `reason` of each visible mesh left out: bound to another armature, to a bind adapter that keeps a cutscene bind pose, to the rig object without a bone, or to nothing of the rig |
 | `materials[]` | `name`, `roles`, `alpha`, `color`, `doubleSided`, `cutOut` |
 | `materials[].roles` | `albedo`, `opacity`, `normal`, `metalness`, `roughness`, `emissive`, each `image` (the Blender image's name), `channel` (`RGB`, `R`, `G`, `B` or `A`), `path` (the image saved beside the manifest) and, for `normal`, `convention` |
 | `materials[].alpha`, `color` | the shader's alpha and linear RGBA base color where no image drives them, else null. Alpha 0 marks an overlay the game cannot draw, such as eye wetness. |
-| `warnings[]` | weights on groups that are not bones, and vertices without a weight |
+| `warnings[]` | weights on groups that are not bones, vertices without a weight, and one line per reason in `leftOut[]` |
 | `motion` | `action`, `frameStart`, `frameEnd`, `frameRate`, `frames`, `data` (path of `motion.npz`) |
 
 A material's roles come from `bridge_texture_roles` when the import stored them, otherwise from the node tree: the image that feeds the Principled BSDF's Base Color, Alpha, Metallic, Roughness and Emission Color inputs, through Separate Color nodes, and the image behind a Normal Map node. A normal map counts as DirectX when a Math node feeds the green channel, as the import builds it.
