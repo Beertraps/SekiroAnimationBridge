@@ -31,7 +31,12 @@ APP = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'SekiroAnimationBridge
 ROOTS = [HOME / 'packages', APP / 'packages']
 CACHE = HOME / 'work' / 'asset-cache'
 ID = re.compile(r'[a-z][a-z0-9_]*')
+OPTION_ID = re.compile(r'[a-z][A-Za-z0-9]*')
 RESERVED = {'fromsoft', 'games', 'packages', 'bridge'}
+# The file list predates declared options: a package names it as the string "fileList", and the source dialog
+# has its own field for it.
+FILE_LIST = dict(id='fileList', name='File list', kind='file', help='', placeholder='', filter='', default='', choices=[])
+OPTION_DEFAULTS = dict(help='', placeholder='', filter='', default='', choices=[])
 CAPABILITIES = set(Capabilities.__dataclass_fields__)
 # A package ZIP is read whole before anything is extracted; these keep a broken one from filling the disk.
 MAX_FILES = 20000
@@ -72,6 +77,15 @@ def check_package_data(data, label='package.json'):
         parts = Path(tool['path']).parts
         if Path(tool['path']).is_absolute() or '..' in parts or (parts and ':' in parts[0]):
             raise ValueError(f'{label}: the path of tool {tool["id"]} must stay inside the package.')
+    options = [o for o in data.get('sourceOptions') or [] if isinstance(o, dict)]
+    ids = [o['id'] for o in options]
+    if len(set(ids)) != len(ids) or not all(OPTION_ID.fullmatch(i) and i != 'fileList' for i in ids):
+        raise ValueError(f'{label}: source option ids must be unique names such as aesKey, and not fileList.')
+    for option in options:
+        values = [c['value'] for c in option.get('choices') or []]
+        if option['kind'] == 'choice' and (not values or len(set(values)) != len(values)
+                                           or option.get('default', values[0]) not in values):
+            raise ValueError(f'{label}: the source option {option["id"]} needs unique choices that include its default.')
     for pattern in (data.get('bones') or {}).get('patterns') or []:
         try:
             re.compile(pattern['match'])
@@ -133,7 +147,9 @@ class Package:
 
     @property
     def source_options(self):
-        return list(self.manifest.get('sourceOptions') or [])
+        """The options a source of these games can need, each as a definition with every field."""
+        return [dict(FILE_LIST) if option == 'fileList' else {**OPTION_DEFAULTS, **option}
+                for option in self.manifest.get('sourceOptions') or []]
 
     @property
     def tools(self):
@@ -149,11 +165,23 @@ class Package:
         tool = self.tool(tool_id)
         path = (self.folder / tool['path']).resolve()
         if not path.is_file():
-            build = tool.get('build')
-            how = (f'Build it with {(self.folder / build)}.' if build and (self.folder / build).is_file()
-                   else 'Install the package again from its release ZIP.')
-            raise ValueError(f'{tool["name"]} is missing: {path}. {how}')
+            raise ValueError(self.missing_tool_message(tool))
         return path
+
+    def missing_tools(self):
+        """The declared tools whose program is not in the package folder, such as a decoder not built yet."""
+        return [t for t in self.tools if not (self.folder / t['path']).is_file()]
+
+    def missing_tool_message(self, tool):
+        """What to do about a missing tool. An installed package came with its tools, so it is installed again; a package
+        in the bridge folder with the tool's build script is a copy of its sources, such as the one in GitHub's Source
+        code ZIP of a release, so it is built."""
+        path = (self.folder / tool['path']).resolve()
+        build = tool.get('build')
+        if not self.installed and build and (self.folder / build).is_file():
+            return (f'{tool["name"]} is not built yet: {path} is missing. Build it once by running {self.folder / build} '
+                    'in a command prompt; it says what to install first if something is missing.')
+        return f'{tool["name"]} is missing: {path}. Install the package again from its package ZIP.'
 
     def tool_status(self, tool):
         """(ready, detail) of one tool, for the Setup page."""
@@ -302,27 +330,50 @@ class PackageEngine:
             raise ValueError(f'{self.package.name}: {label} names the game {catalog["game"]!r}, which the package does not declare.')
         return catalog
 
-    def detect(self, path, file_list=''):
-        found = self.module.detect(str(path), dict(fileList=str(file_list or '')), self.context())
+    def options(self, file_list='', options=None):
+        """The options a package gets: the file list, and each declared option as the user set it or its default."""
+        given = options if isinstance(options, dict) else {}
+        result = dict(fileList=str(file_list or ''))
+        for option in self.package.source_options:
+            if option['id'] == 'fileList':
+                continue
+            value = given.get(option['id'])
+            value = option['default'] if value is None else str(value).strip()
+            if option['kind'] == 'choice' and value not in [c['value'] for c in option['choices']]:
+                value = option['default'] or option['choices'][0]['value']
+            result[option['id']] = value
+        return result
+
+    def detect(self, path, file_list='', options=None):
+        found = self.module.detect(str(path), self.options(file_list, options), self.context())
         if not found:
             return None
         if found.get('game') not in self.games():
             raise ValueError(f'{self.package.name} detected the game {found.get("game")!r}, which its package.json does not declare.')
         root = str(found.get('root') or path)
-        options = list(found.get('options') or [])
+        shown = list(found.get('options') or [])
         defaults = dict(path=str(Path(path).resolve()), root=root, layout='game', folders={}, nested=[], limited=False,
-                        name=Path(root).name, counts={}, note='', evidence='', archives=[])
-        return {**defaults, **found, 'engine': self.package.id, 'package': self.package.id, 'needsFileList': 'fileList' in options}
+                        name=Path(root).name, counts={}, note='', evidence='', archives=[], needs=[])
+        # The declared options this source shows in the source dialog; the file list has a field of its own.
+        fields = [o for o in self.package.source_options if o['id'] in shown and o['id'] != 'fileList']
+        result = {**defaults, **found, 'engine': self.package.id, 'package': self.package.id, 'needsFileList': 'fileList' in shown,
+                  'optionFields': fields}
+        # Said when the folder is chosen, not only when its scan fails.
+        missing = self.package.missing_tools()
+        if missing:
+            result['note'] = ' '.join(filter(None, [result['note'], self.package.missing_tool_message(missing[0])]))
+            result['missingTools'] = [t['name'] for t in missing]
+        return result
 
     def catalog_path(self, cache, found, options):
         identity = json.dumps(dict(package=self.package.id, root=str(found['root']), options=options), sort_keys=True)
         return Path(cache) / 'catalogs' / f'{self.package.id}-{hashlib.sha256(identity.encode()).hexdigest()[:24]}.json'
 
-    def discover(self, root, cache, notify, found, game='auto', file_list=''):
+    def discover(self, root, cache, notify, found, game='auto', file_list='', options=None):
         chosen = found['game'] if game in ('', 'auto') else game
         if chosen not in self.games():
             raise ValueError(f'{self.package.name} does not read {chosen!r}.')
-        options = dict(fileList=str(file_list or ''))
+        options = self.options(file_list, options)
         destination = self.catalog_path(cache, found, options)
         previous = api.read_json(destination)
         if not previous or previous.get('package') != self.package.id:

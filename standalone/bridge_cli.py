@@ -160,6 +160,19 @@ def masks(values):
     return chosen
 
 
+def source_options(values):
+    """--option ID=VALUE per source option that a game package declares, such as engineVersion=GAME_UE4_27.
+
+    A value that names an existing file, such as a mappings file, is passed as its full path."""
+    chosen = {}
+    for value in values or []:
+        key, separator, given = value.partition('=')
+        if not separator or not key.strip():
+            raise Failure(f'Give a source option as ID=VALUE, such as engineVersion=GAME_UE4_27: {value}')
+        chosen[key.strip()] = path(given) if given and Path(given).expanduser().is_file() else given
+    return chosen
+
+
 def command_env(args, settings, saved):
     import bridge_ui
     bridge_ui.CONFIG.update(saved, **settings)
@@ -177,14 +190,15 @@ def command_games(args, settings, saved):
 
 def command_detect(args, settings, saved):
     from asset_discovery import detect_source
-    return detect_source(args.folder, settings['oodle'], args.file_list)
+    return detect_source(args.folder, settings['oodle'], args.file_list, source_options(args.option))
 
 
 def command_scan(args, settings, saved):
     folders = json_option(args.folders, '--folders')
     layout = 'custom' if folders and args.layout in ('auto', 'folder') else args.layout
     done = run_job(dict(settings, mode='discover', assetFolder=path(args.folder), game=args.game, sourceLayout=layout,
-                        sourceFolders=folders, sourceRecursive=not args.no_recursive, sourceFileList=path(args.file_list)))
+                        sourceFolders=folders, sourceRecursive=not args.no_recursive, sourceFileList=path(args.file_list),
+                        sourceOptions=source_options(args.option)))
     file, catalog = catalog_at(done['output'])
     return dict(catalog=str(file), folder=catalog['folder'], layout=catalog.get('layout', 'folder'), game=catalog.get('game', ''),
                 games=catalog.get('games', []), clips=len(catalog['clips']), characters=characters(catalog),
@@ -293,6 +307,9 @@ def parser():
     detect = command('detect', 'what a folder is as a source: its layout, game and file counts')
     detect.add_argument('folder')
     detect.add_argument('--file-list', default='', help="the game's file list, for packed games that need one")
+    option_help = ("a source option that the game's package declares, such as engineVersion=GAME_UE4_27 or aesKey=0x...; "
+                   'repeat for more. detect lists them in optionFields')
+    detect.add_argument('--option', action='append', default=[], metavar='ID=VALUE', help=option_help)
     scan = command('scan', 'index a source into a catalog and list its characters')
     scan.add_argument('folder')
     scan.add_argument('--layout', choices=('auto', 'folder', 'game', 'custom'), default='auto',
@@ -301,6 +318,7 @@ def parser():
     scan.add_argument('--folders', default='', help='a custom layout as JSON or a JSON file: {"animations": ["anims"], ...}')
     scan.add_argument('--no-recursive', action='store_true', help="a custom layout's folders without their subfolders")
     scan.add_argument('--file-list', default='')
+    scan.add_argument('--option', action='append', default=[], metavar='ID=VALUE', help=option_help)
     clips = command('clips', "the clips of a catalog; --character reads that character's archives first")
     clips.add_argument('catalog', help='the catalog path that scan printed')
     clips.add_argument('--character', default='', help='a character ID from scan, such as c5060')

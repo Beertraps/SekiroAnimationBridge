@@ -1,7 +1,7 @@
 """Check a game package with the bridge, from its package.json to a scene in Blender.
 
-python tools/check_package.py <package folder> [--source <game folder>] [--file-list <list>] [--character <id>]
-                              [--clip <id>] [--models] [--blender <blender.exe> --output <scene.blend>]
+python tools/check_package.py <package folder> [--source <game folder>] [--file-list <list>] [--option <id>=<value> ...]
+                              [--character <id>] [--clip <id>] [--models] [--blender <blender.exe> --output <scene.blend>]
 
 Without --source it checks package.json, the module and the tools. With a source it also detects and scans it,
 reads one character's clips, decodes one clip for the preview and imports it as the bridge does; --models also
@@ -53,6 +53,8 @@ def main():
     parser.add_argument('package', type=Path, help='the package folder, with package.json')
     parser.add_argument('--source', type=Path, help='a game folder or unpacked files of one of its games')
     parser.add_argument('--file-list', default='', help="the game's file list, for games that need one")
+    parser.add_argument('--option', action='append', default=[], metavar='ID=VALUE',
+                        help="a source option the package declares, such as engineVersion=GAME_UE4_27; repeat for more")
     parser.add_argument('--character', default='', help='the character to read; the first one by default')
     parser.add_argument('--clip', default='', help='the clip ID or name to import; the first ready clip by default')
     parser.add_argument('--models', action='store_true', help="also prepare the character's models")
@@ -62,6 +64,9 @@ def main():
     args = parser.parse_args()
     if args.blender and not args.output:
         parser.error('--blender needs --output, the scene to write.')
+    if any('=' not in o for o in args.option):
+        parser.error('--option takes ID=VALUE, such as engineVersion=GAME_UE4_27.')
+    options = dict(o.split('=', 1) for o in args.option)
     folder = args.package.resolve()
     steps = Steps(args.verbose)
 
@@ -109,18 +114,25 @@ def main():
     cache = packages.CACHE
 
     def detect():
-        found = engine.detect(args.source, args.file_list)
+        found = engine.detect(args.source, args.file_list, options)
         if not found:
             raise ValueError(f'{package.name} does not recognise {args.source}.')
         if found['needsFileList'] and not args.file_list:
             raise ValueError((found.get('note') or 'This source needs a file list.') + ' Pass it with --file-list.')
+        unknown = set(options) - {o['id'] for o in package.source_options}
+        if unknown:
+            raise ValueError(f'{package.name} declares no source option {", ".join(sorted(unknown))}.')
+        missing = [o['id'] for o in found['optionFields'] if o['id'] in found['needs'] and not options.get(o['id'])]
+        if missing:
+            raise ValueError((found.get('note') or 'This source needs more options.') +
+                             f' Pass {", ".join(missing)} with --option.')
         return found, f"{found['game']}, {found.get('evidence', '')}, counts {json.dumps(found.get('counts', {}))}"
 
     found = steps.run('detect', detect)
     if found is None:
         return 1
     def scan():
-        result = engine.discover(args.source, cache, notify, found, 'auto', args.file_list)
+        result = engine.discover(args.source, cache, notify, found, 'auto', args.file_list, options)
         return result, f"{len(result[1]['characters'])} characters"
 
     scanned = steps.run('scan', scan)
@@ -161,7 +173,7 @@ def main():
 
     steps.run('preview', preview)
     request = dict(assetClip=clip, assetCharacter=character, game='auto', includeCharacter=args.models,
-                   assetFolder=str(args.source), sourceFileList=args.file_list)
+                   assetFolder=str(args.source), sourceFileList=args.file_list, sourceOptions=options)
     if args.blender:
         import bridge_runtime
 

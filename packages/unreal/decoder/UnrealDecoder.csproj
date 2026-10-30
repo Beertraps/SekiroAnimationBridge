@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- CUE4Parse targets .NET 10. build_decoder.ps1 publishes self-contained, so the decoder carries that runtime. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AssemblyName>UnrealDecoder</AssemblyName>
+    <RootNamespace>UnrealDecoder</RootNamespace>
+    <Version>0.1.0</Version>
+    <CUE4ParseRoot Condition="'$(CUE4ParseRoot)' == ''">$(LOCALAPPDATA)\SekiroAnimationBridge\CUE4Parse</CUE4ParseRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(CUE4ParseRoot)\CUE4Parse\CUE4Parse.csproj" />
+    <ProjectReference Include="$(CUE4ParseRoot)\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj" />
+  </ItemGroup>
+  <!-- The pinned CUE4Parse asks for Microsoft.Bcl.Memory 9.0.0, which has GHSA-73j8-2gch-69rq (fixed in 9.0.14). A direct
+       reference wins over theirs, so the decoder ships the fixed version; the restore of CUE4Parse's own projects still warns.
+       SixLabors.ImageSharp stays at CUE4Parse's 3.1.12, although GHSA-j3p4-wp97-rph4 and five more advisories name it: 3.2.0
+       fixes them but builds only with a Six Labors license key. The affected code (TIFF, ICC profiles, histogram equalization)
+       never runs here, since CUE4Parse uses ImageSharp only for landscape heightmaps and encodes textures with SkiaSharp. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="9.0.22" />
+  </ItemGroup>
+</Project>

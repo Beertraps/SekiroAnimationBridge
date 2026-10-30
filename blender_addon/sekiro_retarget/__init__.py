@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 9, 0), 'blender': (4, 5, 0),
+    'version': (0, 10, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget and Animate', 'category': 'Animation',
     'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, mirror and join animations, '
                    'add a control rig with fixes and export HKX',
@@ -138,7 +138,7 @@ class SKR_Settings(PropertyGroup):
                     'the other bones of the model follow their parents. Takes effect at the next match')
     method: EnumProperty(name='Bake method', description='How the target takes the source\'s motion', items=[
         ('BONES','Bone by bone','Each target bone takes the motion of the source bone that the bone list gives it'),
-        ('BODY','Full body (experimental)','Finds the body in both rigs without a bone list: each chain, such as the '
+        ('BODY','Full body','Finds the body in both rigs without a bone list: each chain, such as the '
                 'spine or an arm, takes the source chain\'s shape over its own bones, the feet stay on the source\'s '
                 'footprint, scaled to the legs, and the hands come together where the source\'s do. Bones outside the '
                 'body, such as weapons, take their source bones from the bone list, or from automatic matching')],
@@ -1207,9 +1207,9 @@ class SKR_PT_bake(SidebarPanel,Panel):
         layout=self.layout;settings=context.scene.sekiro_retarget;blocked=bake_blocked(settings)
         menu(layout,settings,'method')
         if settings.method=='BODY':
-            text(layout,context,'Experimental: finds the body in both rigs and keeps the feet on the source\'s footprint. '
+            text(layout,context,'Finds the body in both rigs and keeps the feet on the source\'s footprint. '
                  'Bones outside the body, such as weapons, follow the bone list, or automatic matching without one.',
-                 icon='EXPERIMENTAL')
+                 icon='ARMATURE_DATA')
         row=layout.row();row.enabled=not blocked;row.scale_y=1.3;row.operator('sekiro_retarget.bake',icon='ACTION')
         if blocked:text(layout,context,blocked,icon='INFO')
 

@@ -72,13 +72,20 @@ class Commands(unittest.TestCase):
     def job(self,request):
         self.jobs.append(request)
         if request['mode']=='inventory':self.inventory(request['assetCharacter'])
-        return dict(output='done',report=dict(frames=3),notices=[])
+        return dict(output=str(self.path) if request['mode']=='discover' else 'done',report=dict(frames=3),notices=[])
     def call(self,*argv):
         with mock.patch.object(bridge_cli,'run_job',self.job):return call(*argv)
     def test_failure_is_one_json_document(self):
         code,result,_=self.call('clips',self.base/'nowhere.json')
         self.assertEqual((code,result['ok']),(1,False))
         self.assertIn('Scan the source first',result['error'])
+    def test_scan_and_detect_pass_a_package_its_source_options(self):
+        code,result,_=self.call('scan',self.base/'Sekiro','--option','engineVersion=GAME_UE4_27','--option','aesKey=0x1=2')
+        self.assertEqual((code,result['catalog'],[c['id'] for c in result['characters']]),(0,str(self.path),['c0000','c5060']))
+        self.assertEqual((self.jobs[-1]['mode'],self.jobs[-1]['sourceOptions']),('discover',dict(engineVersion='GAME_UE4_27',aesKey='0x1=2')))
+        with mock.patch.object(asset_discovery,'detect_source',lambda *args:dict(options=args[-1])):
+            result=self.call('detect',self.base/'Sekiro','--option','engineVersion=GAME_UE4_27')[1]
+        self.assertEqual(result['options'],dict(engineVersion='GAME_UE4_27'))
     def test_catalog_outside_the_cache_is_refused(self):
         copy=self.base/'copy.json';copy.write_text(self.path.read_text(encoding='utf-8'),encoding='utf-8')
         self.assertFalse(self.call('clips',copy)[1]['ok'])
@@ -147,6 +154,12 @@ class Options(unittest.TestCase):
         chosen=bridge_cli.masks(['a.flver=1, 2','b.chrbnd.dcx='])
         self.assertEqual(chosen,{str(Path('a.flver').resolve()):['1','2'],str(Path('b.chrbnd.dcx').resolve()):[]})
         with self.assertRaises(bridge_cli.Failure):bridge_cli.masks(['a.flver'])
+    def test_source_options_resolve_the_files_they_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            mappings=Path(temp)/'game.usmap';mappings.write_text('',encoding='utf-8')
+            chosen=bridge_cli.source_options(['aesKey=0x00','mappings='+str(mappings),'oodle='])
+            self.assertEqual(chosen,dict(aesKey='0x00',mappings=str(mappings.resolve()),oodle=''))
+        with self.assertRaises(bridge_cli.Failure):bridge_cli.source_options(['GAME_UE4_27'])
     def test_json_option_reads_text_or_a_file(self):
         self.assertEqual(bridge_cli.json_option('{"animations": ["anims"]}','--folders'),dict(animations=['anims']))
         with self.assertRaisesRegex(bridge_cli.Failure,'--folders'):bridge_cli.json_option('anims','--folders')

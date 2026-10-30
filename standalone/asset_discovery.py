@@ -195,10 +195,10 @@ def probe_game(folders):
     return (hint, f'{archive.name} (authoring paths)') if hint and hint != 'ds1' else ('', '')
 
 
-def detect_source(path, oodle='', file_list=''):
+def detect_source(path, oodle='', file_list='', options=None):
     """Folder detection for the UI: another engine's adapter when one recognises the folder, else FromSoftware's."""
     from games import detect as detect_other
-    found = detect_other(path, file_list) or detect_fromsoft(path, oodle)
+    found = detect_other(path, file_list, options) or detect_fromsoft(path, oodle)
     found['scenes'] = default_scenes(found)
     # The UI can switch the layout before saving; both defaults are offered.
     found['sceneFolders'] = {layout: default_scenes(dict(found, layout=layout)) for layout in ('folder', 'game')}
@@ -222,7 +222,7 @@ def default_scenes(found):
 
 
 def discover(source, cache, notify=lambda *args: None, oodle='', game='auto', layout='folder', folders=None, recursive=True,
-             file_list=''):
+             file_list='', options=None):
     """List a source's characters. A folder of another engine's game goes to that engine's adapter."""
     root = Path(source).expanduser().resolve()
     if not root.is_dir():
@@ -239,7 +239,7 @@ def discover(source, cache, notify=lambda *args: None, oodle='', game='auto', la
         raise ValueError(f'This folder does not look like a {profile(game).name} source. '
                          'Choose the game folder, or a folder that holds the extracted natives folder.')
     if other:
-        return adapter(other['engine']).discover(root, cache, notify, other, game, file_list)
+        return adapter(other['engine']).discover(root, cache, notify, other, game, file_list, options)
     configure_oodle(oodle)
     if layout == 'auto':
         notify('inventory', 'Detecting the folder layout', 3)

@@ -1,4 +1,19 @@
-# Unreleased — Devil May Cry 5 import, faster skeleton preview, cache cleanup
+# Unreleased
+
+- **A missing package tool is named when the folder is chosen.** A game package whose decoder is not built, such as the `packages\unreal` folder of GitHub's *Source code* ZIP unpacked into a release, failed only at the scan, with *Unreal decoder is missing*. The source dialog now says so as soon as the game folder is chosen, and shows the detection as a warning. In the bridge folder the message says to run the package's build script; for an installed package it says to install its package ZIP again.
+- The Unreal decoder's build copies the licenses of the .NET runtime it carries, and of ACL and RTM when it builds the native library, next to the decoder, so its package ZIP can be handed on. The [Unreal guide](docs/games/unreal.md) says how to build that ZIP and install it into a release.
+
+## Command line for scripts and agents
+
+- New **`standalone\bridge_cli.cmd`**: the steps of the UI as commands that each print one JSON document, for scripts and AI agents. `env`, `games`, `detect`, `scan`, `clips`, `select`, `masks`, `import`, `inspect`, `verify`, `export`, and `run` for any request the UI sends. The log goes to stderr; a failure exits with 1 and `{"ok": false, "error": ...}`. It lists one character's clips (`clips --character`), which the PowerShell CLI cannot, and takes clips by ID or by name. `detect` and `scan` take a game package's source options, such as the Unreal package's engine version or AES key, with `--option ID=VALUE`. See the [user guide](docs/USER_GUIDE.md#json-command-line-for-scripts-and-agents).
+- New **`verify`**: measures a scene in Blender without saving it and says what is wrong: the size at rest (unit scale), the up axis, which side the left bones are on, whether each mesh follows its bones, vertices on model bones outside the animation's skeleton, and missing images or base colors. An advisory check names the frame where skinning stretches a mesh's edges most; `passed` leaves it out, since cloth stretches as far as a wrong bind. `--render` draws the characters from the front and the side. New module `blender_verify.py`; `bridge_runtime.py` and `blender_bridge.py` take the new `verify` mode.
+- New `CLAUDE.md`: setup, commands, tests and rules for agents working in the repository.
+- `build_decoder.cmd` clones SoulsAssetPipeline with Git's long paths on. Without them, Git for Windows stopped at generated Havok class files under `%LOCALAPPDATA%`.
+- The writer Python runs from the path it is given rather than its resolved one. Inside a packaged app, such as the Claude desktop app, `%LOCALAPPDATA%` resolves to a longer folder, and Soulstruct's longest module names passed Windows' 260 characters, so export failed with `ModuleNotFoundError`.
+
+# 0.14.2 — game packages, Devil May Cry 5 import, full-body bake, faster skeleton preview, cache cleanup
+
+Install `SekiroRetargetAssistant-0.10.0.zip` over 0.9.0 for the retarget changes. 0.14.0 and 0.14.1 were tagged but not released, because the release checks of their ZIPs failed.
 
 ## Import from other games: Devil May Cry 5
 
@@ -19,12 +34,27 @@
 - The decoders share one .NET 9 runtime. Release ZIPs carry it in `dotnet-runtime/`, and the decoders no longer include their own; a source checkout prepares it with `tools\prepare_dotnet_runtime.cmd`. **Settings & setup** shows it as **.NET runtime**.
 - DMC5 sources scanned before need one new scan.
 - The skeleton preview hands a package the whole selection it made for the clip, as the import does, so a package that needs more than the clip's file (DOOM Eternal needs its game folder) can preview. `tools\check_package.cmd` asks for the preview the way the page does.
+- **Source options.** A package can declare fields for its sources, such as a key, a version choice or a file, and the source dialog shows the ones a source needs. The values are kept with the source on this computer, each set of values has its own scan, and the CLI takes them with `-SourceOptionsFile`. `tools\check_package.cmd` takes them with `--option id=value`.
 
 ## Experimental: DOOM Eternal package
 
 - `packages/doom_eternal` imports DOOM Eternal's characters: the Doom Slayer, the demons and the cinematics, with their animations, skin weights and textures. It reads the game's `.resources` archives in place with the game's own Oodle library, in Python ported from [Valen](https://github.com/jandk/valen) (MIT), and needs no other program.
 - Characters show readable names and gore variants in words; clip names leave out the folders they share.
 - Release ZIPs do not include it, and it is not attached to releases. A source checkout loads it as it is; `tools/package_game_package.py packages/doom_eternal` builds a ZIP to install into a release.
+
+## Experimental: Unreal Engine package
+
+- `packages/unreal` reads Unreal Engine 4 and 5 games, one package for all of them. It lists one character per skeleton with animations, previews the animation sequences and imports them with the skeleton's skeletal meshes, materials and textures. Its decoder runs on [CUE4Parse](https://github.com/FabianFG/CUE4Parse) (Apache-2.0) and reads the PAK and IoStore archives in place; `packages\unreal\decoder\build_decoder.cmd` builds it from a pinned commit. [docs/games/unreal.md](docs/games/unreal.md) walks through it.
+- CUE4Parse needs .NET 10, so the decoder carries its own .NET 10 runtime instead of the bridge's shared .NET 9 one. Building it needs the .NET 10 SDK.
+- The decoder takes Microsoft.Bcl.Memory 9.0.22 instead of the 9.0.0 that CUE4Parse names, which has a known vulnerability (GHSA-73j8-2gch-69rq). Its build stops when the SDK would give it a .NET runtime older than 10.0.4, which has the same one. SixLabors.ImageSharp stays at CUE4Parse's 3.1.12 despite its advisories: the fixed 3.2.0 builds only with a Six Labors license key, and the decoder does not run the affected TIFF, ICC profile and histogram code.
+- The source dialog reads the engine version from the game's executable, or guesses it from the archive format and says so. It asks for the AES key of encrypted archives and offers fields for a mappings file (`.usmap`) and the game's own Oodle library. The bridge includes no keys, mappings or Oodle libraries and downloads none.
+- Deep Rock Galactic has an entry with its engine version, and its import is checked with the Xbox app version's files: the scan, the dwarves and the Glyphids with their models in Blender. Unreal Engine 5 games, IoStore archives, keys and mappings files are not checked with a real game yet.
+- When the scan finds animations but cannot read their package headers to learn their skeletons, it says why instead of listing no characters: the game needs its mappings file, or another engine version. The game guide shows how to install CMake and the C++ build tools for ACL clips.
+- Release ZIPs do not include it.
+
+## Retarget add-on
+
+- The full-body bake is no longer experimental. **Bake method** offers *Full body* beside *Bone by bone*, which stays the default, and the bake status and report say *Full body*.
 
 ## Import page
 
@@ -41,14 +71,6 @@
 - Once a clip shows, the bridge prepares the previews of the two clips on each side of it in the background, so moving through the list shows each clip at once (about 30 ms, with the file matching). A clip asked for while it is being prepared waits for that result instead of being decoded twice. Nothing is prepared while a conversion runs or while the preview block is collapsed.
 - **Preview caching** on the Cache card: **Standard** works as above. **Aggressive** prepares every clip of the list, two at a time, nearest to the selection first, and keeps up to 2 GB of previews. Wolf's 1247 animations take about two minutes and 80 MB. New unit test `test_clip_preview_cache.py`.
 - Preview fix: a clip track that no skeleton bone takes is left out; it moved the skeleton's last bone before.
-
-## Command line for scripts and agents
-
-- New **`standalone\bridge_cli.cmd`**: the steps of the UI as commands that each print one JSON document, for scripts and AI agents. `env`, `games`, `detect`, `scan`, `clips`, `select`, `masks`, `import`, `inspect`, `verify`, `export`, and `run` for any request the UI sends. The log goes to stderr; a failure exits with 1 and `{"ok": false, "error": ...}`. It lists one character's clips (`clips --character`), which the PowerShell CLI cannot, and takes clips by ID or by name. See the [user guide](docs/USER_GUIDE.md#json-command-line-for-scripts-and-agents).
-- New **`verify`**: measures a scene in Blender without saving it and says what is wrong: the size at rest (unit scale), the up axis, which side the left bones are on, whether each mesh follows its bones, vertices on model bones outside the animation's skeleton, and missing images or base colors. An advisory check names the frame where skinning stretches a mesh's edges most; `passed` leaves it out, since cloth stretches as far as a wrong bind. `--render` draws the characters from the front and the side. New module `blender_verify.py`; `bridge_runtime.py` and `blender_bridge.py` take the new `verify` mode.
-- New `CLAUDE.md`: setup, commands, tests and rules for agents working in the repository.
-- `build_decoder.cmd` clones SoulsAssetPipeline with Git's long paths on. Without them, Git for Windows stopped at generated Havok class files under `%LOCALAPPDATA%`.
-- The writer Python runs from the path it is given rather than its resolved one. Inside a packaged app, such as the Claude desktop app, `%LOCALAPPDATA%` resolves to a longer folder, and Soulstruct's longest module names passed Windows' 260 characters, so export failed with `ModuleNotFoundError`.
 
 # 0.13.0 — export into the animation binder, join animations, Animate tab, body figures and Biped-style feet, Wolf's katana, alternate model meshes, skin preview
 

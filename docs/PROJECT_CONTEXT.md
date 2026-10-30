@@ -1,4 +1,9 @@
-# Current release: 0.13.0 — export into the animation binder, Join animations, Animate tab (retarget add-on 0.9.0)
+# Current release: 0.14.2 — game packages, Devil May Cry 5 import, experimental DOOM Eternal and Unreal Engine packages (retarget add-on 0.10.0)
+
+- State: released as 0.14.2 with the retarget add-on 0.10.0, from tag v0.14.2. Tags v0.14.0 and v0.14.1 mark two attempts whose release runs stopped before publishing: the ZIP left out the JSON schemas, and then the tests compared short and long temporary paths (see VERIFICATION.md). It holds the work on main since 0.13.0: the faster skeleton preview and cache cleanup, the game registry and source spaces, game packages with the RE Engine package for Devil May Cry 5 as a separate release asset, the shared .NET 9 runtime, the draggable pane borders of the import page, and the experimental DOOM Eternal and Unreal Engine packages, which release ZIPs do not include. CHANGELOG.md lists the changes and VERIFICATION.md the checks. The user asked: "Commit this, then push it the package and if anything else changed since the last release make a new release."
+- The Unreal Engine package and the source options it needs went in as db0cd30. Another session's change went in as 095d453: the full-body bake without its experimental label, which the user asked for there ("it works well"). That session's plan, `docs/BODY_FIGURE_PLAN.md`, stays uncommitted. Not checked in game.
+
+# Release 0.13.0 — export into the animation binder, Join animations, Animate tab (retarget add-on 0.9.0)
 
 - State: committed on main as bd7dcc6 and released as 0.13.0 with the retarget add-on 0.9.0, from tag v0.13.0. The release also holds the work below since 0.12.0 (body figures and Biped-style feet, Wolf's katana, alternate model meshes, c1070 skin). The user asked: "Push it to github as a new release." Not checked in game.
 - The user asked: "Actually what I was thinking is appending two animations into one clip instead of needing to play the two clips after another through the game. But in your interpretation I would like the export option to simply choose a dcx file add the new hkx file too. In this the default name of the hkx file would be the original clips name and the dcx file would be the dcx file the clip came from. Add both. At the same time can you think of a place to add the log output to that is less obstructive? Can our extension use multiple panels instead of putting everything under "Retarget"? The Control rig at least feels like its own thing and the log output takes up a lot of space."
@@ -135,7 +140,7 @@ Measured on owned synthetic rigs by `blender_full_body.py` (numbers in VERIFICAT
 
 ## Decisions made here
 
-- Bone by bone stays the default; the full-body bake is labelled experimental in the menu, the panel, the status and the report.
+- Bone by bone stays the default. The full-body bake was labelled experimental in the menu, the panel, the status and the report until 2026-10-29, when the user, after using it, asked to drop the label: "it works well".
 - The spine and neck keep the target's own stance. Aligning them to the source's rest pose hunched Wolf by about 49° at the neck on Owl→Wolf, because the Owl's rest neck leans 51° forward. The bone-by-bone bake aligns only arms, legs and fingers, for the same reason.
 - At a hand contact, a hand that holds a weapon stays and the free hand moves. Moving both moved the katana in Wolf's hand by up to 3.7 cm on Isshin→Wolf, and Second hand then moved the free hand onto the grip anyway.
 - A foot that the contact pass moved by less than 0.5 mm gets no note; neither does a hip-width move under 0.5 mm.

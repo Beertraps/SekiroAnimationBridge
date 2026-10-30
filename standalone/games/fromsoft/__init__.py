@@ -12,12 +12,12 @@ ENGINE = 'fromsoft'
 SPACE = FROMSOFT
 
 
-def detect(path, file_list=''):
+def detect(path, file_list='', options=None):
     from asset_discovery import detect_fromsoft
     return detect_fromsoft(path)
 
 
-def discover(root, cache, notify, found, game='auto', file_list=''):
+def discover(root, cache, notify, found, game='auto', file_list='', options=None):
     from asset_discovery import discover as run
     return run(root, cache, notify, '', game, found.get('layout', 'auto'))
 

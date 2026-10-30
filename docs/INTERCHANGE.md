@@ -40,6 +40,7 @@ Known spaces:
 | --- | --- | --- | --- |
 | FromSoftware (Havok, FLVER) | `[[1,0,0],[0,0,1],[0,1,0]]` | 1 | Y up, left-handed: swap Y and Z, which reflects |
 | RE Engine | `[[1,0,0],[0,0,-1],[0,1,0]]` | 1 | Y up, right-handed: +90° about X, no reflection |
+| Unreal Engine 4 and 5 | `[[1,0,0],[0,-1,0],[0,0,1]]` | 0.01 | Z up, left-handed, centimetres: flip Y, which reflects |
 
 A document without `basis` uses the FromSoftware space. This keeps every motion JSON and manifest written before version 2 valid, including the ones embedded in existing `.blend` files. The conversion code is `standalone/games/space.py`; with the FromSoftware basis it gives exactly the results of the bridge's earlier, fixed Y/Z swap.
 

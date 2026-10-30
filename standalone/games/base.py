@@ -62,8 +62,9 @@ class GameAdapter(Protocol):
     """The bridge's own entry points for an engine: games.fromsoft for the built-in games, and
     games.packages.PackageEngine, which serves them from a game package's API (games.api, docs/PACKAGES.md).
 
-    detect(path, file_list='') -> dict | None
-    discover(root, cache, notify, found, game='auto', file_list='') -> (catalog_path, catalog)
+    detect(path, file_list='', options=None) -> dict | None
+    discover(root, cache, notify, found, game='auto', file_list='', options=None) -> (catalog_path, catalog)
+        options: the values of a package's declared source options, by option ID.
     inventory_character(catalog_path, catalog, character, cache, notify) -> catalog
     refresh_clip(catalog_path, catalog, clip_id, cache, notify) -> (catalog, clip_id)
     load_catalog(catalog, folder, check_sources=False) -> catalog

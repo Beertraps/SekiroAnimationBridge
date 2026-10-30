@@ -104,13 +104,16 @@ def foreign(document):
     return None if kind == DEFAULT_ENGINE else adapter(kind)
 
 
-def detect(path, file_list=''):
-    """The first package that recognises a folder, or None. A package that fails is noted and skipped."""
+def detect(path, file_list='', options=None):
+    """The first package that recognises a folder, or None. A package that fails is noted and skipped.
+
+    options holds the values of the packages' declared source options, such as an AES key, by option ID.
+    """
     for kind, found in ENGINES.items():
         if kind == DEFAULT_ENGINE:
             continue
         try:
-            result = found.detect(path, file_list)
+            result = found.detect(path, file_list, options)
         except Exception as exc:  # A broken package must not hide the other engines.
             note = f'Detection failed: {type(exc).__name__}: {exc}'
             if note not in found.package.problems:

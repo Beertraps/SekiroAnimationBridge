@@ -15,7 +15,7 @@
     "license": {"type": "string"},
     "homepage": {"type": "string"},
     "games": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/game"}},
-    "sourceOptions": {"type": "array", "items": {"enum": ["fileList"]}},
+    "sourceOptions": {"type": "array", "items": {"anyOf": [{"enum": ["fileList"]}, {"$ref": "#/$defs/sourceOption"}]}},
     "tools": {"type": "array", "items": {"$ref": "#/$defs/tool"}},
     "bones": {"$ref": "#/$defs/bones"}
   },
@@ -48,6 +48,27 @@
         "hint": {"type": "string"},
         "verified": {"type": "boolean"},
         "documentation": {"type": "string"}
+      }
+    },
+    "sourceOption": {
+      "type": "object",
+      "required": ["id", "name", "kind"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["text", "secret", "file", "choice"]},
+        "help": {"type": "string"},
+        "placeholder": {"type": "string"},
+        "filter": {"type": "string"},
+        "default": {"type": "string"},
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["value", "label"],
+            "properties": {"value": {"type": "string"}, "label": {"type": "string", "minLength": 1}}
+          }
+        }
       }
     },
     "tool": {

@@ -2665,7 +2665,7 @@ def bake(scene, settings):
         if body:
             shaped_bones, others = len(body['direct']) + len(chains), body['others']
             origin = 'the bone list' if body['listed'] else 'automatic matching'
-            notes.insert(0, f"Full body (experimental): {shaped_bones} body bones follow the source's body chains; " +
+            notes.insert(0, f"Full body: {shaped_bones} body bones follow the source's body chains; " +
                             (f'1 other bone takes its source bone from {origin}.' if others == 1 else
                              f'{others} other bones take their source bones from {origin}.'))
             for rig, layout in ((target, body['target']), (source, body['source'])):

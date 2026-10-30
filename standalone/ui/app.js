@@ -7,6 +7,7 @@ let config={}, parts=[], job=null, toastTimer, saveTimer, pollTimer, resolveTime
 let inputMethod='folder', sources=[], activeId='', catalog=null, catalogPath='', catalogLoading=false, characterId='', clipId='', clipView=[], archiveFor='', selection=null, resolving=false, resolveSequence=0, painting=false, extrasOpen=null;
 let scanProblem=null, inventoryProblem=null;
 let editing=null, detection=null, detectSequence=0, nameTouched=false, scenesTouched=false, dialogLayout='auto', dialogFolders={}, missingFolders=new Set(), removeTimer;
+let dialogOptions={};
 const handledJobs=new Set(), opened=new Set(), initiatedJobs=new Set(), jobSources=new Map(), jobCharacters=new Map();
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=name=>`<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -108,7 +109,7 @@ function values(){
  result.inputMethod=inputMethod;result.sources=sources;result.activeSource=activeId;
  const source=activeSource();
  if(inputMethod==='folder'&&source){
-  Object.assign(result,{assetFolder:source.root||source.path,assetCatalog:source.catalog||'',sourceLayout:source.resolved||source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,sourceFileList:source.fileList||'',game:source.game||'auto',assetCharacter:characterId,assetClip:clipId});
+  Object.assign(result,{assetFolder:source.root||source.path,assetCatalog:source.catalog||'',sourceLayout:source.resolved||source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,sourceFileList:source.fileList||'',sourceOptions:source.options||{},game:source.game||'auto',assetCharacter:characterId,assetClip:clipId});
  }
  return result;
 }
@@ -257,7 +258,7 @@ async function activateSource(id,restore=false){
 async function scanSource(source=activeSource()){
  if(!source)return openSourceDialog();
  try{
-  await startJob({mode:'discover',assetFolder:source.path,assetCatalog:'',sourceLayout:source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,sourceFileList:source.fileList||'',game:source.game||'auto'},{source:source.id});
+  await startJob({mode:'discover',assetFolder:source.path,assetCatalog:'',sourceLayout:source.layout,sourceFolders:source.folders||{},sourceRecursive:source.recursive!==false,sourceFileList:source.fileList||'',sourceOptions:source.options||{},game:source.game||'auto'},{source:source.id});
   if(scanProblem?.source===source.id)scanProblem=null;
   renderLibrary();toast(`Scanning ${source.name}. Progress is shown below.`);
  }catch(e){toast(e.message,true);}
@@ -618,7 +619,7 @@ function renderSceneHead(){
 }
 
 /* Retarget donor: a pinned second animation that the import places beside the selected one */
-const donorKeys=['inputMethod','assetFolder','assetCatalog','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','game','assetCharacter','assetClip',
+const donorKeys=['inputMethod','assetFolder','assetCatalog','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','sourceOptions','game','assetCharacter','assetClip',
  'animation','compendium','skeleton','skeletonCompendium','characterSource','preset','models','modelMasks','includeCharacter','materialBinder','textureDirectory','referenceModel','weaponAttachments'];
 function donorIsCurrent(){
  const d=config.donor,source=activeSource();if(!d)return false;
@@ -872,7 +873,7 @@ function openSourceDialog(source=null){
  $('src-path').value=source?.path||'';$('src-path').closest('.path-row').classList.remove('invalid');
  $('src-name').value=source?.name||'';$('src-game').value=source?.game||'auto';
  $('src-recursive').checked=source?.recursive!==false;$('src-scenes').value=source?.scenes||'';$('src-list').value=source?.fileList||'';$('src-list-field').hidden=!source?.fileList;
- dialogFolders=JSON.parse(JSON.stringify(source?.folders||{}));
+ dialogFolders=JSON.parse(JSON.stringify(source?.folders||{}));dialogOptions={...(source?.options||{})};renderOptions([]);
  clearTimeout(removeTimer);$('src-remove').hidden=!source;$('src-remove').dataset.armed='';$('src-remove').textContent='Remove source';
  $('src-save').textContent=source?'Save':'Save and scan';$('src-detect').hidden=true;
  $('source-dialog').showModal();setDialogLayout(source?.layout||'auto');
@@ -887,7 +888,7 @@ function setDialogLayout(layout){
 }
 function layoutNote(){
  const d=detection,found=d?(d.layout==='game'?`a game folder${d.game?' ('+gameNames[d.game]+')':''}`:'a collected folder'):'';
- if(d?.engine&&d.engine!=='fromsoft'&&['auto','game'].includes(dialogLayout)){$('src-layout-note').textContent=d.container==='pak'?`Reads ${gameNames[d.game]||'the game'}’s PAK archives by the names in its file list.`:'Reads the extracted natives folder.';return;}
+ if(d?.engine&&d.engine!=='fromsoft'&&['auto','game'].includes(dialogLayout)){$('src-layout-note').textContent=d.layoutNote||(d.container==='pak'?`Reads ${gameNames[d.game]||'the game'}’s PAK archives by the names in its file list.`:'Reads the extracted natives folder.');return;}
  $('src-layout-note').textContent={auto:d?`Detect reads this as ${found}.`:'Detect chooses Game folder or Collected from what is inside.',game:'Reads chr, parts and mtd or material, like the game’s own data folder.',folder:'Reads every archive below the folder. Files that share a folder belong together.',custom:'Name the folders for each kind yourself, relative to the source folder or absolute.'}[dialogLayout];
 }
 function suggestScenes(){
@@ -912,7 +913,7 @@ async function detectPath(){
  if(!path){detection=null;$('src-detect').hidden=true;layoutNote();return;}
  $('src-detect').hidden=false;$('src-detect').className='detect';$('src-detect').innerHTML=`${icon('search')}<div><b>Looking at the folder…</b></div>`;
  try{
-  const found=await api('detect',{path,folders:dialogLayout==='custom'?dialogFolders:{},recursive:$('src-recursive').checked,fileList:$('src-list').value.trim()});
+  const found=await api('detect',{path,folders:dialogLayout==='custom'?dialogFolders:{},recursive:$('src-recursive').checked,fileList:$('src-list').value.trim(),options:dialogOptions});
   if(seq!==detectSequence)return;
   detection=found;missingFolders=new Set(found.missing||[]);
   // A chosen chr, parts or Game folder stands for the game folder that holds it.
@@ -924,14 +925,32 @@ async function detectPath(){
 function renderDetection(){
  // A custom layout is described by its own folders, not by what the source folder holds.
  const d=detection,custom=dialogLayout==='custom'&&d.custom,c=(custom?d.custom.counts:d.counts)||{},game=!custom&&d.layout==='game';
- $('src-list-field').hidden=!d.needsFileList;
+ $('src-list-field').hidden=!d.needsFileList;renderOptions(d.optionFields||[]);
  const chips=[[c.animations,'animation archive'],[c.characters,'model'],[c.parts,'part'],[c.textures,'texture package'],[c.materials,'material library','material libraries']].filter(([n])=>n).map(([n,w,m])=>`<span class="chip">${escape(plural(n,w,m))}</span>`).join('');
  const nested=custom?'':(d.nested||[]).map(n=>`<button type="button" class="text-button" data-nested="${escape(n.path)}">${icon('arrow')}${escape(n.name)}${n.game?' · '+escape(gameNames[n.game]):''}</button>`).join('');
  const title=custom?'Custom layout':game?`Game folder · ${gameNames[d.game]||'game not identified'}`:c.animations?'Collected folder':nested?'A folder of games':'No animation archives here';
  const lines=(custom?[c.animations?'Files are matched by character across these folders.':'The animation folders hold no ANIBND archives yet.',missingFolders.size?`${plural(missingFolders.size,'folder')} not found; ${missingFolders.size===1?'it is':'they are'} skipped.`:'',d.custom.limited?'Counted the first 50,000 files of each folder.':'']
   :[game?(d.evidence?`Identified by ${d.evidence}.`:'No executable or archive names the game; choose it below.'):c.animations?'Archives that share a folder are matched together.':nested?'Choose one of the game folders inside.':'A source needs ANIBND archives such as c0000.anibnd.dcx.',d.note,d.limited?'Counted the first 50,000 files.':'']).filter(Boolean);
- $('src-detect').className='detect '+((game||c.animations)&&!(custom&&missingFolders.size)?'ok':'warn');
+ $('src-detect').className='detect '+((game||c.animations)&&!(custom&&missingFolders.size)&&!d.missingTools?.length?'ok':'warn');
  $('src-detect').innerHTML=`${game?glyphHtml({game:d.game,name:d.name}):`<span class="glyph" data-game="custom">${icon(c.animations?'folder':'warn')}</span>`}<div class="grow"><b>${escape(title)}</b>${lines.map(escape).join('<br>')}${chips?`<div class="chips">${chips}</div>`:''}${nested?`<div class="nested">${nested}</div>`:''}</div>`;
+}
+/* A package's declared source options, such as an Unreal game's engine version and AES key */
+function renderOptions(fields){
+ const box=$('src-options'),key=fields.map(o=>o.id).join(',');
+ box.hidden=!fields.length;
+ // Typing must not lose its place when a detection with the same fields comes back.
+ if(box.dataset.fields===key)return;
+ box.dataset.fields=key;
+ fields.forEach(o=>{if(o.help)help['opt-'+o.id]=[o.name,o.help];pickTitles['src-opt-'+o.id]=o.name;if(o.filter)filters['src-opt-'+o.id]=o.filter;});
+ box.innerHTML=fields.map(o=>{
+  const id='src-opt-'+o.id,value=dialogOptions[o.id]??o.default??'';
+  const label=`<label for="${id}">${escape(o.name)}${o.help?` <button type="button" class="help" data-help="opt-${escape(o.id)}" aria-label="About ${escape(o.name.toLowerCase())}">?</button>`:''}</label>`;
+  if(o.kind==='choice')return `<div class="field">${label}<select id="${id}" data-option="${escape(o.id)}">${o.choices.map(c=>`<option value="${escape(c.value)}"${c.value===value?' selected':''}>${escape(c.label)}</option>`).join('')}</select></div>`;
+  const input=`<input id="${id}" data-option="${escape(o.id)}" spellcheck="false" autocomplete="off" type="${o.kind==='secret'?'password':'text'}" placeholder="${escape(o.placeholder)}" value="${escape(value)}"`;
+  return o.kind==='file'?`<div class="field">${label}<div class="path-row">${input}><button type="button" class="browse" data-browse-option="${escape(o.id)}">${icon('folder')}Browse</button></div></div>`
+   :`<div class="field">${label}${input} class="text-input"></div>`;
+ }).join('');
+ box.querySelectorAll('[data-help]').forEach(b=>{const entry=help[b.dataset.help];if(entry)b.title=entry[0];});
 }
 async function saveSource(){
  const path=$('src-path').value.trim();
@@ -943,9 +962,11 @@ async function saveSource(){
  const effective=dialogLayout==='auto'?detection.layout:dialogLayout;
  const draft={name:$('src-name').value.trim()||basename(finalPath)||finalPath,path:finalPath,layout:dialogLayout,game:$('src-game').value,folders,recursive:$('src-recursive').checked,
   fileList:detection.needsFileList?$('src-list').value.trim():'',
+  options:Object.fromEntries((detection.optionFields||[]).map(o=>[o.id,String(dialogOptions[o.id]??'').trim()]).filter(([,v])=>v)),
   scenes:$('src-scenes').value.trim()||detection.sceneFolders?.[effective==='folder'?'folder':'game']||joinPath(finalPath,'Blender')};
  let source=editing;
- const changed=!source||['path','layout','game','recursive','fileList'].some(k=>(source[k]||'')!==(draft[k]||''))||JSON.stringify(source.folders||{})!==JSON.stringify(folders);
+ const changed=!source||['path','layout','game','recursive','fileList'].some(k=>(source[k]||'')!==(draft[k]||''))||JSON.stringify(source.folders||{})!==JSON.stringify(folders)
+  ||JSON.stringify(source.options||{})!==JSON.stringify(draft.options);
  if(source)Object.assign(source,draft);else{source={id:crypto.randomUUID().slice(0,8),...draft,catalog:'',state:{}};sources.push(source);}
  if(changed)Object.assign(source,{catalog:'',root:'',resolved:'',detectedGame:'',stats:null});
  $('source-dialog').close();
@@ -965,7 +986,7 @@ function removeSource(){
 async function pick(key,{multiple=false,apply}={}){
  if(activePicker)return toast('A Browse window is already open. Finish or cancel that selection first.');
  const picker={id:crypto.randomUUID(),controller:new AbortController(),timedOut:false};activePicker=picker;
- const buttons=[...document.querySelectorAll('[data-pick],#add-models,#src-browse,#src-scenes-browse,#src-list-browse,[data-browse-folder]')].map(button=>({button,disabled:button.disabled}));
+ const buttons=[...document.querySelectorAll('[data-pick],#add-models,#src-browse,#src-scenes-browse,#src-list-browse,[data-browse-folder],[data-browse-option]')].map(button=>({button,disabled:button.disabled}));
  buttons.forEach(({button})=>button.disabled=true);
  const title=help[key]?.[0]||pickTitles[key]||'Files';
  layer($('picker-status'));$('picker-status').hidden=false;$('picker-message').textContent=`Choosing ${title.toLowerCase()}…`;$('cancel-picker').disabled=false;
@@ -1404,6 +1425,10 @@ $('src-browse').addEventListener('click',()=>pick('src-path',{apply:paths=>{$('s
 $('src-scenes-browse').addEventListener('click',()=>pick('src-scenes',{apply:paths=>{$('src-scenes').value=paths[0];scenesTouched=true;}}));
 $('src-list-browse').addEventListener('click',()=>pick('src-list',{apply:paths=>{$('src-list').value=paths[0];return detectPath();}}));
 $('src-list').addEventListener('change',()=>checkFolders());
+$('src-options').addEventListener('input',e=>{const el=e.target.closest('[data-option]');if(el)dialogOptions[el.dataset.option]=el.value;});
+$('src-options').addEventListener('change',e=>{if(e.target.closest('[data-option]'))checkFolders();});
+$('src-options').addEventListener('click',e=>{const button=e.target.closest('[data-browse-option]');if(!button)return;const id=button.dataset.browseOption;
+ pick('src-opt-'+id,{apply:paths=>{dialogOptions[id]=paths[0];$('src-opt-'+id).value=paths[0];return detectPath();}});});
 $('source-dialog').addEventListener('close',()=>{detectSequence++;layer($('toast'));});
 $('use-import').addEventListener('click',()=>{const path=job?.mode==='import'&&job.status==='success'?job.output:(config.lastImportedBlend||$('inputBlend').value);if(!path)return toast('Import an animation first, or browse to an existing scene.');if(!samePath($('inputBlend').value.trim(),path))forgetScene();$('inputBlend').value=path;saveSoon();toast('Imported scene selected.');});
 $('shutdown').addEventListener('click',async()=>{try{await api('shutdown',{});clearTimeout(pollTimer);toast('Workspace closed. You can close this window.');$('connection-text').textContent='Workspace closed';document.querySelectorAll('button').forEach(b=>b.disabled=true);}catch(e){toast(e.message,true);}});
