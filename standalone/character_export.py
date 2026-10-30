@@ -753,7 +753,8 @@ def clone(game_root, template, new_id, output, map_name='', parts=(), work=None)
     behaviors = edit_behaviors(info, template, new_id, identity, identity, None, len(identity))
     # Model and textures go through SoulsFormats only in the export; the clone copies them.
     chrbnd, kind = read_binder(files['chrbnd'])
-    chrbnd.members = [m for m in chrbnd.members if PureWindowsPath(m[1]).suffix.lower() == '.flver']
+    chrbnd.members = [m for m in chrbnd.members
+                      if PureWindowsPath(m[1]).suffix.lower() == '.flver' or ragdoll_member(template, m[1])]
     texbnd, tex_kind = read_binder(files['texbnd'])
     written = [write_binder(chrbnd, kind, output / f'chr/{new_id}.chrbnd.dcx', template, new_id),
                write_binder(texbnd, tex_kind, output / f'chr/{new_id}.texbnd.dcx', template, new_id)]
@@ -782,6 +783,150 @@ def edit_behaviors(info, template, new_id, bone_map, weight_source, mirror, coun
         if changes:
             edited[index] = new
     return edited
+
+
+# Ragdoll -------------------------------------------------------------------------------------------------------------
+
+def ragdoll_member(character, path):
+    """The chrbnd members that give a character its hit capsules: the ragdoll <id>.hkx and its <id>.hkxpwv. The
+    cloth (<id>_c.hkx, <id>_c.clm2) is left out, as it moves the template's model."""
+    return PureWindowsPath(path).name.lower() in (f'{character}.hkx', f'{character}.hkxpwv')
+
+
+def turn_between(old, new):
+    """The smallest rotation (3x3) that turns direction old into direction new."""
+    a, b = np.asarray(old) / np.linalg.norm(old), np.asarray(new) / np.linalg.norm(new)
+    axis, cos = np.cross(a, b), float(np.dot(a, b))
+    if cos < -1 + 1e-9:
+        # Opposite directions: half a turn about an axis across them.
+        side = np.cross(a, [1.0, 0, 0] if abs(a[0]) < .9 else [0, 1.0, 0])
+        side /= np.linalg.norm(side)
+        return 2 * np.outer(side, side) - np.eye(3)
+    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + k + k @ k / (1 + cos)
+
+
+def ragdoll_rest(parents, rest, drivers, template_worlds, new_worlds, bone_map):
+    """The rest of each ragdoll bone on the new skeleton (4x4, game space).
+
+    A ragdoll bone rests on the template bone that drives it, and its body's capsule lies along that bone. It moves to
+    the driver's partner and turns as the limb does from the template's rest to the new one: the limb is the direction
+    to the ragdoll child nearest the middle (Spine for Pelvis, Head for Spine2). A bone without such a child turns
+    as its parent; one without a driver keeps its place on its parent.
+    """
+    turns, rests = [], []
+    for r, parent in enumerate(parents):
+        turn = turns[parent] if parent >= 0 else np.eye(3)
+        children = [c for c, p in enumerate(parents) if p == r and c in drivers]
+        if r in drivers and children:
+            c = min(children, key=lambda c: abs(template_worlds[drivers[c]][0, 3]))
+            old = template_worlds[drivers[c]][:3, 3] - template_worlds[drivers[r]][:3, 3]
+            new = new_worlds[bone_map[drivers[c]]][:3, 3] - new_worlds[bone_map[drivers[r]]][:3, 3]
+            if np.linalg.norm(old) > 1e-6 and np.linalg.norm(new) > 1e-6:
+                turn = turn_between(old, new)
+        turns.append(turn)
+        if r in drivers:
+            t = drivers[r]
+            world = np.eye(4)
+            world[:3, :3] = turn @ rest[r][:3, :3]
+            world[:3, 3] = new_worlds[bone_map[t]][:3, 3] + turn @ (rest[r][:3, 3] - template_worlds[t][:3, 3])
+        elif parent >= 0:
+            world = rests[parent] @ np.linalg.inv(rest[parent]) @ rest[r]
+        else:
+            world = rest[r].copy()
+        rests.append(world)
+    return rests
+
+
+def edit_ragdoll(data, skeleton):
+    """The template's ragdoll file on the new skeleton. Its bodies' capsules are what attacks hit.
+
+    The file's copy of the animation skeleton becomes the new skeleton, its mappers name the partnered bones, and each
+    ragdoll bone and body rests on its partner (ragdoll_rest). The capsules keep the template's sizes. The mappers'
+    transforms follow from the two rests, as the template's do. Returns (bytes, report).
+    """
+    found = havok_tagfile.ragdoll(data)
+    t_names = skeleton['templateNames']
+    animation = next((k for k, s in found['skeletons'].items() if [b['name'] for b in s['bones']] == t_names), None)
+    if animation is None:
+        raise ValueError("The template's ragdoll holds no copy of its skeleton.")
+    rag = found['ragdollSkeleton']
+    rag_bones = found['skeletons'][rag]['bones']
+    rag_parents = [b['parent'] for b in rag_bones]
+    rag_rest = worlds_of([matrix(*pose) for pose in found['skeletons'][rag]['pose']], rag_parents)
+    t_worlds = worlds_of([matrix(*pose) for pose in found['skeletons'][animation]['pose']],
+                         [b['parent'] for b in found['skeletons'][animation]['bones']])
+    n_worlds, n_parents, bone_map = skeleton['worlds'], skeleton['parents'], skeleton['boneMap']
+    drivers = {}
+    for mapper in found['mappers']:
+        if (mapper['a'], mapper['b']) == (animation, rag):
+            for a, b in mapper['simple']:
+                drivers.setdefault(b, a)
+    rests = ragdoll_rest(rag_parents, rag_rest, drivers, t_worlds, n_worlds, bone_map)
+    worlds = {animation: n_worlds, rag: rests}
+    parents = {animation: n_parents, rag: rag_parents}
+
+    def number(item, bone):
+        return bone_map[bone] if item == animation else bone
+
+    def chain(item, start, end):
+        bones, bone = [], end
+        while bone != start:
+            if bone < 0:
+                raise ValueError(f"A chain of the template's ragdoll, {t_names[start]} to {t_names[end]}, is no chain "
+                                 'of the new skeleton. Pair those bones with --pair.')
+            bones.append(bone)
+            bone = parents[item][bone]
+        return bones + [start]
+
+    mappers = []
+    for m in found['mappers']:
+        a, b = worlds[m['a']], worlds[m['b']]
+        simple = [(number(m['a'], i), number(m['b'], j)) for i, j in m['simple']]
+        simple = [(i, j, trs(np.linalg.inv(a[i]) @ b[j])) for i, j in simple]
+        chains, chained = [], set()
+        for sa, ea, sb, eb in m['chains']:
+            sa, ea, sb, eb = number(m['a'], sa), number(m['a'], ea), number(m['b'], sb), number(m['b'], eb)
+            chain(m['a'], sa, ea)
+            chained.update(chain(m['b'], sb, eb))
+            chains.append((sa, ea, sb, eb, trs(np.linalg.inv(a[sa]) @ b[sb]), trs(np.linalg.inv(a[ea]) @ b[eb])))
+        unmapped = m['unmapped']
+        if m['b'] == animation:
+            mapped = {j for _, j, _ in simple} | chained
+            unmapped = [i for i in range(len(n_worlds)) if i not in mapped]
+        mappers.append(dict(simple=simple, chains=chains, unmapped=unmapped))
+    bodies = [None] * found['bodies']
+    for r, body in enumerate(found['boneToBody']):
+        if 0 <= body < len(bodies):
+            t, q, _ = trs(rests[r])
+            bodies[body] = (t, q)
+    if any(body is None for body in bodies):
+        raise ValueError("A body of the template's ragdoll has no ragdoll bone.")
+    pose = [trs(np.linalg.inv(rests[p]) @ rests[r] if p >= 0 else rests[r]) for r, p in enumerate(rag_parents)]
+    new = havok_tagfile.write_ragdoll(data, animation, skeleton_bones(skeleton), pose, mappers, bodies)
+    # A driver without a partner of its own follows its nearest partnered ancestor.
+    names = skeleton['names']
+    borrowed = [f"{rag_bones[r]['name']} on {names[bone_map[t]]}" for r, t in sorted(drivers.items())
+                if names[bone_map[t]] != t_names[t]]
+    return new, dict(bodies=len(bodies), bones=len(rag_bones), onAncestor=borrowed)
+
+
+def edit_pwv(data, weight_source):
+    """The ragdoll's .hkxpwv for a new skeleton.
+
+    After a 32-byte header (version 1, a zero, ragdoll bones, animation bones, ragdoll bones again) come 4 bytes per
+    ragdoll bone, 8 per animation bone and 16 per ragdoll bone; that layout holds for all 33 Sekiro characters that
+    have the file. Each new bone takes the row of the template bone its weights come from. In every one of those files
+    the animation bones' rows are empty.
+    """
+    version, _, ragdoll, bones, again = struct.unpack_from('<I4h', data, 0)
+    start = 32 + 4 * ragdoll
+    if version != 1 or ragdoll != again or start + 8 * bones + 16 * again != len(data):
+        raise ValueError("The template's .hkxpwv has a layout the export does not know.")
+    rows = [data[start + 8 * i:start + 8 * i + 8] for i in range(bones)]
+    header = bytearray(data[:32])
+    struct.pack_into('<h', header, 8, len(weight_source))
+    return bytes(header) + data[32:start] + b''.join(rows[i] for i in weight_source) + data[start + 8 * bones:]
 
 
 def export(manifest_path, game_root, template, new_id, output, map_name='', parts=(), work=None, pairs=None,
@@ -924,7 +1069,19 @@ def export(manifest_path, game_root, template, new_id, output, map_name='', part
     chrbnd, kind = read_binder(files['chrbnd'])
     flver_entry = member(chrbnd, lambda n: n.lower().endswith('.flver'))
     flver_entry[2] = (work / f'{new_id}.flver').read_bytes()
-    chrbnd.members = [flver_entry]
+    chrbnd.members = [m for m in chrbnd.members if m is flver_entry or ragdoll_member(template, m[1])]
+    # The ragdoll's bodies are what attacks hit; they move onto the new skeleton.
+    for entry in chrbnd.members:
+        if PureWindowsPath(entry[1]).suffix.lower() == '.hkx':
+            entry[2], report['ragdoll'] = edit_ragdoll(entry[2], skeleton)
+        elif PureWindowsPath(entry[1]).suffix.lower() == '.hkxpwv':
+            entry[2] = edit_pwv(entry[2], skeleton['weightSource'])
+    if 'ragdoll' not in report:
+        report['warnings'].append(f'{template} has no ragdoll ({template}.hkx in its chrbnd), so attacks cannot hit '
+                                  'the new character.')
+    elif report['ragdoll']['onAncestor']:
+        report['warnings'].append(f"{len(report['ragdoll']['onAncestor'])} hit bodies rest on a parent bone, because "
+                                  'their own bone has no partner: ' + ', '.join(report['ragdoll']['onAncestor']))
     texbnd, tex_kind = read_binder(files['texbnd'])
     member(texbnd, lambda n: n.lower().endswith('.tpf'))[2] = (work / f'{new_id}.tpf').read_bytes()
     written = [write_binder(chrbnd, kind, output / f'chr/{new_id}.chrbnd.dcx', template, new_id),
@@ -1001,6 +1158,7 @@ def verify(output, new_id, game_root='', template='', work=None):
           else 'out of range: ' + '; '.join(out_of_range[:4]))
     old_names = [s['value'] for b in info['behaviors'] for s in b['strings']] if template else []
     check('behavior names', not old_names, f'no file name names {template}' if not old_names else 'still named: ' + ', '.join(old_names[:4]))
+    check('ragdoll', *ragdoll_check(binders['chrbnd'], new_id, [b['name'] for b in bones]))
     flver = info['flver']
     model_bones = [b['name'] for b in flver['bones'] if b['flags'] & 8]
     outside = [n for n in model_bones if n not in names]
@@ -1022,6 +1180,36 @@ def verify(output, new_id, game_root='', template='', work=None):
         parts = info.get('parts', [])
         check('map', bool(parts), f"{maps[0].name}: {len(parts)} part(s) use {new_id}: " + ', '.join(p['name'] for p in parts[:6]))
     return dict(passed=all(c['passed'] for c in checks), checks=checks)
+
+
+def ragdoll_check(chrbnd, new_id, names):
+    """Whether the chrbnd's ragdoll fits the skeleton: (passed, detail)."""
+    entries = {PureWindowsPath(m[1]).name.lower(): m[2] for m in chrbnd.members if ragdoll_member(new_id, m[1])}
+    data = entries.get(f'{new_id}.hkx')
+    if data is None:
+        return False, f'no {new_id}.hkx in the chrbnd, so attacks cannot hit the character'
+    found = havok_tagfile.ragdoll(data)
+    sizes = {k: len(s['bones']) for k, s in found['skeletons'].items()}
+    faults = []
+
+    def inside(bone, item):
+        return 0 <= bone < sizes[item]
+
+    if not any([b['name'] for b in s['bones']] == names for s in found['skeletons'].values()):
+        faults.append('no copy of the skeleton')
+    for m in found['mappers']:
+        if not all(inside(a, m['a']) and inside(b, m['b']) for a, b in m['simple']) or not all(
+                inside(sa, m['a']) and inside(ea, m['a']) and inside(sb, m['b']) and inside(eb, m['b'])
+                for sa, ea, sb, eb in m['chains']) or not all(inside(b, m['b']) for b in m['unmapped']):
+            faults.append('a mapper names a bone out of range')
+    missing, extra = havok_tagfile.Tagfile(data).unpatched()
+    if missing or extra:
+        faults.append(f'{len(missing)} unlisted, {len(extra)} stale PTCH slots')
+    pwv = entries.get(f'{new_id}.hkxpwv')
+    if pwv is not None and struct.unpack_from('<h', pwv, 8)[0] != len(names):
+        faults.append(f'the .hkxpwv counts {struct.unpack_from("<h", pwv, 8)[0]} bones')
+    return not faults, (f"{found['bodies']} hit bodies on {sizes[found['ragdollSkeleton']]} ragdoll bones fit the skeleton"
+                        if not faults else '; '.join(faults))
 
 
 def list_parts(game_root, template, map_name, work):

@@ -665,6 +665,12 @@ def write_skeleton(data, bones, compendium=None, renames=()):
     value = next((v for v in tag.walk() if v.type.format == CLASS and v.type.name == 'hkaSkeleton'), None)
     if value is None:
         raise ValueError('The file holds no hkaSkeleton.')
+    set_bones(tag, value, bones)
+    return tag.write()
+
+
+def set_bones(tag, value, bones):
+    """Give an hkaSkeleton value new bones, parents and reference pose; see write_skeleton."""
     own = tag.class_fields(value)
     for name in ('partitions', 'localFrames'):
         if name in own and tag.array(own[name])[0] is not None and tag.array(own[name])[0].count:
@@ -692,4 +698,132 @@ def write_skeleton(data, bones, compendium=None, renames=()):
     pose_item, _ = tag.array(own['referencePose'])
     pose = b''.join(struct.pack('<12f', *b['translation'], 0.0, *b['rotation'], *b['scale'], 0.0) for b in bones)
     tag.replace_items(pose_item, pose, len(bones))
+
+
+# A ragdoll file (the chrbnd's <id>.hkx): bodies with capsule shapes, which are what attacks hit, a ragdoll skeleton
+# whose bones hold the bodies, a copy of the animation skeleton, and skeleton mappers between the two.
+
+def qs_transform(at, data):
+    """An hkQsTransform as (translation, rotation x y z w, scale)."""
+    q = struct.unpack_from('<12f', data, at)
+    return list(q[0:3]), list(q[4:8]), list(q[8:11])
+
+
+def _skeletons(tag, values):
+    found = {}
+    for value in values:
+        if value.type.format == CLASS and value.type.name == 'hkaSkeleton':
+            own = tag.class_fields(value)
+            bones_item, bones = tag.array(own['bones'])
+            name_field = next(f for f in bones_item.type.fields if f.name == 'name')
+            parents_item, parents = tag.array(own['parentIndices'])
+            _, poses = tag.array(own['referencePose'])
+            found[value.item] = dict(value=value, name=tag.text(own['name'].at) or '', bones=[
+                dict(name=tag.text(at + name_field.offset), parent=tag.integer(parents_item.type, parent), pose=pose)
+                for at, parent, pose in zip(bones, parents, poses)])
+    return found
+
+
+def _mappers(tag, values):
+    found = []
+    for value in values:
+        if value.type.format == CLASS and value.type.name == 'hkaSkeletonMapperData':
+            own = tag.class_fields(value)
+            for name in ('partitionMap', 'simpleMappingPartitionRanges', 'chainMappingPartitionRanges'):
+                if name in own and tag.array(own[name])[0] is not None and tag.array(own[name])[0].count:
+                    raise ValueError(f'The ragdoll has a skeleton mapper with {name}; a new skeleton cannot keep them.')
+            lists = {}
+            for name in ('simpleMappings', 'chainMappings', 'unmappedBones'):
+                item, slots = tag.array(own[name])
+                fields = {f.name: f for f in item.type.fields} if item is not None and item.type.fields else {}
+                lists[name] = (item, slots, fields)
+            found.append(dict(value=value, own=own, lists=lists, a=tag.reference(own['skeletonA'].at).index,
+                              b=tag.reference(own['skeletonB'].at).index))
+    return found
+
+
+def ragdoll(data):
+    """What a ragdoll file holds: its skeletons by item number (name; bones with name, parent and reference pose),
+    the item of the ragdoll skeleton, its skeleton mappers (skeleton items a and b; simple mappings (boneA, boneB);
+    chain mappings (startBoneA, endBoneA, startBoneB, endBoneB); unmapped bones) and the body of each ragdoll bone."""
+    tag = Tagfile(data)
+    values = tag.walk()
+    skeletons = _skeletons(tag, values)
+    mappers = []
+    for mapper in _mappers(tag, values):
+        simple_item, simple, f = mapper['lists']['simpleMappings']
+        chain_item, chains, g = mapper['lists']['chainMappings']
+        unmapped_item, unmapped, _ = mapper['lists']['unmappedBones']
+        mappers.append(dict(a=mapper['a'], b=mapper['b'],
+                            simple=[(tag.integer(f['boneA'].type, at + f['boneA'].offset), tag.integer(f['boneB'].type, at + f['boneB'].offset))
+                                    for at in simple],
+                            chains=[tuple(tag.integer(g[k].type, at + g[k].offset) for k in ('startBoneA', 'endBoneA', 'startBoneB', 'endBoneB'))
+                                    for at in chains],
+                            unmapped=[tag.integer(unmapped_item.type, at) for at in unmapped]))
+    data_value = next((v for v in values if v.type.format == CLASS and v.type.name == 'hknpRagdollData'), None)
+    if data_value is None:
+        raise ValueError('The file holds no hknpRagdollData.')
+    own = tag.class_fields(data_value)
+    body_item, bodies = tag.array(own['boneToBodyMap'])
+    return dict(skeletons={k: dict(name=s['name'], bones=[dict(name=b['name'], parent=b['parent']) for b in s['bones']],
+                                   pose=[qs_transform(b['pose'], tag.data) for b in s['bones']])
+                           for k, s in skeletons.items()},
+                ragdollSkeleton=tag.reference(own['skeleton'].at).index, mappers=mappers,
+                boneToBody=[tag.integer(body_item.type, at) for at in bodies],
+                bodies=tag.array(own['bodyCinfos'])[0].count)
+
+
+def write_ragdoll(data, animation_item, animation_bones, ragdoll_pose, mappers, bodies):
+    """The ragdoll file on a new animation skeleton.
+
+    animation_item names the copy of the animation skeleton, which gets animation_bones (as for write_skeleton).
+    ragdoll_pose is the ragdoll skeleton's new reference pose, one (translation, rotation, scale) per bone. mappers
+    follow ragdoll(): per mapper, simple mappings (boneA, boneB, aFromBTransform), chain mappings (startBoneA,
+    endBoneA, startBoneB, endBoneB, startAFromBTransform, endAFromBTransform) and the unmapped bones; the mappings keep
+    their number. bodies is each body's new (position, orientation x y z w)."""
+    tag = Tagfile(data)
+    values = tag.walk()
+    skeletons = _skeletons(tag, values)
+
+    def put_transform(at, transform):
+        # The fourth floats of the translation and scale are padding; they keep the template's bytes.
+        t, r, s = transform
+        pad = struct.unpack_from('<f', tag.data, at + 12)[0], struct.unpack_from('<f', tag.data, at + 44)[0]
+        struct.pack_into('<12f', tag.data, at, *t, pad[0], *r, *s, pad[1])
+
+    ragdoll_value = next(v for v in values if v.type.format == CLASS and v.type.name == 'hknpRagdollData')
+    ragdoll_item = tag.reference(tag.class_fields(ragdoll_value)['skeleton'].at).index
+    for bone, transform in zip(skeletons[ragdoll_item]['bones'], ragdoll_pose, strict=True):
+        put_transform(bone['pose'], transform)
+
+    found = _mappers(tag, values)
+    if len(found) != len(mappers):
+        raise ValueError('The ragdoll has another number of skeleton mappers.')
+    for mapper, new in zip(found, mappers):
+        _, simple, f = mapper['lists']['simpleMappings']
+        for at, (a, b, transform) in zip(simple, new['simple'], strict=True):
+            tag.set_integer(f['boneA'].type, at + f['boneA'].offset, a)
+            tag.set_integer(f['boneB'].type, at + f['boneB'].offset, b)
+            put_transform(at + f['aFromBTransform'].offset, transform)
+        _, chains, g = mapper['lists']['chainMappings']
+        for at, chain in zip(chains, new['chains'], strict=True):
+            for key, number in zip(('startBoneA', 'endBoneA', 'startBoneB', 'endBoneB'), chain[:4]):
+                tag.set_integer(g[key].type, at + g[key].offset, number)
+            put_transform(at + g['startAFromBTransform'].offset, chain[4])
+            put_transform(at + g['endAFromBTransform'].offset, chain[5])
+        unmapped_item, unmapped, _ = mapper['lists']['unmappedBones']
+        old = [tag.integer(unmapped_item.type, at) for at in unmapped] if unmapped_item else []
+        if old != list(new['unmapped']):
+            if unmapped_item is None:
+                raise ValueError('A skeleton mapper of the template maps every bone; the new skeleton needs a list of '
+                                 'unmapped bones, which the file has no item for.')
+            size = unmapped_item.type.bits // 8
+            tag.replace_items(unmapped_item, b''.join(int(n).to_bytes(size, 'little', signed=True) for n in new['unmapped']),
+                              len(new['unmapped']))
+    body_values = [v for v in values if v.type.format == CLASS and v.field == 'bodyCinfos' and v.element >= 0]
+    for value, (position, orientation) in zip(body_values, bodies, strict=True):
+        own = tag.class_fields(value)
+        struct.pack_into('<4f', tag.data, own['position'].at, *position, 1.0)
+        struct.pack_into('<4f', tag.data, own['orientation'].at, *orientation)
+    set_bones(tag, skeletons[animation_item]['value'], animation_bones)
     return tag.write()

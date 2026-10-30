@@ -45,7 +45,8 @@ A mod folder with the game's relative paths, and a me3 profile beside it (`<fold
 
 | File | Content | Source |
 | --- | --- | --- |
-| `chr/c1800.chrbnd.dcx` | `c1800.flver` only | new, on the template FLVER's layout |
+| `chr/c1800.chrbnd.dcx` | `c1800.flver` | new, on the template FLVER's layout |
+| | ragdoll `c1800.HKX`, `c1800.hkxpwv` | the template's, on the new bones (3.9) |
 | `chr/c1800.texbnd.dcx` | `c1800.tpf` | new |
 | `chr/c1800.anibnd.dcx` | `skeleton.HKX` | the template's, patched: new bones, parents and rest pose |
 | | TAE, compendium | copied |
@@ -55,7 +56,7 @@ A mod folder with the game's relative paths, and a me3 profile beside it (`<fold
 | `action/script/c1800.hks` | HavokScript | copied |
 | `map/mapstudio/<map>.msb.dcx` | model `c1800` added; the chosen parts set to it | the template's map, edited with SoulsFormats |
 
-Member paths and file names are renamed from `c1010` to `c1800`. The ragdoll, `.hkxpwv` and cloth are left out: `useRagdoll` is 0, and `c1000`'s chrbnd holds only a FLVER too. No param changes: the parts keep their NpcParam and think rows.
+Member paths and file names are renamed from `c1010` to `c1800`. The ragdoll and its `.hkxpwv` stay, because their bodies are what attacks hit (3.9); without them, blows go through the character. The cloth is left out: it moves the template's model. No param changes: the parts keep their NpcParam and think rows.
 
 `bridge_cli character-clone` writes the template itself under the new ID, through the same code, as a first in-game test of the renames, the patched Havok files and the map edit.
 
@@ -132,7 +133,13 @@ The scene's action is sampled in Blender at every frame (`motion.npz`), converte
 
 SoulsFormats `MSBS` reads the template's map. The writer adds the model `c1800` and points the chosen parts at it. The map is read from the game folder and written only into the mod folder.
 
-### 3.9 Where the code is
+### 3.9 Ragdoll: the hit bodies
+
+Attacks hit the bodies of the chrbnd's ragdoll, `c1010.HKX`: 19 `hknpCapsuleShape` bodies, one per bone of the ragdoll skeleton `Ragdoll_Ctrl_Pelvis`. The file also holds a copy of the animation skeleton (`Master`, 127 bones, equal to the anibnd's `skeleton.HKX`) and two skeleton mappers: one moves the ragdoll bones with the animation bones, the other the reverse. Each mapping's `aFromBTransform` is the inverse of bone A's rest times bone B's rest, and each body rests where its ragdoll bone rests.
+
+The export (`edit_ragdoll`) puts the new skeleton in the copy and gives the mappers the new bone numbers. Each ragdoll bone moves to the new bone that its driver is paired with, and turns as the limb turns from the template's rest to the new one; the limb is the direction to the ragdoll child nearest the middle, such as `Spine` for the pelvis. Bones without ragdoll children, such as the hands and the head, turn as their parent. The mapper transforms and bodies follow from the new rests. The capsules keep the template's sizes. `edit_pwv` gives the `.hkxpwv` one 8-byte row per new bone, copied from the template bone the new bone takes its weights from. With `c1010`'s own skeleton, `edit_ragdoll` gives back all of `c1010.HKX`'s transforms and bodies within 1e-6, and `edit_pwv` the same bytes.
+
+### 3.10 Where the code is
 
 | Area | Files |
 | --- | --- |
@@ -147,9 +154,9 @@ SoulsFormats `MSBS` reads the template's map. The writer adds the model `c1800` 
 
 ## 4. Checks
 
-`character-verify` reads a written mod folder back and runs 11 checks: the four binders are there; member paths name the new ID; the skeleton starts with `Master`; every per-bone list of the behavior has one entry per bone; every pointer, string and list slot is in its PTCH table; every bone number names a bone of the skeleton; no file name names the template; every model bone is in the skeleton; every material's texture path resolves in the TPF; the clip count equals the template's; the map's chosen parts use the new ID. `character-export` and `character-clone` run it at the end.
+`character-verify` reads a written mod folder back and runs 12 checks: the four binders are there; member paths name the new ID; the skeleton starts with `Master`; every per-bone list of the behavior has one entry per bone; every pointer, string and list slot is in its PTCH table; every bone number names a bone of the skeleton; no file name names the template; the ragdoll holds a copy of the skeleton, its mappers name bones in range, its PTCH table lists every slot and its `.hkxpwv` counts the skeleton's bones; every model bone is in the skeleton; every material's texture path resolves in the TPF; the clip count equals the template's; the map's chosen parts use the new ID. `character-export` and `character-clone` run it at the end.
 
-Automated tests use owned synthetic data only: `standalone/tests/test_character_export.py` (tagfiles built in the test, bone merging, bone pairs with a package's names, the UI's request) and `blender_character_export.py` (the manifest of a synthetic scene).
+Automated tests use owned synthetic data only: `standalone/tests/test_character_export.py` (tagfiles built in the test, bone merging, bone pairs with a package's names, triangle winding, ragdoll rests, `.hkxpwv` rows, the UI's request) and `blender_character_export.py` (the manifest of a synthetic scene).
 
 ## 5. Steps
 
@@ -175,13 +182,14 @@ Automated tests use owned synthetic data only: `standalone/tests/test_character_
 | R8 | Another mod also changes the map. | One mod's map wins. | The report names the map file it writes. |
 | R9 | The character's size differs from the template's hit capsule (`c1010`: height 1.7, radius 0.4). | Collision slightly off. | Fine for an idle. |
 | R10 | 256 skinned bones at most. | Small bones lose their own motion. | Their weights go to their parents; the export lists them. |
+| R11 | The ragdoll's capsules keep the template's sizes. | A much bigger or smaller character is hit where the template's limbs would be. | Fine for Dante (1.94 m against `c1010`'s 1.7 m). A ragdoll bone whose driver has no partner rests on the nearest paired parent; the export names it. |
 
 The Blender preview of FromSoftware imports reads sRGB textures as linear, so the imported `c1800` looks darker in Blender than in the game. This is older than the character export and does not change what it writes.
 
 ## 7. Not in the first version
 
 - Fighting: other clips in the TAE's attack slots, hit boxes on dummy polys, BehaviorParam and AtkParam rows.
-- Ragdoll, cloth, sounds and effects.
+- Ragdoll physics (the ragdoll's bodies are kept as hit bodies; `useRagdoll` stays 0), cloth, sounds and effects.
 - New NpcParam and NpcThinkParam rows, new placements.
 - Modifiers: the export reads each mesh's own data; apply a modifier in Blender first.
 - Replacing the player character.

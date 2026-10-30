@@ -53,7 +53,7 @@ standalone\bridge_cli.cmd character-verify work\mods\dante --id c1800
   out of `passed`: cloth stretches as far as a wrong bind does, so it names a frame to look at, not a fault.
   `--render` writes a front and a side picture; look at them when a check fails or a change touches the scene.
 - `character-export` writes a scene as a new Sekiro character (template `c1010` by default) into a mod folder with a
-  me3 profile beside it, and ends with the 11 checks of `character-verify`. `character-clone` writes the template itself
+  me3 profile beside it, and ends with the 12 checks of `character-verify`. `character-clone` writes the template itself
   under the new ID. Plan, facts and limits: [docs/CHARACTER_EXPORT_PLAN.md](docs/CHARACTER_EXPORT_PLAN.md).
 - `run <request.json>` takes any request that the UI or `sekiro_animation_cli.ps1` sends to `bridge_runtime.py`.
 

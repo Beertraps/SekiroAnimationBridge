@@ -214,6 +214,42 @@ class Meshes(unittest.TestCase):
             self.assertTrue(np.all(facing<0),material)
 
 
+def placed(x,y,z):
+    world=np.eye(4);world[:3,3]=(x,y,z)
+    return world
+
+
+class Ragdolls(unittest.TestCase):
+    def test_a_turn_takes_one_direction_onto_the_other(self):
+        for old,new in (([0,1,0],[1,0,0]),([0,0,2],[0,1,1]),([1,0,0],[-3,0,0]),([0,1,0],[0,2,0])):
+            turn=character_export.turn_between(old,new)
+            self.assertTrue(np.allclose(turn@np.array(old,float)/np.linalg.norm(old),np.array(new,float)/np.linalg.norm(new)),(old,new))
+            self.assertTrue(np.allclose(turn@turn.T,np.eye(3)) and np.isclose(np.linalg.det(turn),1),(old,new))
+
+    def test_ragdoll_bones_follow_their_drivers_and_turn_with_the_limb(self):
+        # A template limb up the Y axis, and a new one along X twice as long. Ragdoll bones 0 and 1 rest on the
+        # limb's bones; bone 2 has no driver and keeps its place on bone 1.
+        template=[placed(0,0,0),placed(0,1,0)]
+        new=[placed(0,0,0),placed(2,0,0)]
+        rest=[placed(0,0,0),placed(0,1,0),placed(0,1.5,0)]
+        rests=character_export.ragdoll_rest([-1,0,1],rest,{0:0,1:1},template,new,[0,1])
+        self.assertTrue(np.allclose(rests[0][:3,:3]@[0,1,0],[1,0,0]),'the root turns onto the new limb')
+        self.assertTrue(np.allclose(rests[1][:3,3],[2,0,0]),'the child moves to its driver')
+        self.assertTrue(np.allclose(rests[1][:3,:3],rests[0][:3,:3]),'a bone without ragdoll children turns as its parent')
+        self.assertTrue(np.allclose(rests[2][:3,3],[2.5,0,0]),'a bone without a driver keeps its place on its parent')
+
+    def test_the_pwv_gets_one_row_per_new_bone(self):
+        header=struct.pack('<I4h',1,0,2,3,2).ljust(32,b'\0')
+        rows=[bytes([i])*8 for i in range(3)]
+        data=header+b'\xff\xff\0\0'*2+b''.join(rows)+b'\x07'*32
+        new=character_export.edit_pwv(data,[0,1,1,2])
+        self.assertEqual(struct.unpack_from('<I4h',new,0),(1,0,2,4,2))
+        self.assertEqual(new[40:72],rows[0]+rows[1]+rows[1]+rows[2])
+        self.assertEqual((new[72:],len(new)),(b'\x07'*32,32+8+32+32))
+        with self.assertRaises(ValueError):
+            character_export.edit_pwv(data[:-1],[0,1,2])
+
+
 class Requests(unittest.TestCase):
     def test_the_character_page_keeps_its_own_fields(self):
         request=dict(mode='character-export',writer='python.exe',blender='blender.exe',inputBlend='other.blend',frameStart='3',
