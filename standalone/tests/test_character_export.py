@@ -1,5 +1,5 @@
 """A new Sekiro character: Havok tagfiles patched in place, bones merged to fit a model, and the requests that start it."""
-import json,struct,sys,tempfile,unittest
+import io,json,struct,sys,tempfile,unittest
 from pathlib import Path
 from unittest import mock
 import numpy as np
@@ -194,6 +194,24 @@ class Bones(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             profile=character_export.me3_profile(Path(temp)/'dante','dante')
             self.assertEqual((profile.name,'path = "dante"' in profile.read_text(encoding='utf-8')),('dante.me3',True))
+
+
+class Meshes(unittest.TestCase):
+    def test_triangles_wind_against_their_normals_as_sekiros_do(self):
+        # Two triangles wound alike in Blender: material 0's normals follow the winding, as a DMC5 import's do;
+        # material 1's point the other way, as a FromSoftware import's do.
+        buffer=io.BytesIO()
+        np.savez(buffer,positions=np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,0,1],[0,1,1]],np.float32),loop_vertex=np.arange(6),
+                 normals=np.array([[0,0,1]]*3+[[0,0,-1]]*3,np.float32),tangents=np.tile(np.float32([1,0,0,1]),(6,1)),
+                 bone_indices=np.zeros((6,4),np.int64),bone_weights=np.tile(np.float32([1,0,0,0]),(6,1)),
+                 triangles=np.array([[0,1,2],[3,4,5]]),triangle_materials=np.array([0,1]))
+        buffer.seek(0)
+        parts=character_export.mesh_parts(buffer,np.array([0]))
+        self.assertEqual([p[0] for p in parts],[0,1])
+        for material,floats,_,triangles in parts:
+            a,b,c=(floats[triangles[:,k],0:3] for k in range(3))
+            facing=np.einsum('ij,ij->i',np.cross(b-a,c-a),floats[triangles,3:6].sum(axis=1))
+            self.assertTrue(np.all(facing<0),material)
 
 
 class Requests(unittest.TestCase):

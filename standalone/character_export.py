@@ -483,15 +483,22 @@ def mesh_parts(npz, node_of_source, hidden=(), space=FROMSOFT):
     floats = np.zeros((len(loop_vertex), 22), np.float32)
     floats[:, 0:3], floats[:, 3:6], floats[:, 6:10] = positions, normals, tangents
     floats[:, 10:12], floats[:, 12:14], floats[:, 14:18] = uv0, uv1, weights
-    # A reflecting axis change turns the winding around.
-    triangles = data['triangles'][:, [0, 2, 1]] if np.linalg.det(p) < 0 else data['triangles']
-    key = np.column_stack([loop_vertex, np.round(normals * 1e4), np.round(uv0 * 1e5), np.round(uv1 * 1e5),
+    triangles = data['triangles']
+    a, b, c = (positions[triangles[:, k]] for k in range(3))
+    along = np.einsum('ij,ij->i', np.cross(b - a, c - a), normals[triangles].sum(axis=1)) > 0
+    key =np.column_stack([loop_vertex, np.round(normals * 1e4), np.round(uv0 * 1e5), np.round(uv1 * 1e5),
                            np.sign(tangents[:, 3])]).astype(np.int64)
     parts = []
     for material in np.unique(data['triangle_materials']):
         if int(material) in hidden:
             continue
         chosen = triangles[data['triangle_materials'] == material]
+        # Sekiro's triangles wind against their normals (c1010: 99.7% of them). The axis change mirrors, so a mesh
+        # wound as Blender winds, with its normals, such as a DMC5 import, arrives here wound against them, and a
+        # FromSoftware import, wound the other way in Blender, arrives wound with them. A material is turned around
+        # when most of its triangles wind with their normals; otherwise the game lights it from behind.
+        if along[data['triangle_materials'] == material].mean() > 0.5:
+            chosen = chosen[:, [0, 2, 1]]
         pending = [chosen]
         while pending:
             tris = pending.pop()
