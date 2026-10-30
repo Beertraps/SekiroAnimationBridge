@@ -421,6 +421,15 @@ def states():
     settings.active_row = review[0]
     yield 'Bones matched'
 
+    # A weapon chosen from the list, found by the search among the carried bones.
+    settings.search, settings.list_filter = 'weap', 'CARRIED'
+    settings.active_row = next(i for i, row in enumerate(settings.rows) if row.target == 'R_Weapon')
+    yield 'Weapon row chosen'
+
+    settings.search, settings.list_filter = 'no such bone', 'ALL'
+    yield 'Search finds nothing'
+
+    settings.search = ''
     assert bpy.ops.sekiro_retarget.bake() == {'FINISHED'}, settings.status
     yield 'Baked'
 
@@ -504,11 +513,18 @@ EXPECTED = {
     'Rig imported': (['Adds controls to pose the arms and legs', '(Add control rig)'], []),
     'Source and target chosen': (['(Save map) (greyed out)  (Load map)', 'Match bones first.'],
                                  ['(Match bones automatically) (greyed out)']),
-    'Bones matched': (['(Match bones again)', '55 of 58 bones matched, 3 to review.', '{list: 58 of 58 rows',
-                       'Master: Same normalized name', '(Export HKX) (greyed out)', 'Choose the Output file first.'],
-                      ['(Bake motion onto target) (greyed out)', 'Match bones first.']),
+    'Bones matched': (['(Match bones again)', '55 of 58 bones matched, 3 to review.', '*All* | To review | Carried',
+                       '{list: 58 of 58 rows', 'Master: Same normalized name', '(Export HKX) (greyed out)',
+                       'Choose the Output file first.', 'Role: [Other v]', 'Show: [Automatic v]'],
+                      ['(Bake motion onto target) (greyed out)', 'Match bones first.', 'Held in']),
+    'Weapon row chosen': (['[weap]', 'All | To review | *Carried*', '{list: 2 of 58 rows', 'Role: [Weapon v]',
+                           'Held in: [Automatic v]', 'Carried where the source carries R_Weapon; thrown and caught as '
+                           'R_Weapon is.', '2 weapons and props in the bone list.'],
+                          ['No bone fits']),
+    'Search finds nothing': (['{list: 0 of 58 rows', 'No bone fits the search and the list filter.'], []),
     'Baked': (['Baked 24 frames from 55 mapped bones'], []),
-    'Every option shown': (['Travel scale: [1]', '[ ] Turn root with the body', 'Rotations', 'Tolerance: [0.001]'],
+    'Every option shown': (['Travel scale: [1]', 'Jumps and throws [By leg length v]', '[ ] Turn root with the body',
+                            'Rotations', 'Tolerance: [0.001]'],
                            ['(Export HKX) (greyed out)']),
     'Full body without a bone list': (['Bake method', '[Full body v]',
                                        "Finds the body in both rigs and keeps the feet on the source's footprint.",
@@ -539,8 +555,9 @@ EXPECTED = {
 
 
 def check_list(settings):
-    """The bone list's name filter finds target and source bones, the review filter its rows to review, and its A-Z
-    sort orders the rows by target bone."""
+    """The bone list's name filter and search field find target and source bones, every word of a search, the review
+    filter its rows to review, the carried filter its weapons and props, and its A-Z sort orders the rows by target
+    bone."""
     def filtered(name, alpha=False):
         helper = SimpleNamespace(bitflag_filter_item=1 << 30, filter_name=name, use_filter_sort_alpha=alpha)
         return sekiro_retarget.SKR_UL_bones.filter_items(helper, bpy.context, settings, 'rows')
@@ -550,12 +567,23 @@ def check_list(settings):
     flags, order = filtered('', alpha=True)
     names = [row.target for row in settings.rows]
     assert all(flags) and [names[i] for i in sorted(range(len(names)), key=order.__getitem__)] == sorted(names, key=str.lower)
-    settings.review_only = True
+    settings.search = 'l_ thigh'
     flags, order = filtered('')
-    settings.review_only = False
+    settings.search = ''
+    assert [row.target for row, flag in zip(settings.rows, flags) if flag] == ['L_Thigh'], flags
+    settings.list_filter = 'REVIEW'
+    flags, order = filtered('')
     assert sum(map(bool, flags)) == sum(map(sekiro_retarget.needs_review, settings.rows)) == 3, flags
+    settings.list_filter = 'CARRIED'
+    flags, order = filtered('')
+    settings.list_filter = 'ALL'
+    carried = sorted(row.target for row, flag in zip(settings.rows, flags) if flag)
+    assert carried == ['L_Weapon', 'R_Weapon'], carried
+    assert {row.role for row in settings.rows if row.target in carried} == {'WEAPON'}, carried
+    assert all(row.body for row in settings.rows if row.target in ('L_Hand', 'R_Thigh', 'Spine')), 'body bones not marked'
     print(f'Bone list: the name filter THIGH shows {len(found)} of {len(names)} rows ({", ".join(r.target for r in found)}), '
-          f'the review filter 3; the A-Z sort orders all {len(names)} by target bone')
+          f'the search "l_ thigh" L_Thigh, the review filter 3, the carried filter {", ".join(carried)}; the A-Z sort '
+          f'orders all {len(names)} by target bone')
 
 
 def words(text):

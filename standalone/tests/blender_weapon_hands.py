@@ -12,8 +12,12 @@ the axe is, so that the scabbard keeps its own channels; keeping the right hand 
 with the left hand; giving the axe to the spear takes it from the katana, which stays in the right hand, and shows
 the spear in the left hand like the axe although the target clip hides it; an axe mesh along another bone axis
 than the spear's turns the spear so that both stay parallel, with its grip in the hand along the axe mesh's line;
-and hiding the katana and the spear in the map shrinks both to 0.1% on every frame where they would be, the
-scabbard with the katana, and stays in the map through saving and loading it.
+hiding the katana and the spear in the map shrinks both to 0.1% on every frame where they would be, the scabbard
+with the katana, and stays in the map through saving and loading it. The bone list's hands: the spear given the
+right hand goes there with the axe's grip from the source's left hand; Keep its place leaves it where its own clip
+puts it; the gun, which has no source bone, given the right hand, sits pinned in its palm at full size on every
+frame although its own clip hides it; and the map keeps each bone's role, Show, hand and alignment, and reads a
+version 1 map's hidden weapons as hidden.
 """
 import json
 import math
@@ -311,7 +315,10 @@ rows = {row.target: row for row in settings.rows}
 assert (rows['R_Katana'].source, rows['R_Katana'].reason) == ('L_Axe', 'Weapon from the other hand'), \
     (rows['R_Katana'].source, rows['R_Katana'].reason)
 assert abs(rows['R_Katana'].confidence - .8) < 1e-6
-assert rows['L_Yari'].source == rows['L_Gun'].source == rows['R_Katana_Saya'].source == '' and not any(row.hidden for row in settings.rows)
+assert rows['L_Yari'].source == rows['L_Gun'].source == rows['R_Katana_Saya'].source == '' and \
+    all(row.show == 'AUTO' and row.hold == 'AUTO' for row in settings.rows)
+assert {name for name, row in rows.items() if row.role == 'WEAPON'} == {'R_Katana', 'L_Yari', 'L_Gun'}, \
+    {name: row.role for name, row in rows.items() if not row.body}
 
 plain = bake(body_clearance=False)
 assert plain['placed'] == {'R_Katana': 'L_Hand'} and plain['hidden'] == [], (plain['placed'], plain['hidden'])
@@ -372,7 +379,7 @@ assert max(lines) < 3, f'the spear and the axe differ by up to {max(lines):.2f} 
 # Hiding the katana, which the spear took the axe from, and the spear itself in the map: both shrink to 0.1% on every
 # frame where they would be, the katana at its grip in the right hand and the spear where the axe puts it, and the
 # scabbard shrinks with the katana.
-rows['R_Katana'].hidden = rows['L_Yari'].hidden = True
+rows['R_Katana'].show = rows['L_Yari'].show = 'HIDE'
 hidden = bake(body_clearance=False)
 assert set(hidden['hidden']) == {'R_Katana', 'L_Yari'} and hidden['placed'] == {'L_Yari': 'L_Hand'}, (hidden['hidden'], hidden['placed'])
 assert all(f'{name} is hidden on every frame.' in hidden['notes'] for name in ('R_Katana', 'L_Yari')), hidden['notes']
@@ -396,14 +403,82 @@ with tempfile.TemporaryDirectory() as temp:
     path = str(Path(temp) / 'hidden weapons.json')
     assert bpy.ops.sekiro_retarget.save_map(filepath=path) == {'FINISHED'}
     saved = {item['target']: item for item in json.loads(Path(path).read_text(encoding='utf-8'))['mappings']}
-    assert saved['R_Katana']['hidden'] and saved['L_Yari']['hidden'] and not saved['L_Gun']['hidden'], saved['R_Katana']
+    assert saved['R_Katana']['show'] == saved['L_Yari']['show'] == 'HIDE' and saved['L_Gun']['show'] == 'AUTO', saved['R_Katana']
     assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
-    assert not any(row.hidden for row in settings.rows), 'a new match kept hidden weapons'
+    assert all(row.show == 'AUTO' for row in settings.rows), 'a new match kept hidden weapons'
     assert bpy.ops.sekiro_retarget.load_map(filepath=path) == {'FINISHED'}
 rows = {row.target: row for row in settings.rows}  # The match and the load made new rows.
-assert {name for name, row in rows.items() if row.hidden} == {'R_Katana', 'L_Yari'}
+assert {name for name, row in rows.items() if row.show == 'HIDE'} == {'R_Katana', 'L_Yari'}
 assert (rows['L_Yari'].source, rows['R_Katana'].source) == ('L_Axe', ''), (rows['L_Yari'].source, rows['R_Katana'].source)
 assert set(bake(body_clearance=False)['hidden']) == {'R_Katana', 'L_Yari'}
+
+# The spear given the right hand: there, where the source holds the axe in its left, its grip in the hand while the
+# axe slides along the source's.
+rows['R_Katana'].show = rows['L_Yari'].show = 'AUTO'
+rows['L_Yari'].hold = 'RIGHT'
+forced = bake(body_clearance=False)
+assert forced['placed'] == {'L_Yari': 'R_Hand'}, forced['placed']
+assert 'L_Yari is placed in R_Hand, where the source holds L_Axe.' in forced['notes'], forced['notes']
+offsets = []
+for frame in range(1, COUNT + 1):
+    scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    held, axe = world(target, 'L_Yari'), world(source, 'L_Axe')
+    line = held.to_quaternion() @ Vector((1, 0, 0))
+    offset = held.translation - world(target, 'R_Hand').translation
+    wanted = SIZE * (axe.translation - world(source, 'L_Hand').translation)
+    offsets.append(((offset - line * offset.dot(line)) - (wanted - line * wanted.dot(line))).length)
+assert max(offsets) < 1e-4, f'the spear lies {max(offsets) * 1000:.2f} mm off the axe\'s line from the right hand'
+# Keep its place: not carried, where its own clip puts it.
+rows['L_Yari'].hold = 'KEEP'
+kept_place = bake(body_clearance=False)
+assert kept_place['placed'] == {} and 'L_Yari' not in kept_place['carried'], (kept_place['placed'], kept_place['carried'])
+
+# The gun, without a source bone, given the right hand: pinned in the palm at full size, though its clip hides it.
+rows['L_Yari'].hold = 'AUTO'
+rows['L_Gun'].hold = 'RIGHT'
+pinned = bake(body_clearance=False)
+assert pinned['pinned'] == {'L_Gun': dict(hand='R_Hand', grip='the palm')}, pinned['pinned']
+assert 'L_Gun is pinned in R_Hand at the palm, as the bone list says; it has no source bone.' in pinned['notes'], pinned['notes']
+gaps = []
+for frame in range(1, COUNT + 1):
+    scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    size = target.pose.bones['L_Gun'].matrix.to_scale()
+    assert all(abs(value - 1) < 1e-4 for value in size), f'the pinned gun has scale {size} on frame {frame}'
+    frame_palm, length = palm(target, 'R')
+    gaps.append(abs((world(target, 'L_Gun').translation - frame_palm.translation).length - length))
+assert max(gaps) < 1e-3 * SIZE, f'the pinned gun lies {max(gaps) * 1000:.2f} mm off the right knuckles'
+assert 'L_Gun|R_Hand' in target[retarget.HELD], target[retarget.HELD]
+
+# The map keeps each bone's role, Show, hand and alignment.
+settings.grip_offsets.clear()
+offset = settings.grip_offsets.add()
+offset.weapon, offset.hand = 'L_Gun', 'R_Hand'
+offset.matrix = [value for row in Matrix.Translation((0, .01, 0)) for value in row]
+rows['R_Katana_Saya'].role, rows['R_Katana_Saya'].show = 'PROP', 'SHOW'
+with tempfile.TemporaryDirectory() as temp:
+    path = str(Path(temp) / 'hands.json')
+    assert bpy.ops.sekiro_retarget.save_map(filepath=path) == {'FINISHED'}
+    document = json.loads(Path(path).read_text(encoding='utf-8'))
+    saved = {item['target']: item for item in document['mappings']}
+    assert document['version'] == 2 and saved['L_Gun']['hold'] == 'RIGHT' and saved['L_Gun']['align']['hand'] == 'R_Hand', saved['L_Gun']
+    settings.grip_offsets.clear()
+    assert bpy.ops.sekiro_retarget.match_bones() == {'FINISHED'}
+    assert bpy.ops.sekiro_retarget.load_map(filepath=path) == {'FINISHED'}
+    rows = {row.target: row for row in settings.rows}
+    assert (rows['L_Gun'].hold, rows['R_Katana_Saya'].role, rows['R_Katana_Saya'].show) == ('RIGHT', 'PROP', 'SHOW'), \
+        (rows['L_Gun'].hold, rows['R_Katana_Saya'].role, rows['R_Katana_Saya'].show)
+    restored = [(item.weapon, item.hand, round(item.matrix[7], 6)) for item in settings.grip_offsets]
+    assert restored == [('L_Gun', 'R_Hand', .01)], restored
+    # A version 1 map: its hidden weapons hide, and the roles come from matching.
+    old = dict(format='sekiro-retarget-map', version=1, mappings=[dict(target='R_Katana', source='', enabled=False, hidden=True)])
+    Path(path).write_text(json.dumps(old), encoding='utf-8')
+    assert bpy.ops.sekiro_retarget.load_map(filepath=path) == {'FINISHED'}
+    rows = {row.target: row for row in settings.rows}
+    assert (rows['R_Katana'].show, rows['R_Katana'].role, rows['L_Gun'].hold) == ('HIDE', 'WEAPON', 'AUTO'), \
+        (rows['R_Katana'].show, rows['R_Katana'].role, rows['L_Gun'].hold)
+settings.grip_offsets.clear()
 print(f"Weapon hand checks passed{' with the full-body bake' if METHOD == 'BODY' else ''}: the katana took the axe from the other hand and followed it within "
       f"{switch_error * 1000:.3f} mm, hidden at {retarget.HIDDEN} on frames 1-2 with its scabbard in place; the right "
       f"hand was moved out on frames {pushed['R']['frames'][0]}-{pushed['R']['frames'][-1]} by up to {moved * 100:.1f} cm "
@@ -412,4 +487,6 @@ print(f"Weapon hand checks passed{' with the full-body bake' if METHOD == 'BODY'
       f"the palm within {turned_gap[0] * 1000:.3f} mm / {turned_gap[1]:.4f} degrees and parallel in the world within "
       f"{max(lines):.3f} degrees; hiding the "
       f"katana and the spear in the map shrank both and the scabbard to {retarget.HIDDEN} on all {COUNT} frames, and "
-      f"the map kept them hidden.")
+      f"the map kept them hidden; the spear given the right hand lay on the axe's line from it within "
+      f"{max(offsets) * 1000:.3f} mm, the gun pinned in the right palm within {max(gaps) * 1000:.3f} mm at full size, "
+      f"and the map kept roles, Show, hands and the alignment.")

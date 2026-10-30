@@ -1,6 +1,6 @@
 bl_info = {
     'name': 'Sekiro Retarget Assistant', 'author': 'Animation Bridge',
-    'version': (0, 10, 0), 'blender': (4, 5, 0),
+    'version': (0, 11, 0), 'blender': (4, 5, 0),
     'location': '3D View > Sidebar > Retarget and Animate', 'category': 'Animation',
     'description': 'Append bridge rigs, match bones, review mappings, bake retargeted motion, mirror and join animations, '
                    'add a control rig with fixes and export HKX',
@@ -73,15 +73,44 @@ class SKR_Preferences(AddonPreferences):
         layout.label(text='Conversion Python: '+str(writer),icon='CHECKMARK' if writer.is_file() else 'ERROR')
 
 
+# What a bone in the bone list is, whether it shows and which hand carries it (see retarget.bake).
+BONE_ROLES=[
+    ('WEAPON','Weapon','Held in a hand where the source holds its source bone, with the grip under Weapons and props; '
+              'where the source throws it, it flies and lands where the source\'s does','GREASEPENCIL',0),
+    ('PROP','Prop','Moves with the bone that carries it as its source bone moves with its own: held, thrown and '
+            'caught as the source\'s is, and shown and hidden as it is','MESH_CUBE',1),
+    ('OTHER','Other','Turns like its source bone where it has one, as any bone in the list does','BONE_DATA',2)]
+SHOW_MODES=[
+    ('AUTO','Automatic','Weapons that the bake puts in a hand, and props, show and hide as their source bones do; '
+            'other bones as the target\'s own clip shows them','AUTO',0),
+    ('SHOW','Show','Shown at full size on every frame, also where a clip hides it','HIDE_OFF',1),
+    ('HIDE','Hide','Hidden on every frame by scaling it to 0.1%, as FromSoftware clips hide weapons','HIDE_ON',2)]
+HOLD_MODES=[
+    ('AUTO','Automatic','Carried by the target bone mapped to the one that carries its source bone, normally a hand','AUTO',0),
+    ('LEFT','Left hand','In the left hand, where the source holds its source bone; without a source bone, at its '
+            'own grip, from its own clip or its rest pose','EVENT_L',1),
+    ('RIGHT','Right hand','In the right hand, where the source holds its source bone; without a source bone, at '
+             'its own grip, from its own clip or its rest pose','EVENT_R',2),
+    ('KEEP','Keep its place','Not carried: it keeps its place on its parent bone and turns like its source bone','LOCKED',3)]
+ROLE_ICONS={key:icon for key,name,description,icon,number in BONE_ROLES}
+SHOWS={key for key,name,description,icon,number in SHOW_MODES}
+HOLDS={key for key,name,description,icon,number in HOLD_MODES}
+
+
 class SKR_BoneMap(PropertyGroup):
     target: StringProperty(name='Target bone')
     source: StringProperty(name='Source bone', update=source_changed,
         description='The source bone whose motion this target bone takes. A source bone drives one target bone only')
     enabled: BoolProperty(name='Use mapping', default=True,
         description='Bake this target bone from its source bone. Off: it does what Unmapped bones says')
-    hidden: BoolProperty(name='Hide', default=False,
-        description='Hide this weapon on every frame of the bake by scaling it to 0.1%, as FromSoftware clips hide '
-                    'weapons; the bones below it hide with it')
+    body: BoolProperty(name='Body bone', default=False,
+        description='Part of the body, such as an arm or a finger, which the bake moves with the body')
+    role: EnumProperty(name='Role', default='OTHER', items=BONE_ROLES,
+        description='What this bone is: a weapon or a prop, which a hand can carry, or any other bone')
+    show: EnumProperty(name='Show', default='AUTO', items=SHOW_MODES,
+        description='Whether this bone shows during the bake; the bones below it show and hide with it')
+    hold: EnumProperty(name='Held in', default='AUTO', items=HOLD_MODES,
+        description='Which hand carries this weapon or prop')
     confidence: FloatProperty(name='Match strength', min=0, max=1)
     reason: StringProperty()
     suggestion: StringProperty()
@@ -131,8 +160,12 @@ class SKR_Settings(PropertyGroup):
         description='The armature that receives the animation: the character that the bridge imported into this scene')
     rows: CollectionProperty(type=SKR_BoneMap)
     active_row: IntProperty()
-    review_only: BoolProperty(name='Show unmatched / uncertain only', default=False,
-        description='List only the target bones without a source bone, switched off, or matched below 94%')
+    search: StringProperty(name='Search', options={'TEXTEDIT_UPDATE'},
+        description='List only the bones whose target or source name contains these words; * stands for any letters')
+    list_filter: EnumProperty(name='List', default='ALL', items=[
+        ('ALL','All','Every bone in the list'),
+        ('REVIEW','To review','The target bones without a source bone, switched off, or matched below 94%'),
+        ('CARRIED','Carried','The weapons and props, which a hand can carry')])
     tracked_only: BoolProperty(name='Only bones the clip animates', default=True,
         description='For rigs imported by the bridge, match only the bones that the HKX clip animates, its tracks; '
                     'the other bones of the model follow their parents. Takes effect at the next match')
@@ -180,17 +213,11 @@ class SKR_Settings(PropertyGroup):
     plant_tolerance: FloatProperty(name='Plant tolerance', default=.15, min=.01, max=1.0, precision=2,
         description='How far a planted point of the foot may move and still count as planted, and how close to the '
                     'ground a sliding foot stays, in lengths of the source\'s foot. Biped\'s default is 0.15')
-    jump_scale: BoolProperty(name='Scale jumps by height', default=False,
-        description='As Biped scales gravity with the figure\'s height: where no foot is on the ground, the body rises '
-                    'above the line from lift-off to touchdown as far as the target\'s height against the source\'s, '
-                    'instead of by leg length; the time in the air stays the same')
-    prop_scale: EnumProperty(name='Moving props', description='Where bones outside the body, whose source bones move away '
-                                                              'from their parents, such as a thrown weapon, go', items=[
-        ('NONE','Keep target place','They keep their place on their parent and turn like the source\'s'),
-        ('HEIGHT','By height','They move from the nearest mapped bone above them as far as the source\'s, scaled by '
-                  'the target\'s height against the source\'s'),
-        ('LIMB','By limb size','As By height, scaled by the limb that carries them: the arm, the leg, the torso, or '
-                'the leg length for a bone above the hips')], default='NONE')
+    air_scale: EnumProperty(name='Jumps and throws', description='How far jumps rise and thrown weapons and props fly', items=[
+        ('LEGS','By leg length','As far as the source\'s, scaled like the body travel'),
+        ('HEIGHT','By height (Biped)','As 3ds Max\'s Biped scales gravity with the figure\'s height: as far as the '
+                  'source\'s, scaled by the target\'s height against the source\'s; the time in the air stays the '
+                  'same. Jumps need the full-body bake')], default='LEGS')
     body_clearance: BoolProperty(name='Keep hands out of the body', default=False,
         description='Where a hand, or what it holds, would go into the target torso deeper than the source\'s hand goes '
                     'into its own body, move it out through the arm, easing in and out; for a target with a thicker body '
@@ -389,10 +416,13 @@ def build_mapping(settings):
         return retarget.rig_bones(rig,retarget.bone_infos(rig,settings.tracked_only))
     rows = mapping.match_bones(infos(settings.source),infos(settings.target),retarget.hidden_bones(settings.source))
     settings.rows.clear()
+    found={item['target']:item['source'] for item in rows if item['source']}
+    roles=retarget.bone_roles(settings.source,settings.target,found,retarget.body_bones(settings.target))
     for item in rows:
         row=settings.rows.add()
         row.target=item['target'];row.source=item['source'];row.enabled=bool(item['source'])
         row.confidence=item['confidence'];row.reason=item['reason'];row.suggestion=item['suggestion']
+        role=roles.get(item['target'],'OTHER');row.body=role=='BODY';row.role='OTHER' if row.body else role
     count=sum(bool(row.source and row.enabled) for row in settings.rows)
     settings.status=f'{count} / {len(rows)} target bones matched. Review the rest before baking.'
     return count
@@ -713,9 +743,13 @@ class SKR_OT_save_map(Operator,ExportHelper):
     filter_glob: StringProperty(default='*.json',options={'HIDDEN'})
     def execute(self,context):
         try:
-            rows=context.scene.sekiro_retarget.rows
-            document=dict(format='sekiro-retarget-map',version=1,
-                          mappings=[dict(target=r.target,source=r.source,enabled=r.enabled,hidden=r.hidden) for r in rows])
+            settings=context.scene.sekiro_retarget;rows=settings.rows
+            def entry(row):
+                item=dict(target=row.target,source=row.source,enabled=row.enabled,role=row.role,show=row.show,hold=row.hold)
+                offset=grip_offset(settings,row.target)
+                if offset:item['align']=dict(hand=offset.hand,matrix=list(offset.matrix))
+                return item
+            document=dict(format='sekiro-retarget-map',version=2,mappings=[entry(row) for row in rows])
             Path(self.filepath).write_text(json.dumps(document,indent=2),encoding='utf-8')
             self.report({'INFO'},f'Saved {len(rows)} bones to {Path(self.filepath).name}.')
             return {'FINISHED'}
@@ -734,7 +768,7 @@ class SKR_OT_load_map(Operator,ImportHelper):
         try:
             settings=context.scene.sekiro_retarget
             document=json.loads(Path(self.filepath).read_text(encoding='utf-8-sig'))
-            if document.get('format')!='sekiro-retarget-map' or document.get('version')!=1:
+            if document.get('format')!='sekiro-retarget-map' or document.get('version') not in (1,2):
                 raise ValueError('Choose a Sekiro Retarget Assistant mapping file.')
             build_mapping(settings)
             rows={row.target:row for row in settings.rows}
@@ -743,7 +777,14 @@ class SKR_OT_load_map(Operator,ImportHelper):
                 row=rows[item['target']]
                 row.source=item['source'] if item['source'] in settings.source.data.bones else ''
                 row.enabled=bool(row.source and item.get('enabled',True));row.reason='Loaded bone map'
-                row.hidden=bool(item.get('hidden',False))
+                # Version 1 saved only whether a weapon was hidden; its roles come from matching.
+                row.show='HIDE' if item.get('hidden') else item.get('show') if item.get('show') in SHOWS else 'AUTO'
+                if item.get('role') in ROLE_ICONS and not row.body:row.role=item['role']
+                row.hold=item.get('hold') if item.get('hold') in HOLDS else 'AUTO'
+                align=item.get('align')
+                if align and len(align.get('matrix',())) == 16:
+                    offset=grip_offset(settings,row.target) or settings.grip_offsets.add()
+                    offset.weapon=row.target;offset.hand=align.get('hand','');offset.matrix=align['matrix']
             count=sum(bool(row.source and row.enabled) for row in settings.rows)
             settings.status=(f'Loaded {Path(self.filepath).name}: {count} / {len(settings.rows)} target bones matched. '
                              'Review the rest before baking.')
@@ -1092,22 +1133,42 @@ def menu(layout,data,name):
     column.label(text=data.bl_rna.properties[name].name);column.prop(data,name,text='')
 
 
+def listed(settings,row,words):
+    """Whether the bone list shows a row: of the kind that List chooses, with each word of the search in its target
+    or source name."""
+    if settings.list_filter=='REVIEW' and not needs_review(row):return False
+    if settings.list_filter=='CARRIED' and (row.body or row.role=='OTHER'):return False
+    return all(fnmatchcase(row.target.lower(),f'*{word}*') or fnmatchcase(row.source.lower(),f'*{word}*') for word in words)
+
+
 class SKR_UL_bones(UIList):
     def filter_items(self,context,data,property):
-        rows=getattr(data,property);pattern='*'+self.filter_name.lower()+'*'
-        flags=[self.bitflag_filter_item if (not data.review_only or needs_review(row)) and
-               (fnmatchcase(row.target.lower(),pattern) or fnmatchcase(row.source.lower(),pattern)) else 0 for row in rows]
+        rows=getattr(data,property);words=(data.search+' '+self.filter_name).lower().split()
+        flags=[self.bitflag_filter_item if listed(data,row,words) else 0 for row in rows]
         return flags,bpy.types.UI_UL_list.sort_items_by_name(rows,'target') if self.use_filter_sort_alpha else []
     def draw_item(self,context,layout,data,item,icon,active_data,active_property,index):
         column=layout.column(align=True)
         row=column.row(align=True)
         row.prop(item,'enabled',text='')
-        row.label(text=item.target,icon='BONE_DATA')
+        row.label(text=item.target,icon='ARMATURE_DATA' if item.body else ROLE_ICONS[item.role])
         row.label(text=f'{round(item.confidence*100)}%' if item.source else '—',icon='QUESTION' if needs_review(item) else 'CHECKMARK')
-        if mapping.weapon_part(item.target) or item.hidden:
-            row.prop(item,'hidden',text='',icon='HIDE_ON' if item.hidden else 'HIDE_OFF',emboss=False)
+        if not item.body:row.prop(item,'show',text='',icon_only=True,emboss=False)
         if data.source:column.prop_search(item,'source',data.source.data,'bones',text='From')
         else:column.label(text='Choose a source rig')
+
+
+def carry_hint(item):
+    """What the bake does with a weapon or prop, from its source bone and the hand that the list gives it."""
+    source=item.source if item.source and item.enabled else ''
+    if item.hold=='KEEP':
+        return 'Keeps its place on its parent bone and turns like its source bone.'
+    if item.hold in ('LEFT','RIGHT'):
+        hand='left' if item.hold=='LEFT' else 'right'
+        return (f'In the {hand} hand, where the source holds {source}.' if source else
+                f'Pinned in the {hand} hand at its own grip, since it has no source bone.')
+    if not source:
+        return 'Without a source bone it does what Unmapped bones says. Choose one under From, or a hand.'
+    return f'Carried where the source carries {source}; thrown and caught as {source} is.'
 
 
 class SKR_PT_panel(Panel):
@@ -1182,14 +1243,29 @@ class SKR_PT_bones(SidebarPanel,Panel):
         if rows:
             count=sum(bool(row.enabled and row.source) for row in rows);review=sum(needs_review(row) for row in rows)
             text(layout,context,f'{count} of {len(rows)} bones matched'+(f', {review} to review.' if review else '.'))
-            layout.prop(settings,'review_only')
+            layout.prop(settings,'search',text='',icon='VIEWZOOM')
+            layout.row(align=True).prop(settings,'list_filter',expand=True)
             layout.template_list('SKR_UL_bones','',settings,'rows',settings,'active_row',rows=5)
+            words=settings.search.lower().split()
+            if not any(listed(settings,row,words) for row in rows):
+                text(layout,context,'No bone fits the search and the list filter.',icon='INFO')
             if settings.active_row<len(rows):
                 item=rows[settings.active_row]
                 box=layout.box();text(box,context,item.target+': '+(item.reason or 'Unassigned'),boxed=True)
                 if not item.source and item.suggestion:
                     box.label(text='Suggestion: '+item.suggestion)
                     box.operator('sekiro_retarget.accept_suggestion').index=settings.active_row
+                if item.body:
+                    box.label(text='Part of the body',icon='ARMATURE_DATA')
+                else:
+                    box.prop(item,'role');box.prop(item,'show')
+                    if item.role!='OTHER':
+                        box.prop(item,'hold');text(box,context,carry_hint(item),boxed=True)
+                    offset=grip_offset(settings,item.target)
+                    if offset:
+                        change=retarget.matrix_of(offset.matrix)
+                        text(box,context,f'Aligned in {offset.hand}: {change.translation.length*retarget.uniform_scale(settings.target)*100:.1f} cm, '
+                                         f'{math.degrees(change.to_quaternion().angle):.1f}° (Weapon in hand)',icon='CHECKMARK',boxed=True)
             if any(not row.source and row.suggestion for row in rows):
                 layout.operator('sekiro_retarget.accept_all_suggestions',icon='CHECKMARK')
             row=layout.row(align=True)
@@ -1226,27 +1302,26 @@ class SKR_PT_bake_pose(BakeOptions,Panel):
 
 
 class SKR_PT_bake_travel(BakeOptions,Panel):
-    bl_label='Body travel'
+    bl_label='Travel and scale'
     bl_idname='SKR_PT_retarget_bake_travel'
     def draw(self,context):
         layout=self.layout;settings=context.scene.sekiro_retarget
         layout.prop(settings,'body_translation');layout.prop(settings,'auto_scale')
         if not settings.auto_scale:layout.prop(settings,'travel_scale')
+        menu(layout,settings,'air_scale')
         menu(layout,settings,'root_motion')
         if settings.root_motion in ('AUTO','EXTRACT'):layout.prop(settings,'root_yaw')
 
 
 class SKR_PT_bake_biped(BakeOptions,Panel):
-    bl_label='Feet, jumps and props (Biped)'
+    bl_label='Feet (full body)'
     bl_idname='SKR_PT_retarget_bake_biped'
     def draw(self,context):
         layout=self.layout;settings=context.scene.sekiro_retarget
         column=layout.column();column.active=settings.method=='BODY'
         menu(column,settings,'foot_contacts')
         if settings.foot_contacts=='PIVOT':column.prop(settings,'plant_tolerance')
-        column.prop(settings,'jump_scale')
-        if settings.method!='BODY':text(layout,context,'Foot contacts and jumps work with the full-body bake.',icon='INFO')
-        menu(layout,settings,'prop_scale')
+        if settings.method!='BODY':text(layout,context,'Foot contacts work with the full-body bake.',icon='INFO')
 
 
 class SKR_PT_bake_arms(BakeOptions,Panel):
@@ -1264,7 +1339,7 @@ GRIP_HINTS={
 
 
 class SKR_PT_bake_weapons(BakeOptions,Panel):
-    bl_label='Weapons'
+    bl_label='Weapons and props'
     bl_idname='SKR_PT_retarget_bake_weapons'
     def draw(self,context):
         layout=self.layout;settings=context.scene.sekiro_retarget
@@ -1273,6 +1348,11 @@ class SKR_PT_bake_weapons(BakeOptions,Panel):
         if settings.weapon_grip=='OWN':layout.prop(settings,'blade_follow',slider=True)
         else:layout.prop(settings,'finger_fit')
         layout.prop(settings,'second_hand')
+        carried=[row for row in settings.rows if not row.body and row.role!='OTHER']
+        held=sum(row.hold in ('LEFT','RIGHT') for row in carried);shown=sum(row.show!='AUTO' for row in settings.rows if not row.body)
+        text(layout,context,f'{len(carried)} weapons and props in the bone list'+
+             (f', {held} given a hand' if held else '')+(f', {shown} shown or hidden on every frame' if shown else '')+
+             '. Set each one\'s role, hand and Show in the bone list (2. Match bones).',icon='INFO')
 
 
 class SKR_PT_bake_grip(SidebarPanel,Panel):

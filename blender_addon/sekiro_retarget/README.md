@@ -1,10 +1,10 @@
-# Sekiro Retarget Assistant 0.10.0
+# Sekiro Retarget Assistant 0.11.0
 
 An optional Blender add-on that matches the bones of two rigs, bakes the motion of one onto the other, and writes the result as HKX through the Animation Bridge installed on the same computer. It also gives an imported rig a [control rig](#control-rig) for animating by hand, with [fixes](#fixes) for common cleanup, can [mirror an animation](#mirror-animation) left to right, and can [join two animations](#join-animations) into one clip. The bridge's own import and export need no add-on.
 
 ## Install
 
-In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.10.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N. They sit in two tabs on the sidebar's edge:
+In Blender 4.5, open Edit > Preferences > Add-ons, use the dropdown menu > Install from Disk, choose `SekiroRetargetAssistant-0.11.0.zip`, and enable **Sekiro Retarget Assistant**. If an older version is installed, remove it first, or restart Blender after installing over it. The tools are in the 3D Viewport sidebar: press N. They sit in two tabs on the sidebar's edge:
 
 - **Retarget** holds the four retarget steps below.
 - **Animate** holds the tools that change an armature's own animation: **Animation**, with [Mirror animation](#mirror-animation) and [Join animations](#join-animations), then the [Control rig](#control-rig) and its [Fixes](#fixes).
@@ -19,7 +19,7 @@ The **Sekiro Retarget Assistant** panel leads through four steps, each a sub-pan
 
 1. Open the bridge `.blend` of the receiving character, the target.
 2. In **1. Choose rigs**, set **Target (receives the motion)** to its armature: choose it in the field, or select it in the viewport or Outliner and click the arrow button beside the field. Click **Append source .blend** and choose the donor animation scene. The add-on brings in its rig, meshes, action, root-motion object and embedded HKX metadata, sets it as **Source (gives the motion)** and matches the bones. Two rigs already in the scene can be chosen directly instead.
-3. In **2. Match bones**, click **Match bones automatically** if no list shows yet, and review the list. The line above it counts the matched bones and the bones to review: rows without a source bone, switched off, or matched below 94%. Those rows have a question mark instead of a check mark, and **Show unmatched / uncertain only** lists just them. The small triangle under the list opens a filter that finds target and source bones by name, and an A–Z sort. Assign a source bone through a row's search field, use a suggestion, or **Accept all suggestions**. **Mirror L → R** and **Mirror R → L** copy corrections to the other side. Switch off rows you do not want. The eye on a weapon row hides that weapon in the bake; see [Weapons](#weapons). **Save map** and **Load map** reuse a reviewed list. Once a list exists, the button reads **Match bones again**: it makes a new list, which replaces your changes.
+3. In **2. Match bones**, click **Match bones automatically** if no list shows yet, and review the list. The line above it counts the matched bones and the bones to review: rows without a source bone, switched off, or matched below 94%. Those rows have a question mark instead of a check mark. The search field above the list finds bones by target or source name: type `hand` to list every hand bone, or `l_ thigh` for the rows whose names contain both words; `*` stands for any letters. Under it, **All**, **To review** and **Carried** choose which rows the list shows: every row, the rows to review, or the weapons and props. The small triangle under the list opens Blender's own filter and an A–Z sort. Assign a source bone through a row's **From** field, use a suggestion, or **Accept all suggestions**. **Mirror L → R** and **Mirror R → L** copy corrections to the other side. Switch off rows you do not want. Click a row to see its details in the box under the list: what it is (**Role**), whether it shows (**Show**) and, for a weapon or prop, which hand holds it (**Held in**); see [Weapons and props in the bone list](#weapons-and-props-in-the-bone-list). **Save map** and **Load map** reuse a reviewed list. Once a list exists, the button reads **Match bones again**: it makes a new list, which replaces your changes.
 4. In **3. Bake motion**, click **Bake motion onto target**. **Bake method** above it stays at *Bone by bone* for most clips; *Full body* needs no bone list for the body, see [Full-body bake](#full-body-bake). The closed groups under the button hold the bake options (see below). By default the bake is raw: the weapon keeps the source's grip, and the corrections for hands, arms and a second hand on the weapon are off until you turn them on. The bake creates a new action and keeps the original one. Bake again at any time with other options or a corrected map: each bake starts from the original clip, not from the previous result.
 5. In **4. Export HKX**, choose an **Output** `.hkx` and click **Export HKX**. **Export settings**, closed at first, hold the game, the format and the other options; see [Export](#export). Export runs in the background; its progress shows under the button, the result goes to the **Log**, and Esc cancels. The bridge writes the HKX with a `.motion.json` sidecar beside it. To put the HKX into the game's animation binder too, turn on **Add to animation binder**; see [Export](#export). Otherwise pack it with a binder tool such as WitchyBND.
 
@@ -53,7 +53,7 @@ On synthetic test rigs of 15 conventions (Mixamo, Unreal, 3ds Max Biped, VRoid, 
 
 **Bake method**, above the button: *Bone by bone*, the default, gives each target bone the motion of the source bone that the bone list gives it. *Full body* finds the body in both rigs without a bone list and keeps the feet and hands where the source's are; see [Full-body bake](#full-body-bake).
 
-The options sit in four groups under **Bake motion onto target**, closed at first. By default the bake is raw: **Weapon grip** is *Rest-relative grip*, and **Bend fingers onto the weapon**, **Keep hands out of the body**, **Keep arms close to the body** and **Second hand on the weapon**, which correct the result for another body or grip, are off. Turn them on where the target needs them.
+The options sit in five groups under **Bake motion onto target**, closed at first. By default the bake is raw: **Weapon grip** is *Rest-relative grip*, and **Bend fingers onto the weapon**, **Keep hands out of the body**, **Keep arms close to the body** and **Second hand on the weapon**, which correct the result for another body or grip, are off. Turn them on where the target needs them.
 
 **Pose and timing**
 
@@ -61,9 +61,10 @@ The options sit in four groups under **Bake motion onto target**, closed at firs
 - **Unmapped bones.** *Keep target animation* keeps the original clip's motion for cloth, face, weapon and other unmapped bones. *Rest pose* holds them at rest; for bridge rigs, rest is the HKX reference pose.
 - **Clip timing.** *Use source length* gives the clip the source's duration. *Fit target length* resamples the source over the target clip's length.
 
-**Body travel**
+**Travel and scale**
 
 - **Move body with source hips** and **Scale travel by leg length**, or a manual **Travel scale** while that is off, control body travel; see [How the bake works](#how-the-bake-works).
+- **Jumps and throws.** *By leg length*, the default, scales how high a jump rises and how far a thrown weapon or prop flies like the body travel. *By height (Biped)* scales both by the target's height against the source's, as 3ds Max's Biped scales gravity with the figure's height; the time in the air stays the same. Jumps need the full-body bake; see [Feet (full body)](#feet-full-body) and [Weapons and props that leave the hand](#weapons-and-props-that-leave-the-hand).
 - **Root motion.** *Automatic* copies the source root motion when the source has a root-motion object. Without one, body travel becomes root motion when the body moves farther than 30% of its leg length (the status says so), and otherwise none is written. The other choices force one source: *From source root*, *From body travel* (optionally turning with the body, **Turn root with the body**), *Keep target root* (same clip length only), or *None*.
 
 **Arms and hands**
@@ -71,11 +72,16 @@ The options sit in four groups under **Bake motion onto target**, closed at firs
 - **Keep hands out of the body** (off by default). Where a hand, or what it holds, would go into the target's torso, the hand is moved out through its arm; see [Body clearance](#body-clearance). It needs the target's character mesh in the scene.
 - **Keep arms close to the body** (off by default). Where the source holds an arm close to its own body, the target's arm turns in at the shoulder until it stands as close to the target's torso, at the target's size, so that a target with a slimmer body does not hold its arms out; see [Arm distance](#arm-distance). It needs the character meshes of both rigs in the scene.
 
-**Weapons**
+**Feet (full body)**
+
+- **Foot contacts** and **Plant tolerance**, with the full-body bake; see [Feet (full body)](#feet-full-body).
+
+**Weapons and props**
 
 - **Weapon grip.** *Rest-relative grip*, the default, keeps the weapon at the target's own grip point and turns it there as the source's weapon turns away from its rest pose, with each finger of both hands turned in its hand as the source's finger turns from its rest pose, with **Match source stance** too. *Source's grip* puts the weapon where the source's weapon sits in the source's hand, scaled to the hand, with the source's fingers. *Target's own grip* puts each weapon in the target's hand as the target's own clip holds it, with that clip's fingers, and turns the wrist so that the blade points as the source's does, as far as **Blade follows source** says (100% by default), for characters that hold their weapons differently. A line under the menu says what the chosen grip does. See [Weapon grips](#weapon-grips).
 - **Bend fingers onto the weapon** (off by default, with *Rest-relative grip* or *Source's grip*). Each finger joint bends until its skin just touches the weapon; see [Bend fingers onto the weapon](#bend-fingers-onto-the-weapon). This changes the source's finger pose.
 - **Second hand on the weapon** (off by default). Where the source holds its weapon with both hands, the target's other hand goes onto the target's weapon at the matching place; see [Second hand](#second-hand).
+- A line at the bottom counts the weapons and props in the bone list. Which hand holds each one, and whether it shows, is set per bone in the bone list; see [Weapons and props in the bone list](#weapons-and-props-in-the-bone-list).
 
 With a control rig on the target, **Bake motion onto target** is greyed out and says so: remove the control rig first; you can add it again afterwards.
 
@@ -99,7 +105,43 @@ A target weapon bone that rests at its own hand and takes a source weapon that r
 
 The weapon's line is the long axis of the source weapon's mesh; without a mesh, the bone's X axis, along which FromSoftware weapon meshes lie. The status names each placed bone and the hand it is placed in. Weapon bones that no row maps keep the target clip with *Keep target animation*: with the axe on Isshin's spear, his katana stays in his right hand and shows where his clip shows it. With **Second hand on the weapon**, the other hand of a two-handed grip goes onto the weapon; see [Second hand](#second-hand).
 
-To hide a weapon for the whole clip, click the eye (**Hide**) on its row in the bone list. Weapon, scabbard, storage and shield rows have it, mapped or not. On every frame the bake shrinks the bone to 0.1% where it would otherwise be, as FromSoftware clips hide weapons, and the bones below it shrink with it: with the axe on Isshin's spear, hiding `R_Katana` leaves only the spear. Bone maps save the toggles, and **Match bones again** clears them with the rest of the list. The bake hides at 0.1% rather than 0 because a bone scaled to 0 has no inverse, so the bones below it could not be placed against it.
+To hide a weapon for the whole clip, set its **Show** to *Hide*, in the box under the bone list or with the eye at the end of its row. On every frame the bake shrinks the bone to 0.1% where it would otherwise be, as FromSoftware clips hide weapons, and the bones below it shrink with it: with the axe on Isshin's spear, hiding `R_Katana` leaves only the spear. *Show* does the opposite: the bone stays at full size on every frame, also where a clip hides it. Bone maps save the choice, and **Match bones again** sets it back to *Automatic* with the rest of the list. The bake hides at 0.1% rather than 0 because a bone scaled to 0 has no inverse, so the bones below it could not be placed against it.
+
+### Weapons and props in the bone list
+
+Matching gives each row a **Role**, which you can change in the box under the list:
+
+- *Weapon*: a bone whose name says it is a weapon (`R_Weapon`, `L_Katana`, `Gun`), or that carries a weapon mesh in either rig. It sits in a hand with the grip that **Weapon grip** chooses.
+- *Prop*: a bone that a hand carries but that is no weapon, such as a torch, a lantern or a thrown pot. Matching gives this role to bones with *prop* in their name; give it to others yourself. A prop moves with the bone that carries it as its source bone moves with its own, and shows and hides as its source bone does.
+- *Other*: any other bone outside the body, such as cloth, hair or a scabbard. It turns like its source bone, as before.
+
+Body bones show *Part of the body* instead: the bake moves them with the body. A body bone's row has no **Show** either.
+
+**Held in** chooses the hand of a weapon or prop:
+
+- *Automatic*, the default: the target bone mapped to the bone that carries the source bone, normally the matching hand. This is what the bake did before.
+- *Left hand* or *Right hand*: that hand, also where the source holds its source bone in the other hand. With a source bone, it sits in that hand where the source holds its own. Without one, it is pinned in that hand at its own grip: where its own clip holds it, else where it rests at the hand, else in the palm.
+- *Keep its place*: not carried at all. It stays on its parent bone and turns like its source bone.
+
+For example, to put Dante's pistols into Isshin's hands for `rainstorm_start_fly`:
+
+1. In **2. Match bones**, type `gun` in the search field. Isshin's gun row shows.
+2. Click the row. In its **From** field, choose the bone of Dante's right pistol.
+3. Set **Held in** to *Right hand* and **Show** to *Show*, since Isshin's own clips hide his gun.
+4. Do the same for a second weapon bone with Dante's left pistol and *Left hand*, if Isshin's model has one.
+5. Click **Bake motion onto target**. The **Log** says which hand holds each weapon.
+
+The box shows the result in words, such as *In the right hand, where the source holds R_Pistol.* A weapon you aligned under [Weapon in hand](#weapon-in-hand) shows its alignment there too, and **Save map** keeps the roles, **Show**, **Held in** and the alignments, so **Load map** brings them back for the next clip of the same two characters. Maps saved by earlier versions still load; their hidden weapons load as *Hide*.
+
+### Weapons and props that leave the hand
+
+Where the source throws a weapon or prop, catches it with the other hand, or picks something up, the bake follows. It reads, frame by frame, where the source bone is against the bone that carries it:
+
+- **In its place.** While the source's weapon stays within 8% of an arm's length of its usual place in the hand, the target's keeps its grip. A weapon sliding along the hand, as Godfrey's axe does, stays in its place.
+- **In another hand.** Where the source bone rides along with one of the source's other hands for three frames or more, within half an arm of it, the target's goes into the target's matching hand, as far from it as the source's, scaled like body travel.
+- **In flight.** Where the source bone leaves its place by more than three quarters of an arm, it flies. The target's follows the source's path from where it left the hand, scaled as **Jumps and throws** says, toward where it lands, blending from one to the other, so that it leaves one hand and arrives in the other without a jump. It turns as its source bone turns.
+
+A prop below the rig's root, such as a torch on the ground, rests where the source's rests, scaled, and rides in a hand while the source carries it. With root motion from body travel, a flying weapon keeps its path in the world. The **Log** gives the frames of each flight and catch. Where a mapped bone with the role *Other* moves far from its parent in the source, the **Log** suggests the role *Prop*.
 
 Keying a weapon's scale by hand hides it too, but a new bake makes a new action without those keys. Export handles a key of 0: the bone keeps its keyed rotation, and tracked bones below it keep their own channels, so they are in place when the weapon shows again or the game blends into another clip.
 
@@ -179,7 +221,7 @@ Sekiro and Dark Souls III rigs hang a straight chain from `Master` on each side:
 - **Chains spread over their own bones.** Between joints that both rigs have, such as the chest, shoulder, elbow and wrist, each target bone takes the source's motion at the same share of the way along the chain. A two-bone spine takes a three-bone spine's bend, a twist bone 40% down a forearm takes 40% of the turn from forearm to hand, and a target without clavicles works. Each segment then lies along the source's chain over the same share. Target bones that have no counterpart, such as clavicles the source does not have, do what **Unmapped bones** says.
 - **The feet stay on the source's footprint, at the target's own hip width.** Each foot goes where the source's foot is, measured from the hips and scaled like body travel, so a foot that stands still in the source stands still in the target. Each foot also keeps the source's sideways distance from its own hip joint, scaled, so a target with wider hips stands that much wider, as with *Bone by bone*; the status says how far each foot was set out or in. While a foot stands, that sideways shift holds still, so it adds no sliding; while the foot steps, it turns with the pelvis. With root motion from the source, a foot counts as standing where the game puts it. Where a leg cannot reach that far, the pelvis lowers, by at most a quarter of the leg, and the status gives the frames. The legs reach by IK: knees keep pointing where the source's point, and the feet keep the source's rotation.
 - **The hands meet where the source's meet.** Where the source's wrists come within about half a forearm of each other, the target's wrists come as close and in the same direction apart, scaled by arm length. Where the source holds its weapon with both hands, this holds however far apart the wrists are, and the middles of the knuckles keep the source's distance apart instead of the wrists, as the hilt passes through them: Owl's wrists on his long odachi hilt are 0.6 to 0.9 of a forearm apart, and Isshin's hand is half the size of Owl's against arms 0.84 as long. A hand that holds a weapon stays, and the free hand moves; with **Second hand on the weapon** on, it then still goes onto the grip.
-- **Everything else works as bone by bone.** Bones outside the body, such as weapons and helpers, take their source bones from the bone list, or from automatic matching when there is no list. Rest stance, body travel, root motion, weapon grips, Second hand, body clearance, arm distance and the foot targets work as described above. Without a bone list there are no eyes to hide weapons with.
+- **Everything else works as bone by bone.** Bones outside the body, such as weapons and helpers, take their source bones from the bone list, or from automatic matching when there is no list. Rest stance, body travel, root motion, weapon grips, Second hand, body clearance, arm distance and the foot targets work as described above. Without a bone list, the roles come from matching, nothing is hidden or shown on every frame and every weapon or prop is held in its *Automatic* hand.
 
 The price of the contacts: the legs and arms point up to about 13° away from the source's, and where the spine bone counts differ, a bend within one target spine bone is lost. Weapons sit in the hand as with *Bone by bone*. On FromSoftware pairs such as Owl or Isshin onto Wolf, whose skeletons match bone for bone, both methods give nearly the same result, and *Bone by bone* stays the better choice. The full-body bake is meant for rigs of other bone counts and proportions; check its result before you export it.
 
@@ -195,13 +237,12 @@ The price of the contacts: the legs and arms point up to about 13° away from th
 
 The full-body bake then takes from the saved figure which bones are the hips, spine, neck, head, arms and legs, and it measures the leg length, the hip joints, the height, the limbs and the feet on it. Without a saved figure it uses the automatic one, which **Create figure** would make, so the bake works as before. **Use saved figures** turns them off for a bake.
 
-### Feet, jumps and props (Biped)
+### Feet (full body)
 
-Under **3. Bake motion onto target** > **Feet, jumps and props (Biped)**, all off by default:
+Under **3. Bake motion onto target** > **Feet (full body)**, and under **Travel and scale** for jumps:
 
 - **Foot contacts** > *Planted, sliding, free (Biped)* finds footsteps the way Biped does from motion capture, with the full-body bake. A foot is planted where its heel, ankle, ball or toe tip stays on the ground and within **Plant tolerance** (in lengths of the source's foot; Biped's default 0.15) for at least 0.1 s. That point of the target's own foot then stands still, so the foot can roll from heel to toe without sliding. A foot that moves along the ground slides, keeping the source's path and staying on the target's ground. It is free in the air. Where the target holds its foot at another angle than the source, the foot stands as high as its lowest point needs, so no part of it goes into the ground. The status lists each foot's planted and sliding steps and the points it stood on. *Slow feet stand*, the default, keeps the earlier behavior: a foot stands where it moves slower than a quarter leg length per second.
-- **Scale jumps by height**: Biped scales gravity with the figure's height. Where both feet are off the ground, the body rises above the line from lift-off to touchdown as far as the target's height against the source's, instead of by leg length; the time in the air stays the same. The status gives each jump's frames and rise.
-- **Moving props** places bones outside the body whose source bones move away from their parents, such as a thrown weapon. *By height* moves the bone from the nearest mapped bone above it as far as the source's, scaled by the two heights; *By limb size* scales by the limb that carries it (arm, leg, torso, or leg length for a bone above the hips). *Keep target place*, the default, keeps them on their parents as before. This works with both bake methods.
+- **Jumps and throws** > *By height (Biped)*: Biped scales gravity with the figure's height. Where both feet are off the ground, the body rises above the line from lift-off to touchdown as far as the target's height against the source's, instead of by leg length; the time in the air stays the same. The status gives each jump's frames and rise. Thrown weapons and props fly as far, scaled the same way.
 
 ## Export
 

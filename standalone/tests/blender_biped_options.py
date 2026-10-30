@@ -12,9 +12,10 @@ own. Checked:
   contacts let it move with the scaled ankle; the slide is found and keeps the foot at its own height; no frame
   jumps further than with the default contacts.
 - Jumps: the hips' rise above the line from lift-off to touchdown is the source's times the jump ratio, the target's
-  height against the source's scaled by travel, and the travel scale without the option.
-- Moving props: by height and by limb size, the target's prop moves from its hand as far as the source's, scaled
-  by the heights or by the arm lengths, with both bake methods; kept in place without the option.
+  height against the source's scaled by travel, with Jumps and throws by height, and the travel scale by leg length.
+- Thrown props: the target's prop, a Prop by its name, keeps its place in the hand until the source throws it, then
+  flies the source's path from where it left the hand, scaled like the travel or by the heights, with both bake
+  methods; as an Other bone it keeps its place on the hand, and the bake suggests the role Prop.
 """
 import json
 import math
@@ -32,7 +33,7 @@ FOLDER = tempfile.mkdtemp(prefix='sekiro_figures_')
 os.environ['SEKIRO_FIGURE_FOLDER'] = FOLDER
 import humanoids
 import sekiro_retarget
-from sekiro_retarget import figure, retarget
+from sekiro_retarget import figure, fullbody, retarget
 
 COUNT, RATE = 48, 30
 ROLL, SLIDE, JUMP, THROW = (4, 12), (14, 21), (24, 35), (38, 47)
@@ -164,7 +165,7 @@ def at(frames, name):
 
 
 def bake(**options):
-    for key, value in {**dict(method='BODY', foot_contacts='SPEED', jump_scale=False, prop_scale='NONE'), **options}.items():
+    for key, value in {**dict(method='BODY', foot_contacts='SPEED', air_scale='LEGS'), **options}.items():
         setattr(settings, key, value)
     assert bpy.ops.sekiro_retarget.bake() == {'FINISHED'}, scene.sekiro_retarget.status
     return json.loads(scene['sekiro_retarget_report']), track(target)
@@ -278,7 +279,7 @@ for label in ('L.foot', 'R.foot'):
 
 # Jumps: by the target's height against the source's, scaled by travel, with the time in the air kept.
 for scaled in (True, False):  # The scaled run first: it finds the jump's frames.
-    report, frames = bake(foot_contacts='PIVOT', jump_scale=scaled)
+    report, frames = bake(foot_contacts='PIVOT', air_scale='HEIGHT' if scaled else 'LEGS')
     travel = report['scale']
     ratio = report['jump_ratio'] if scaled else 1.0
     if scaled:
@@ -300,23 +301,37 @@ for scaled in (True, False):  # The scaled run first: it finds the jump's frames
     if scaled:
         apex = (jumps[0]['rise'], jumps[0]['scaled'])
 
-# Moving props.
+# Thrown props: in the hand until the throw, then along the source's path, scaled like the travel or by height.
 hand, prop = names['R.hand'], 'R_Prop'
 source_measures, target_measures = figure.measures(source), figure.measures(target, kept)
-throwing = range(THROW[0] + 1, COUNT)
-for method, mode, scale in [(method, *choice) for method in ('BODY', 'BONES') for choice in (
-        ('NONE', None), ('HEIGHT', target_measures['height'] / source_measures['height']),
-        ('LIMB', target_measures['arms']['R'] / source_measures['arms']['R']))]:
-    report, frames = bake(prop_scale=mode, method=method)
-    offsets = [frames[i][prop].translation - frames[i][hand].translation for i in throwing]
-    if scale is None:
-        rest = target.data.bones[prop].head_local - target.data.bones[hand].head_local
-        assert not report['props'] and max((offset - rest).length for offset in offsets) < 1e-5, report['props']
-        continue
-    assert report['props'] == {prop: dict(holder=hand, anchor='R_Hand', ratio=report['props'][prop]['ratio'])}, report['props']
-    assert abs(report['props'][prop]['ratio'] - scale) < 1e-6, (mode, report['props'][prop]['ratio'], scale)
-    wanted = [(src[i][prop].translation - src[i]['R_Hand'].translation) * scale for i in throwing]
-    assert max((a - b).length for a, b in zip(offsets, wanted)) < 1e-5, (method, mode)
+row = next(row for row in settings.rows if row.target == prop)
+assert row.role == 'PROP', row.role
+rest = target.data.bones[prop].head_local - target.data.bones[hand].head_local
+flown = 0.0
+for method, air in [(method, air) for method in ('BODY', 'BONES') for air in ('LEGS', 'HEIGHT')]:
+    report, frames = bake(air_scale=air, method=method)
+    travel = report['scale']
+    carried = report['carried'][prop]
+    free = carried['free']
+    assert carried['hands'] == {} and free == list(range(free[0], COUNT + 1)) and THROW[0] <= free[0] <= THROW[1], carried
+    assert max((frames[i][prop].translation - frames[i][hand].translation - rest).length for i in range(THROW[0])) < 1e-5, \
+        (method, air, 'the prop left the hand before the throw')
+    scale = travel * (max(1 / fullbody.ARC_LIMIT, min(fullbody.ARC_LIMIT, target_measures['height'] /
+                                                         (travel * source_measures['height']))) if air == 'HEIGHT' else 1.0)
+    release = free[0] - 2  # The last frame in the hand, by index.
+    wanted = [frames[release][prop].translation + (src[i][prop].translation - src[release][prop].translation) * scale
+              for i in range(release + 1, COUNT)]
+    worst = max((frames[i][prop].translation - point).length for i, point in zip(range(release + 1, COUNT), wanted))
+    assert worst < 1e-5, (method, air, worst)
+    flown = max(flown, worst)
+    assert f"{prop} flies free on frames" in ' '.join(report['notes']), report['notes']
+# As an Other bone, it keeps its place on the hand.
+row.role = 'OTHER'
+report, frames = bake()
+assert prop not in report['carried'], report['carried']
+assert max((frames[i][prop].translation - frames[i][hand].translation - rest).length for i in range(THROW[0], COUNT)) < 1e-5
+assert any(note.startswith(f'{prop} moves far from its parent') for note in report['notes']), report['notes']
+row.role = 'PROP'
 
 # Without saved figures, the bake measures the automatic ones; deleting the figure removes its file.
 report, frames = bake(foot_contacts='PIVOT', use_figures=False)
@@ -327,5 +342,5 @@ assert figure.saved(target) is None and figure.saved(twin) is None and not list(
 print(f"Biped options check passed: figures saved, found for the same skeleton and deleted; the planted ball drifts "
       f"{drift(pivot_frames) * 1000:.3f} mm with Biped contacts and {drift(plain_frames) * 1000:.1f} mm without; the slide "
       f"keeps the foot within {max(sliding) * 1000:.3f} mm of its height; the jump rises {apex[1] * 100:.1f} cm for "
-      f"{apex[0] * 100:.1f} cm by leg length (ratio {jump_ratio:.3f}); props follow by height and by limb size within 0.01 mm "
-      "with both bake methods.")
+      f"{apex[0] * 100:.1f} cm by leg length (ratio {jump_ratio:.3f}); the thrown prop flies the source's path within "
+      f"{flown * 1000:.4f} mm by leg length and by height with both bake methods, and stays on the hand as an Other bone.")
