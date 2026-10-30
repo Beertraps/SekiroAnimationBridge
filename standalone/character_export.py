@@ -494,9 +494,10 @@ def mesh_parts(npz, node_of_source, hidden=(), space=FROMSOFT):
             continue
         chosen = triangles[data['triangle_materials'] == material]
         # Sekiro's triangles wind against their normals (c1010: 99.7% of them). The axis change mirrors, so a mesh
-        # wound as Blender winds, with its normals, such as a DMC5 import, arrives here wound against them, and a
-        # FromSoftware import, wound the other way in Blender, arrives wound with them. A material is turned around
-        # when most of its triangles wind with their normals; otherwise the game lights it from behind.
+        # wound as Blender winds, with its normals, as the import now winds every game's, arrives here wound against
+        # them. A FromSoftware scene imported before that, wound the other way in Blender, arrives wound with them.
+        # A material is turned around when most of its triangles wind with their normals; otherwise the game lights
+        # it from behind.
         if along[data['triangle_materials'] == material].mean() > 0.5:
             chosen = chosen[:, [0, 2, 1]]
         pending = [chosen]
