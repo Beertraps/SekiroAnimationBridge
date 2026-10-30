@@ -50,7 +50,8 @@ class Space:
 
     @property
     def reflects(self):
-        """True when the conversion mirrors, so triangles need their winding reversed."""
+        """True when the conversion mirrors: the source is left-handed. Its triangles keep their order, since the mirror
+        turns the clockwise front faces of a left-handed source into Blender's counter-clockwise ones."""
         return self.determinant < 0
 
     def to_json(self):

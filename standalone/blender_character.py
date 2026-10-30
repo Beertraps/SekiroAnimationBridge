@@ -400,7 +400,6 @@ def import_character(manifest_path, rig):
     space = Space.of(document)
     quaternions = document.get('boneRotation') == 'quaternion'
     axes, signs = list(space.indices), np.asarray(space.signs)
-    winding = [0, 2, 1] if space.reflects else [0, 1, 2]
     collection = bpy.data.collections.new('Sekiro | Character')
     rig.users_collection[0].children.link(collection)
     cache, objects = {}, []
@@ -444,7 +443,9 @@ def import_character(manifest_path, rig):
                 points = pos[vertex_rows][:, axes] * (signs * space.unit)
                 if place is not None:
                     points = points @ place[:3, :3].T + place[:3, 3]
-                mesh.from_pydata(points.tolist(), [], part_faces[:, winding].tolist()); mesh.update()
+                # Triangles keep their order. A left-handed source, such as FLVER or Unreal, winds its front faces
+                # clockwise; the reflecting axis change makes them counter-clockwise, as Blender winds them.
+                mesh.from_pydata(points.tolist(), [], part_faces.tolist()); mesh.update()
                 label = role
                 if mask is not None:
                     example = next(spec['name'] for spec in model['materials'] if mesh_mask(spec['name']) == mask)
@@ -456,6 +457,9 @@ def import_character(manifest_path, rig):
                     uv = (preview[key] if key in preview else preview['uvs'])[loop_vertices].copy()
                     uv[:, 1] = 1 - uv[:, 1]
                     layer = mesh.uv_layers.new(name=key); layer.data.foreach_set('uv', uv.ravel())
+                # Smooth before the custom normals: Blender stores them relative to the shading, and smoothing
+                # afterwards turns them (c1010: 18 degrees on average).
+                for polygon in mesh.polygons: polygon.use_smooth = True
                 if 'normals' in preview and np.any(preview['normals'][vertex_rows]):
                     normals = (preview['normals'][vertex_rows][:, axes] * signs).astype(preview['normals'].dtype)
                     if place is not None:
@@ -465,7 +469,6 @@ def import_character(manifest_path, rig):
                     mesh.normals_split_custom_set_from_vertices(normals.tolist())
                 for material in materials: mesh.materials.append(material)
                 mesh.polygons.foreach_set('material_index', preview['face_materials'][face_rows])
-                for polygon in mesh.polygons: polygon.use_smooth = True
                 part_indices, part_weights = indices[vertex_rows], weights[vertex_rows]
                 for bone_index in sorted(set(int(i) for i in part_indices[part_weights > 1e-6])):
                     # Combine duplicate influences before writing each weight once.
