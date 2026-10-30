@@ -1011,6 +1011,12 @@ def main():
     verify_parser.add_argument("--output-json", required=True, type=Path)
     verify_parser.add_argument("--render", type=Path, help="also draw the characters from the front into this PNG, and from the side beside it")
     verify_parser.add_argument("--frames", type=int, default=3, help="frames of the scene range to measure, spread evenly")
+    character_parser = modes.add_parser("export-character", help="Write the rig, its skinned meshes, materials and action "
+                                        "as a character export manifest, for a new game character.")
+    character_parser.add_argument("--output-dir", required=True, type=Path)
+    character_parser.add_argument("--action", default="", help="armature action to sample (default: the active action)")
+    character_parser.add_argument("--frame-start", type=float)
+    character_parser.add_argument("--frame-end", type=float)
     args = parser.parse_args(script_arguments())
 
     if args.mode == "import":
@@ -1039,6 +1045,9 @@ def main():
     elif args.mode == "verify":
         from blender_verify import verify_scene
         verify_scene(args.output_json.resolve(), args.render.resolve() if args.render else None, args.frames)
+    elif args.mode == "export-character":
+        from blender_character_export import export_character
+        export_character(args.output_dir.resolve(), export_rig(bpy.context.scene), args.action, args.frame_start, args.frame_end)
     else:
         inspect_scene(args.output_json.resolve())
 

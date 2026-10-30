@@ -92,8 +92,13 @@ def mdf2_path(mesh_path, profile):
     return re.sub(r'\.mesh\.\d+$', f'.mdf2.{profile.formats["mdf2"]}', mesh_path)
 
 
-def prepare_character(catalog, models, output, profile, ctx):
-    """Decode a character's meshes, materials and textures into a manifest for Blender."""
+def prepare_character(catalog, models, output, profile, ctx, joints=None):
+    """Decode a character's meshes, materials and textures into a manifest for Blender.
+
+    joints maps the path of each weapon model to the character joint it hangs on. A weapon's bones are
+    named after it (wp01_000_root), so that two weapons, or a weapon and the character, never share a bone.
+    """
+    joints = joints or {}
     out = Path(output)
     textures_out = out / 'textures'
     textures_out.mkdir(parents=True, exist_ok=True)
@@ -106,6 +111,8 @@ def prepare_character(catalog, models, output, profile, ctx):
         stem = out / f'{index:02d}_{name}'
         ctx.run('decoder', 'mesh', local, stem)
         info, arrays = read_mesh(stem)
+        if path in joints:
+            info['bones'] = [dict(bone, name=f"{name}_{bone['name']}") for bone in info['bones']]
         material_file = materialize(catalog, [mdf2_path(path, profile)], ctx).get(mdf2_path(path, profile))
         materials = {}
         if material_file:
@@ -115,6 +122,17 @@ def prepare_character(catalog, models, output, profile, ctx):
         else:
             warnings.append(f'{name}: no material file ({Path(mdf2_path(path, profile)).name}); the model stays untextured.')
         decoded.append((index, path, name, stem, info, arrays, materials))
+
+    # A weapon hangs on a joint of the character's skeleton; without it, the weapon is left out.
+    skeleton = {b['name'] for _, path, _, _, info, *_ in decoded if path not in joints for b in info['bones']}
+    for entry in list(decoded):
+        path, name = entry[1], entry[2]
+        if path in joints and skeleton and joints[path] not in skeleton:
+            warnings.append(f'{name}: the character has no joint {joints[path]}; the weapon is left out.')
+            decoded.remove(entry)
+    if skeleton and not any(holds_head(info, arrays) for _, path, _, _, info, arrays, _ in decoded
+                            if path not in joints and role(path) != 'Hair'):
+        warnings.append('None of the chosen parts has a head. Tick a Head part, or a body marked "with head".')
 
     # Every texture the materials use, extracted in one pass.
     wanted = {}
@@ -138,8 +156,10 @@ def prepare_character(catalog, models, output, profile, ctx):
         data_path = out / f'{index:02d}_{name}.npz'
         stats = write_arrays(data_path, info, arrays)
         specs = [material_spec(materials.get(material_name), material_name, images, profile) for material_name in info['materials']]
+        joint = joints.get(path)
         manifest['models'].append(dict(name=name, source=path, data=str(data_path.resolve()), materials=specs, stats=stats,
-                                       attachment=None, role=role(path)))
+                                       attachment=dict(kind='joint', bone=joint) if joint else None,
+                                       role='Weapon' if joint else role(path)))
         print(f"Prepared {name}: {stats['vertices']:,} vertices, {stats['triangles']:,} triangles, {stats['bones']} bones", flush=True)
     if not manifest['models']:
         raise ValueError('None of the chosen models could be read. Choose other parts.')
@@ -152,6 +172,25 @@ def prepare_character(catalog, models, output, profile, ctx):
     for warning in manifest['warnings']:
         print(f'NOTICE: {warning}', flush=True)
     return path
+
+
+def holds_head(info, arrays, share=.05):
+    """Whether a model is a head: at least share of its vertices follow the head bone or a bone below it.
+    A model without a head bone says nothing, and counts as one."""
+    bones = info['bones']
+    head = next((i for i, b in enumerate(bones) if b['name'].lower() == 'head'), None)
+    if head is None:
+        return True
+    below = set()
+    for i in range(len(bones)):
+        k, seen = i, 0
+        while k >= 0 and seen <= len(bones):
+            if k == head:
+                below.add(i)
+                break
+            k, seen = bones[k]['parent'], seen + 1
+    weights = np.where(np.isin(arrays['bone_indices'], list(below)), arrays['bone_weights'], 0).sum(axis=1)
+    return bool(len(weights)) and float(np.mean(weights > .5)) >= share
 
 
 def role(path):
@@ -203,11 +242,13 @@ def material_spec(material, name, images, profile):
         # ALBA keeps alpha in the base color; ALBM keeps metalness there.
         spec['alpha'] = albedo['slot'] == 'BaseAlphaMap'
         spec['albedo'] = dict(images[albedo['path']], linear=False, uv=0, scale=[1, 1], packedAlpha=not spec['alpha'])
+        if not spec['alpha']:
+            spec['albedo']['packed'] = {'A': 'metalness'}
     normal = slot_texture(material, NORMAL_SLOTS)
     if normal and normal['path'] in images:
         # NRMR keeps roughness in alpha.
         spec['normal'] = dict(images[normal['path']], linear=True, uv=0, scale=[1, 1], convention='directx', channels='xyz',
-                              packedAlpha=True)
+                              packedAlpha=True, packed={'A': 'roughness'})
     atos = slot_texture(material, (ATOS_SLOT,)) if uses_alpha_map(material) else None
     if atos and atos['path'] in images and not spec['alpha']:
         spec['opacity'] = dict(images[atos['path']], linear=True, uv=0, scale=[1, 1], channel='R', packedAlpha=True)

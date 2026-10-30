@@ -11,6 +11,7 @@ JSON Schemas for each format are in [`standalone/schemas/`](../standalone/schema
 | Model arrays (`.npz`) | the adapter's character step | Blender import | listed below |
 | Textures | the adapter's character step | Blender import | PNG files |
 | Preview JSON | the decoder's preview mode, or `clip_preview.computed` | `ui/preview.js` | [`preview.schema.json`](../standalone/schemas/preview.schema.json) |
+| Character export manifest | `blender_bridge.py export-character` | `character_export.py`, which writes a new Sekiro character | [`character_export.schema.json`](../standalone/schemas/character_export.schema.json) |
 | Package manifest (`package.json`) | the author of a game package | the bridge's package loader | [`package.schema.json`](../standalone/schemas/package.schema.json) |
 | Source catalog | a game package's `scan` and `inventory` | the bridge, the Import page | [`catalog.schema.json`](../standalone/schemas/catalog.schema.json) |
 
@@ -90,7 +91,8 @@ Values are dense samples: a decoder evaluates its format's curves at every frame
 | --- | --- |
 | `version` | 4 or 5 |
 | `game` | the game's ID |
-| `models[]` | `name`, `source` (the file it came from), `data` (path of its `.npz`), `materials[]`, `stats`, `attachment` (a weapon's socket, or null) |
+| `models[]` | `name`, `source` (the file it came from), `data` (path of its `.npz`), `materials[]`, `stats`, `attachment` (a weapon's socket, or null), `role` (optional: `Body`, `Head`, `Hair`, `Weapon` and so on, the name of its objects in Blender) |
+| `models[].attachment` | null for a part of the character. A game package's weapon has `{"kind": "joint", "bone": "R_WeaponHand"}`: its root bones hang below that bone of the rig, its bones' rest pose and its vertices are relative to the bone, and it moves with it. Its bone names must not be the character's, so a package names them after the weapon, such as `wp01_000_root`. FromSoftware weapons carry their dummy, matrix and bone instead. |
 | `models[].materials[]` | `name`, `mtd` (the source's shader or material definition), `albedo`, `normal`, `emissive`, `tint` (each null or an image: `path`, `linear`, `uv`, `scale`, `stem`), `samplers[]`, `alpha`, `color` |
 | `warnings[]` | notices for the activity log |
 | `texture_count` | number of images written |
@@ -107,9 +109,13 @@ Version 5 adds:
 | `models[].materials[].opacity` | null or an image whose `channel` (`R`, `G` or `B`) cuts the material out, such as red of an RE Engine ATOS map |
 | `models[].materials[].opacityValue` | a fixed opacity from 0 to 1, for overlays the preview cannot shade, such as eye wetness |
 | image `packedAlpha` | true when the image's alpha holds other data (metalness, roughness): Blender reads it as channel-packed, so it does not darken the color |
+| image `packed` | what other data the image's channels hold, as `{channel: role}`: channel `R`, `G`, `B` or `A`, role `metalness`, `roughness`, `opacity` or `emissive`. RE Engine's ALBM albedo is `{"A": "metalness"}` and its NRMR normal map is `{"A": "roughness"}`. |
+| `models[].materials[].metalness`, `roughness` | null or an image whose `channel` (`R` by default) holds that value, for sources that keep it in an image of its own |
 | `models[].role` | the part's label in Blender, such as `Body`, `Head` or `Hair`; FromSoftware models are labelled by their file prefix |
 
 All version 5 fields are optional except `version`; a reader treats a missing one as its default, so the FromSoftware characters stay version 4.
+
+Blender's preview shows albedo, opacity, normal and emissive. When an image is `packed` or a material has `metalness` or `roughness`, the import stores every role in the material's `bridge_texture_roles` property, so a character export finds them without reading the node tree.
 
 ## Model arrays
 
@@ -133,6 +139,38 @@ One compressed NumPy archive per model, loaded with `allow_pickle=False`.
 | `bone_quaternions` | (b, 4) float32 | local rest rotation as [x, y, z, w] (manifest `boneRotation` `quaternion`) |
 | `bone_scales` | (b, 3) float32 | local rest scale |
 | `material_names` | (k,) str | one per material |
+
+## Character export manifest
+
+`manifest.json`, written by `blender --background SCENE --python blender_bridge.py -- export-character --output-dir FOLDER`: one rig, the meshes bound to it with an Armature modifier, their materials and one action. `format` is `"sekiro-animation-bridge-character-export"` and `version` is 1. Everything is in Blender's space (`space` `blender`, `unit` `meter`, Z up, world coordinates); the game writer converts it to the game's space.
+
+| Field | Meaning |
+| --- | --- |
+| `rig` | the armature object's name |
+| `bones[]` | `name`, `parent` (−1 for a root; parents come first), `rest`: the bone's world rest matrix, 16 numbers row by row |
+| `meshes[]` | `name`, `data` (path of the mesh's `.npz`), `vertices`, `triangles`, `uvSets`, `unweightedVertices`, `weightsOutsideRig` |
+| `materials[]` | `name`, `roles`, `alpha`, `color`, `doubleSided`, `cutOut` |
+| `materials[].roles` | `albedo`, `opacity`, `normal`, `metalness`, `roughness`, `emissive`, each `image` (the Blender image's name), `channel` (`RGB`, `R`, `G`, `B` or `A`), `path` (the image saved beside the manifest) and, for `normal`, `convention` |
+| `materials[].alpha`, `color` | the shader's alpha and linear RGBA base color where no image drives them, else null. Alpha 0 marks an overlay the game cannot draw, such as eye wetness. |
+| `warnings[]` | weights on groups that are not bones, and vertices without a weight |
+| `motion` | `action`, `frameStart`, `frameEnd`, `frameRate`, `frames`, `data` (path of `motion.npz`) |
+
+A material's roles come from `bridge_texture_roles` when the import stored them, otherwise from the node tree: the image that feeds the Principled BSDF's Base Color, Alpha, Metallic, Roughness and Emission Color inputs, through Separate Color nodes, and the image behind a Normal Map node. A normal map counts as DirectX when a Math node feeds the green channel, as the import builds it.
+
+Each mesh `.npz` holds the mesh's own data, triangulated and in world space. Modifiers are not applied; apply one in Blender first when the game should see its result.
+
+| Array | Shape, type | Meaning |
+| --- | --- | --- |
+| `positions` | (n, 3) float32 | vertex positions |
+| `loop_vertex` | (c,) int32 | the vertex of each corner |
+| `normals` | (c, 3) float32 | corner normals |
+| `tangents` | (c, 4) float32 | corner tangents; the fourth value is the bitangent sign |
+| `uv_0`, `uv_1` | (c, 2) float32 | the first two UV maps, as Blender stores them (V up) |
+| `triangles` | (m, 3) int32 | the corners of each triangle |
+| `triangle_materials` | (m,) int32 | index into `materials[]` |
+| `bone_indices`, `bone_weights` | (n, 4) | the four largest weights on bones of the rig, summing to 1 |
+
+`motion.npz` holds `matrices`, shape (frames, bones, 4, 4) float32: each bone's world matrix at each frame from `frameStart` to `frameEnd`.
 
 ## Preview JSON
 
@@ -158,6 +196,8 @@ The skeleton preview's joint positions, gzipped by `clip_preview.preview`.
 | Motion JSON | 2 | `source`, `basis`, `unitScale` |
 | Character manifest | 4 | current FromSoftware manifest |
 | Character manifest | 5 | `basis`, `unitScale`, `boneRotation`, normal-map convention |
+| Character manifest | 5 | image `packed`, material `metalness` and `roughness` (optional additions) |
 | Preview JSON | 3 | current; `basis` and `unitScale` are optional additions |
+| Character export manifest | 1 | first version |
 
 Readers accept every version in this table. Writers write the newest version they need: the FromSoftware path keeps writing manifest version 4, which means the same as a version 5 manifest with the default values.

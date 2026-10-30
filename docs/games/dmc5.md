@@ -1,14 +1,16 @@
 # Devil May Cry 5
 
-The bridge imports Devil May Cry 5 animations and characters into Blender. It does not write DMC5's animation format, so a DMC5 clip goes back into a game in one of two ways:
+The bridge imports Devil May Cry 5 animations and characters into Blender. It does not write DMC5's animation format, so a DMC5 clip goes back into a game in one of three ways:
 
 - **Edit it in Blender** as a reference, a render or a starting point.
 - **Retarget it onto a Sekiro, Dark Souls or Elden Ring character** with the Retarget add-on, and export that character's scene as HKX for that game.
+- **Write the DMC5 character into Sekiro as a new character** with its own model, textures, skeleton and one clip, such as Dante as `c1800` in place of an Ashina soldier. See [New Sekiro character](../USER_GUIDE.md#new-sekiro-character). Not yet tested in the game.
 
 What is imported:
 
 - The animations of every player and enemy with a folder under `natives/x64/animation/player` or `enemy`, such as Dante (`pl0100`), Nero (`pl0000`) and the enemies (`em…`). Each motion inside a `.motlist` file is one clip in the list.
 - The character's body, head and hair meshes with their skin weights, materials and textures. Other meshes of the same character, such as costumes, can be chosen under the model parts.
+- The character's weapons, such as Dante's Rebellion, each on a joint you choose.
 - The skeleton of the body mesh, so every bone the model needs is in the rig.
 
 The game folder is only read. The files the bridge needs are copied out of the game's PAK archives into the bridge's own cache.
@@ -43,9 +45,26 @@ A folder with an extracted `natives` folder works too, for example one unpacked 
 
 1. On the **Import animation** page, choose the character, for example **Dante** (`PL0100`). The first time, the bridge reads the character's motlist files, which takes about 5 seconds for Dante's 968 clips.
 2. Choose an animation, for example `pl0100_Idle_Normal`. The skeleton preview plays it.
-3. Under the model parts, the body, the first head and the first hair are chosen. Leave them, or tick other parts.
+3. Under the model parts, the body, the first head and the first hair are chosen. Leave them, or tick other parts. See [Model parts](#model-parts) for what each part is and how to add weapons.
 4. Click **Create Blender scene**. Dante's idle takes about 15 seconds, the first time about 35, because the textures are extracted and converted.
 5. Open the `.blend` in Blender. The rig plays the clip at 60 fps on the timeline. Press **Space** with the mouse over the 3D view to play it.
+
+## Model parts
+
+Each row names the part, its role and a note:
+
+- **Body · without head**: the body has no head of its own. Tick one **Head** and one **Hair** part with it. Dante, Nero, V, Vergil, Lady and Trish are built this way. `_01` is the head the game plays with; `_11` is the cutscene head, with more face bones. Tick one of them, not both.
+- **Body · with head**: the body is the whole character. The devil trigger forms (`pl0110`, `pl0120`, `pl0010`) and the enemies are built this way.
+- **from Vergil (PL0300)**: a head or hair of another character. Playable Vergil (`pl0800`) has only a body; the bridge gives him Vergil's head and hair, and ticks them.
+- **Weapon**: one of the character's weapons, listed after the other parts, such as `WP01_000 · Rebellion`. Tick it, and choose in the menu beside it where it hangs: **Right hand**, **Left hand**, **Back** or **Waist** (the joints `R_WeaponHand`, `L_WeaponHand`, `WeaponConst` and `WaistWeaponConst`). The second model of a pair, such as Ivory (`WP01_001_01`), starts in the left hand; every other weapon starts in the right hand.
+
+Dante with his sword on his back and his guns in his hands: tick `WP01_000 · Rebellion` and choose **Back**, then tick `WP01_001_00 · Ebony` and `WP01_001_01 · Ivory`.
+
+In Blender, a weapon's bones hang below its joint: the weapon moves with the hand or the back. It is part of the scene like the body, so a [new Sekiro character](../USER_GUIDE.md#new-sekiro-character) made from the scene holds it too. Weapons with their own animation, such as Cavaliere (`WP01_009`) and King Cerberus (`WP01_007`), stay in their rest pose.
+
+When none of the ticked parts has a head, the activity log says so.
+
+## Notes on the import
 
 The activity log may say that some animated bones are not in the skeleton. For Dante these are 14 coat and shoulder helper bones that his clips animate but his body mesh does not have. The rest of the clip is complete; those bones are left out.
 
@@ -70,7 +89,7 @@ Exporting the DMC5 scene itself stops with a message that the bridge cannot writ
 
 - **Mirrored clips.** Some DMC5 motions are played mirrored by the game. The bridge imports them as stored; the activity log says so for each such clip.
 - **Materials** are a preview: base color, normal map and the cut-out of hair and eyelashes. Transparent eye layers are hidden.
-- **Bridge versions before the RE Engine package** scanned DMC5 sources in another format. Scan the source again once: the refresh button beside the source menu does it.
+- **Bridge versions before the RE Engine package**, and before the weapons were listed, scanned DMC5 sources in another format. Scan the source again once: the refresh button beside the source menu does it.
 - **Updates.** When the game updates, scan the source again with the refresh button beside the source menu; the bridge also asks for this when an import finds changed archives.
 - **Space and units.** DMC5 stores positions in metres with Y up. The bridge turns the scene so that Z is up and the character faces Blender's front view, as for every other game; see [INTERCHANGE.md](../INTERCHANGE.md).
 - File versions: motlist 85, mot 65, mesh 1808282334, mdf2 10, tex 11.

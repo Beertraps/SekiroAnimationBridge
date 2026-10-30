@@ -168,6 +168,10 @@ def check_manifest(document, label='Character manifest'):
     return document
 
 
+def check_character_export(document, label='Character export manifest'):
+    return validate(document, 'character_export.schema.json', label)
+
+
 def check_preview(document, label='Preview JSON'):
     validate(document, 'preview.schema.json', label)
     count = len(document['bones'])

@@ -26,7 +26,8 @@ def members(decoder=None,uv=None,dotnet_runtime=None):
                      and not any(part in {'__pycache__','bin','obj','.git'} for part in p.relative_to(ROOT).parts))
     if decoder:
         decoder=Path(decoder)
-        if not (decoder/'SekiroMotionDecoder.exe').is_file(): raise ValueError(f'No SekiroMotionDecoder.exe in {decoder}')
+        for tool in ('SekiroMotionDecoder.exe','SekiroCharacterWriter.exe'):
+            if not (decoder/tool).is_file(): raise ValueError(f'No {tool} in {decoder}')
         for p in decoder.rglob('*'):
             relative=p.relative_to(decoder).as_posix()
             if p.is_file() and not relative.startswith(DECODER_SKIP): files[p]='decoder/'+relative

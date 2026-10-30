@@ -147,6 +147,30 @@ class Commands(unittest.TestCase):
         self.call('run',file)
         self.assertEqual((self.jobs[-1]['blender'],self.jobs[-1]['inputBlend']),('blender.exe','owl.blend'))
         self.assertFalse(self.call('run','{"inputBlend": "owl.blend"}')[1]['ok'])
+    def test_character_export_sends_its_options_and_no_others(self):
+        output=self.base/'mods'/'dante'
+        code,result,_=self.call('character-export',self.base/'dante.blend','--game-folder',self.base/'Sekiro','--id','c1800',
+                                '--output',output,'--map','m11_00_00_00','--part','c1010_0000','--pair','Neck=neck_0',
+                                '--pair','Spine2=','--frame-end','40')
+        self.assertEqual((code,result['output'],result['report']),(0,'done',dict(frames=3)))
+        request=self.jobs[-1]
+        expected=dict(mode='character-export',template='c1010',characterId='c1800',gameFolder=str(self.base/'Sekiro'),
+                      outputFolder=str(output),inputBlend=str(self.base/'dante.blend'),map='m11_00_00_00',parts=['c1010_0000'],
+                      pairs={'Neck':'neck_0','Spine2':''},action='',textureSize=2048,force=False,frameEnd=40.0,**SETTINGS)
+        self.assertEqual({k:request[k] for k in expected},expected)
+        self.assertNotIn('frameStart',request)
+    def test_a_bone_pair_needs_an_equals_sign(self):
+        code,result,_=self.call('character-export',self.base/'dante.blend','--game-folder',self.base/'Sekiro','--id','c1800',
+                                '--output',self.base/'mods'/'dante','--pair','Neck')
+        self.assertEqual(code,1);self.assertIn('TEMPLATE=SOURCE',result['error']);self.assertEqual(self.jobs,[])
+    def test_character_parts_and_verify_name_their_folders(self):
+        self.call('character-parts',self.base/'Sekiro','--map','m11_00_00_00','--template','c1020')
+        self.call('character-verify',self.base/'mods'/'dante','--id','c1800')
+        parts,check=self.jobs
+        self.assertEqual((parts['mode'],parts['gameFolder'],parts['map'],parts['template'],parts['outputFolder']),
+                         ('character-parts',str(self.base/'Sekiro'),'m11_00_00_00','c1020',''))
+        self.assertEqual((check['mode'],check['outputFolder'],check['characterId'],check['gameFolder']),
+                         ('character-verify',str(self.base/'mods'/'dante'),'c1800',''))
 
 
 class Options(unittest.TestCase):

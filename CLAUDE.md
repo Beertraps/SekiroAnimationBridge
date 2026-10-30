@@ -12,7 +12,8 @@ contract) → Blender builds the scene → export samples it back and writes HKX
 
 - Conversion Python: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe`, made by
   `tools\setup_writer.cmd` (needs uv, or Python 3.13 with the `py` launcher). Everything below runs with it.
-- HKX decoder: `tools\prepare_dotnet_runtime.cmd`, then `tools\SekiroMotionDecoder\build_decoder.cmd` (.NET 9 SDK).
+- HKX decoder: `tools\prepare_dotnet_runtime.cmd`, then `tools\SekiroMotionDecoder\build_decoder.cmd` (.NET 9 SDK). It
+  also builds `SekiroCharacterWriter.exe`, which the character export needs.
   The RE Engine decoder is only for DMC5: `packages\re_engine\decoder\build_decoder.cmd`. The Unreal decoder is only
   for Unreal Engine games: `packages\unreal\decoder\build_decoder.cmd` (.NET 10 SDK; CMake and the C++ build tools for
   ACL clips, [docs/games/unreal.md](docs/games/unreal.md)).
@@ -37,6 +38,9 @@ standalone\bridge_cli.cmd select <catalog> <clip ID>
 standalone\bridge_cli.cmd import <catalog> <clip ID> --output work\scenes\c5060.blend
 standalone\bridge_cli.cmd verify work\scenes\c5060.blend --render work\scenes\c5060.png
 standalone\bridge_cli.cmd export work\scenes\c5060.blend --output work\scenes\c5060_edited.hkx
+standalone\bridge_cli.cmd character-parts "D:\Games\Sekiro" --map m11_00_00_00
+standalone\bridge_cli.cmd character-export work\scenes\dante.blend --game-folder "D:\Games\Sekiro" --id c1800 --output work\mods\dante --map m11_00_00_00 --part c1010_0000
+standalone\bridge_cli.cmd character-verify work\mods\dante --id c1800
 ```
 
 - `scan` prints the catalog path the other commands take. In a game folder, clips are listed per character once it
@@ -48,6 +52,9 @@ standalone\bridge_cli.cmd export work\scenes\c5060.blend --output work\scenes\c5
   bones, vertices left on model bones outside the animation, and missing images. `skin stretch` is advisory and left
   out of `passed`: cloth stretches as far as a wrong bind does, so it names a frame to look at, not a fault.
   `--render` writes a front and a side picture; look at them when a check fails or a change touches the scene.
+- `character-export` writes a scene as a new Sekiro character (template `c1010` by default) into a mod folder with a
+  me3 profile beside it, and ends with the 11 checks of `character-verify`. `character-clone` writes the template itself
+  under the new ID. Plan, facts and limits: [docs/CHARACTER_EXPORT_PLAN.md](docs/CHARACTER_EXPORT_PLAN.md).
 - `run <request.json>` takes any request that the UI or `sekiro_animation_cli.ps1` sends to `bridge_runtime.py`.
 
 ## Tests
@@ -91,5 +98,6 @@ tools\check_package.cmd packages\<id> [--source <game folder>] [--option <id>=<v
 | UI | `standalone/bridge_ui.py` (local server), `standalone/ui/` |
 | Blender side | `standalone/blender_bridge.py`, `blender_character.py`, `blender_parts.py`, `blender_verify.py` |
 | HKX writing | `standalone/build_animation.py`, `havok_compat.py`, `binder_members.py` |
+| New Sekiro characters | `standalone/character_export.py`, `havok_tagfile.py` (TAG0 patching), `blender_character_export.py`, `tools/SekiroCharacterWriter/` |
 | Retarget add-on | `blender_addon/sekiro_retarget/` |
 | Other engines | `packages/re_engine`, `packages/doom_eternal`, `packages/unreal`, template `standalone/tests/fixtures/packages/example` |

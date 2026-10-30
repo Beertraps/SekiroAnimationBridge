@@ -42,6 +42,7 @@
   <a class="rail-brand" href="#" aria-label="Animation Bridge" title="Animation Bridge"><img class="mark" src="/icons/bridge.svg" width="48" height="48" alt=""></a>
   <button class="rail-item active" data-page="import" aria-label="Import animation"><svg><use href="#i-import"/></svg><span>Import</span></button>
   <button class="rail-item" data-page="export" aria-label="Export animation"><svg><use href="#i-export"/></svg><span>Export</span></button>
+  <button class="rail-item" data-page="character" aria-label="New character"><svg><use href="#i-person"/></svg><span>Character</span></button>
   <button class="rail-item" data-page="sources" aria-label="Sources"><svg><use href="#i-library"/></svg><span>Sources</span></button>
   <span class="rail-spacer"></span>
   <button class="rail-item" data-page="settings" aria-label="Settings and setup"><svg><use href="#i-settings"/></svg><span>Setup</span><i id="setup-dot" class="dot rail-dot"></i></button>
@@ -222,6 +223,38 @@
           <p id="parts-note" class="note" hidden>Each animated weapon part’s clip is written beside the HKX under its member name, such as a076_405010_1.hkx, at the part clip’s frame rate. Replace it in the part’s ANIBND with WitchyBND. Not yet tested in game.</p>
           <button id="run-export" class="primary wide"><svg><use href="#i-export"/></svg>Export HKX animation<svg class="end"><use href="#i-arrow"/></svg></button>
           <p class="note">You get a raw HKX and a .motion.json sidecar, and with a binder chosen, the HKX in that binder too. Export bakes the evaluated pose, including constraints, drivers and NLA strips.</p>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <section id="page-character" class="page">
+    <div class="export-grid">
+      <section class="pane" aria-label="Character scene">
+        <header class="pane-head"><h2><svg><use href="#i-film"/></svg>Character scene</h2><span class="count">STEP 1</span></header>
+        <div class="pane-body">
+          <div class="field"><label for="characterBlend">Blender scene <button class="help" data-help="characterBlend" aria-label="About the character scene">?</button></label><div class="path-row"><input id="characterBlend" data-config placeholder="A .blend with the character's rig, meshes and idle action" spellcheck="false"><button class="browse" data-pick="characterBlend"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="tool-row"><button id="character-use-import" class="text-button"><svg><use href="#i-link"/></svg>Use the last imported scene</button></div>
+          <div class="field"><label for="characterAction">Action <span class="optional">OPTIONAL</span> <button class="help" data-help="characterAction" aria-label="About the character action">?</button></label><input id="characterAction" data-config class="text-input" placeholder="The rig's active action" spellcheck="false"></div>
+          <div class="field"><span class="label">Frames <span class="optional">OPTIONAL</span></span><div class="range-row"><input id="characterFrameStart" data-config class="text-input" inputmode="decimal" placeholder="Action start" aria-label="Start frame"><span>to</span><input id="characterFrameEnd" data-config class="text-input" inputmode="decimal" placeholder="Action end" aria-label="End frame"></div></div>
+          <details class="disclosure"><summary>Texture size</summary>
+            <div class="field"><label for="characterTextureSize">Largest texture side <button class="help" data-help="characterTextureSize" aria-label="About texture size">?</button></label><select id="characterTextureSize" data-config><option value="2048">2048 pixels · default</option><option value="1024">1024 pixels · smaller</option><option value="4096">4096 pixels · sharper</option></select></div>
+          </details>
+          <p class="note">Import the other game's character first, on the Import page. The rig, its meshes, their materials and one action become the new character. Bones named like the template's, such as Spine or L_Thigh, take over its animations and behavior.</p>
+        </div>
+      </section>
+      <section class="pane" aria-label="Sekiro mod">
+        <header class="pane-head"><h2><svg><use href="#i-person"/></svg>Sekiro mod</h2><span class="count">STEP 2</span></header>
+        <div class="pane-body">
+          <div class="field"><label for="characterGameFolder">Sekiro game folder <button class="help" data-help="characterGameFolder" aria-label="About the game folder">?</button></label><div class="path-row"><input id="characterGameFolder" data-config placeholder="The unpacked game folder that holds chr and map" spellcheck="false"><button class="browse" data-pick="characterGameFolder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="field-grid"><div class="field"><label for="characterTemplate">Template <button class="help" data-help="characterTemplate" aria-label="About the template">?</button></label><input id="characterTemplate" data-config class="text-input" placeholder="c1010" spellcheck="false"></div><div class="field"><label for="characterId">New character ID <button class="help" data-help="characterId" aria-label="About the new ID">?</button></label><input id="characterId" data-config class="text-input" placeholder="c1800" spellcheck="false"></div></div>
+          <div class="field"><label for="characterMap">Map <span class="optional">OPTIONAL</span> <button class="help" data-help="characterMap" aria-label="About the map">?</button></label><div class="path-row"><input id="characterMap" data-config class="text-input" placeholder="m11_00_00_00" spellcheck="false"><button id="character-list-parts" class="browse"><svg><use href="#i-search"/></svg>List parts</button></div></div>
+          <div id="character-parts" class="action-list" role="group" aria-label="Map parts" hidden></div>
+          <div class="field"><label for="characterOutput">Mod folder <button class="help" data-help="characterOutput" aria-label="About the mod folder">?</button></label><div class="path-row"><input id="characterOutput" data-config placeholder="D:\SekiroMods\c1800" spellcheck="false"><button class="browse" data-pick="characterOutput"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+          <div class="check-row"><label class="checkbox"><input id="character-force" type="checkbox">Replace existing</label></div>
+          <button id="run-character" class="primary wide"><svg><use href="#i-person"/></svg>Write new character<svg class="end"><use href="#i-arrow"/></svg></button>
+          <div class="tool-row"><button id="character-clone" class="secondary"><svg><use href="#i-layers"/></svg>Write template only</button><button id="character-verify" class="secondary"><svg><use href="#i-check"/></svg>Check mod folder</button></div>
+          <p class="note">The mod folder gets the character's chr files and, with parts chosen, the map. A .me3 profile beside it starts the game with the mod. The game folder is only read. Write template only copies the template under the new ID, as a first test in game.</p>
         </div>
       </section>
     </div>

@@ -119,8 +119,42 @@ def make_material(spec, uv_names, cache):
         links.new(combine.outputs[0], normal.inputs['Color']); links.new(normal.outputs[0], shader.inputs['Normal'])
     mat['sekiro_material_definition'] = spec.get('mtd', '')
     mat['sekiro_sampler_sources'] = json.dumps(spec.get('samplers', []))
+    roles = texture_roles(spec)
+    if roles:
+        mat['bridge_texture_roles'] = json.dumps(roles)
     cache[key] = mat
     return mat
+
+
+def texture_roles(spec):
+    """What each image of a material holds, for the character export, when the spec says more than the preview
+    shows: data packed into an image's channels, or a metalness or roughness image. None otherwise, and the export
+    reads the roles from the node tree."""
+    images = [spec.get(key) for key in ('albedo', 'normal', 'emissive', 'opacity')]
+    if not any(image and image.get('packed') for image in images) and not spec.get('metalness') and not spec.get('roughness'):
+        return None
+
+    def role(image, channel, **extra):
+        return dict(image=bpy.data.images.load(image['path'], check_existing=True).name, channel=channel, **extra)
+
+    roles = {}
+    if spec.get('albedo'):
+        roles['albedo'] = role(spec['albedo'], 'RGB')
+        if spec.get('alpha'):
+            roles['opacity'] = role(spec['albedo'], 'A')
+    if spec.get('opacity'):
+        roles['opacity'] = role(spec['opacity'], spec['opacity'].get('channel', 'R'))
+    if spec.get('normal'):
+        roles['normal'] = role(spec['normal'], 'RGB', convention=spec['normal'].get('convention', 'directx'))
+    if spec.get('emissive'):
+        roles['emissive'] = role(spec['emissive'], 'RGB')
+    for key in ('metalness', 'roughness'):
+        if spec.get(key):
+            roles[key] = role(spec[key], spec[key].get('channel', 'R'))
+    for image in images:
+        for channel, name in ((image or {}).get('packed') or {}).items():
+            roles.setdefault(name, role(image, channel))
+    return roles
 
 
 def cut_out(material):
@@ -149,7 +183,9 @@ def conversion(space):
     return Matrix(space.matrix()), Matrix(space.inverse_matrix())
 
 
-def ensure_model_bones(rig, preview, needed, space=FROMSOFT, quaternions=False):
+def ensure_model_bones(rig, preview, needed, space=FROMSOFT, quaternions=False, under=None):
+    """Add the model bones the rig lacks. With under, the model's root bones hang below that rig bone,
+    and their rest pose is relative to it: a weapon on a joint (docs/INTERCHANGE.md, attachment)."""
     names = [str(n) for n in preview['bone_names']]
     missing = {i for i in needed if names[i] not in rig.data.bones}
     if not missing:
@@ -163,6 +199,7 @@ def ensure_model_bones(rig, preview, needed, space=FROMSOFT, quaternions=False):
         while parent >= 0 and names[parent] not in rig.data.bones and parent not in wanted:
             wanted.add(parent); parent = int(parents[parent])
     to_blender, to_source = conversion(space)
+    place = rig.data.bones[under].matrix_local.copy() if under else Matrix.Identity(4)
     world = {}
     visiting = set()
     def rest(i):
@@ -177,9 +214,10 @@ def ensure_model_bones(rig, preview, needed, space=FROMSOFT, quaternions=False):
     bpy.ops.object.mode_set(mode='EDIT')
     def add(i):
         if names[i] in rig.data.edit_bones: return rig.data.edit_bones[names[i]]
-        parent = int(parents[i]); parent_bone = add(parent) if parent >= 0 else None
+        parent = int(parents[i])
+        parent_bone = add(parent) if parent >= 0 else rig.data.edit_bones[under] if under else None
         bone = rig.data.edit_bones.new(names[i]); bone.length = .04
-        bone.matrix = to_blender @ rest(i) @ to_source
+        bone.matrix = place @ to_blender @ rest(i) @ to_source
         bone.parent = parent_bone; bone['sekiro_model_only'] = True
         return bone
     for i in sorted(wanted): add(i)
@@ -372,7 +410,17 @@ def import_character(manifest_path, rig):
             indices, weights = preview['bone_indices'], preview['bone_weights']
             names = [str(n) for n in preview['bone_names']]
             used = set(int(i) for i in indices[weights > 1e-6])
-            if model.get('attachment'):
+            attachment = model.get('attachment') or {}
+            joint = attachment.get('bone') if attachment.get('kind') == 'joint' else None
+            place = None
+            if joint is not None:
+                # A package's weapon: its bones hang below the joint, its vertices move from the weapon's origin to it.
+                if joint not in rig.data.bones:
+                    print(f"NOTICE: {model['name']}: the rig has no joint {joint}; the weapon is left out.", flush=True)
+                    continue
+                ensure_model_bones(rig, preview, used, space, quaternions, under=joint)
+                skin_rig, place = rig, np.asarray(rig.data.bones[joint].matrix_local)
+            elif attachment:
                 # An animated part's rig carries every bone of its HKX skeleton, not only the weighted ones.
                 from blender_parts import part_motion, skeleton_bones, animate_part
                 motion = part_motion(model)
@@ -394,6 +442,8 @@ def import_character(manifest_path, rig):
                     raise ValueError(f"{model['name']}: mesh group has faces outside its vertex data. Regenerate the preview.")
                 mesh = bpy.data.meshes.new(model['name'])
                 points = pos[vertex_rows][:, axes] * (signs * space.unit)
+                if place is not None:
+                    points = points @ place[:3, :3].T + place[:3, 3]
                 mesh.from_pydata(points.tolist(), [], part_faces[:, winding].tolist()); mesh.update()
                 label = role
                 if mask is not None:
@@ -408,6 +458,8 @@ def import_character(manifest_path, rig):
                     layer = mesh.uv_layers.new(name=key); layer.data.foreach_set('uv', uv.ravel())
                 if 'normals' in preview and np.any(preview['normals'][vertex_rows]):
                     normals = (preview['normals'][vertex_rows][:, axes] * signs).astype(preview['normals'].dtype)
+                    if place is not None:
+                        normals = normals @ place[:3, :3].T
                     length = np.linalg.norm(normals, axis=1, keepdims=True)
                     normals = normals / np.maximum(length, 1e-8)
                     mesh.normals_split_custom_set_from_vertices(normals.tolist())
@@ -425,7 +477,9 @@ def import_character(manifest_path, rig):
                 obj['sekiro_flver_preview'] = True; obj['sekiro_source_model'] = model['source']
                 obj['sekiro_model_id'] = model['name']; objects.append(obj)
                 if mask is not None: obj['sekiro_mesh_group'] = mask
-                if model.get('attachment'):
+                if joint is not None:
+                    obj['bridge_joint'] = joint
+                elif attachment:
                     obj['sekiro_weapon_preview']=True;obj['sekiro_weapon_attachment']=json.dumps(model['attachment'])
                     if model['attachment'].get('locations'): key_visibility(obj, model['attachment'])
                 print(f"Attached {obj.name}: {len(vertex_rows):,} vertices / {len(face_rows):,} faces", flush=True)

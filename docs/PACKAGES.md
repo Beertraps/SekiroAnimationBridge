@@ -105,9 +105,9 @@ Every function is a module-level function. Each gets plain dictionaries and path
 | `detect(path, options, ctx)` | `None` when the folder is not a source of your games. Otherwise a detection: `game`, `root` (the folder to scan, which may be a parent or child of `path`), `evidence` (what identified the game), `note` (a line for the source dialog), `counts` (`animations`, `characters`, `materials`), `options` (the source options the dialog shows for this source, such as `["fileList"]` or `["engineVersion", "aesKey"]`) and `needs` (those that must be filled before a scan). Other keys are kept and handed to `scan`. The argument `options` holds the user's values: `fileList` and each declared option. |
 | `scan(detection, options, ctx, previous)` | A catalog of the source's characters. Clips of a character can wait until it is chosen. `previous` is the last catalog of the same source, or `None`, so characters already read can be kept. |
 | `inventory(catalog, character, ctx)` | The catalog with the clips of one character, and that character's `inventoried` set to true. |
-| `selection(catalog, clip_id, preset, ctx)` | What the import uses of one clip: `animation` (a path), `game`, `character`, `clipName`, and `parts`, the model parts the UI lists, each with `id`, `path`, `role` and `selected`. |
+| `selection(catalog, clip_id, preset, ctx)` | What the import uses of one clip: `animation` (a path), `game`, `character`, `clipName`, and `parts`, the model parts the UI lists, each with `id`, `path`, `role` and `selected`. Optional: `name`, `note` (a few words the UI shows beside the role, such as `without head`), and for a weapon `joints` (the joints it can hang on, each `id` and `label`) and `joint` (the default). |
 | `preview(selection, ctx)` | A motion JSON version 2 of the clip, as a dictionary. The bridge turns it into the skeleton preview and caches the result. |
-| `prepare(request, catalog, temp, ctx)` | A dictionary: `motion` (path of a motion JSON version 2 written into `temp`), `characters` (a list with at most one path of a character manifest version 5), `report` (`clip`, `frames`, `tracks`, `warnings`, `parts`, `textures`), and optionally `catalog` (when it read more of the source) and `request` (keys the bridge sets on the import request, such as `game`). `request` holds `assetClip`, `assetCharacter`, `includeCharacter` and the source's `assetFolder`, `sourceFileList` and `sourceOptions`. |
+| `prepare(request, catalog, temp, ctx)` | A dictionary: `motion` (path of a motion JSON version 2 written into `temp`), `characters` (a list with at most one path of a character manifest version 5), `report` (`clip`, `frames`, `tracks`, `warnings`, `parts`, `textures`), and optionally `catalog` (when it read more of the source) and `request` (keys the bridge sets on the import request, such as `game`). `request` holds `assetClip`, `assetCharacter`, `includeCharacter` and the source's `assetFolder`, `sourceFileList` and `sourceOptions`; `models` (the paths of the parts the user ticked, empty for the default ones) and `weaponAttachments` (the joint the user chose for a weapon, by part `id`). |
 | `refresh(catalog, clip_id, ctx)` | Optional. `(catalog, clip_id)` after the files of a clip changed, such as a mod archive. |
 | `validate(catalog, folder, check_sources, ctx)` | Optional. Raise `ValueError` when a stored catalog no longer fits the source, for example after a game update. |
 | `preview_key(selection, ctx)` | Optional. A string that changes whenever the preview would. By default the bridge uses the selection and the size and date of the clip file and of the package's tools. |
@@ -131,6 +131,31 @@ Keep other keys you need: the bridge stores the catalog as you return it and add
 | `profiles`, `profile(game)` | Your games, as the bridge reads them from `package.json`, with `space()` for the axis convention. |
 | `tool(id)` | The path of one of your tools; a clear error when it is missing. |
 | `run(id, *args, timeout=900)` | Runs a tool and returns what it printed. A tool that fails raises `ValueError` with its last line on stderr, or on stdout. |
+
+### Materials
+
+The character manifest that `prepare` returns names each material's images by role (fields in [INTERCHANGE.md](INTERCHANGE.md#character-manifest)). Blender's preview uses `albedo`, `normal`, `emissive`, `opacity` and `opacityValue`. A new Sekiro character made from your game's character also needs to know what the other channels hold, so say it whenever an image carries more than its main role:
+
+| Field | Use it for | Example |
+| --- | --- | --- |
+| image `packed` | data in an image's channels, as `{channel: role}`; channels `R`, `G`, `B`, `A`, roles `metalness`, `roughness`, `opacity`, `emissive` | RE Engine: ALBM albedo `{"A": "metalness"}`, NRMR normal `{"A": "roughness"}` |
+| image `packedAlpha` | true when the alpha is such data, so the preview does not cut the color out with it | the same two images |
+| material `metalness`, `roughness` | an image of its own, with `channel` (`R` by default) | an Unreal ORM map: `roughness` with channel `G`, `metalness` with channel `B` |
+| material `opacity` with `channel` | a separate cut-out mask | RE Engine ATOS: `R` |
+| normal `convention` | `opengl` when green points up | |
+
+Every field is optional. The import stores the roles in the Blender material, and the character export (`bridge_cli character-export`) reads them from there. Without them it reads the node tree, which knows only the preview's roles. The export writes Sekiro's `_a` (albedo with opacity), `_n` (normal) and `_m` (metalness) textures; roughness is recorded but Sekiro's characters have no texture for it.
+
+The `bones` names of `package.json` (see [Bone names](#bone-names)) also help a new character: the export pairs the rig's bones with the Sekiro template's by the same matcher as the retarget add-on.
+
+### Model parts and weapons
+
+The import page lists the `parts` of `selection` with a checkbox each, and a `note` beside the role. Tell the user what a part is, so that the ticked parts make a whole character:
+
+- **Body with or without head.** When a game keeps the head in its own model, mark the body `without head` and offer the heads and hair. The RE Engine package does so for Devil May Cry 5's players, and offers playable Vergil (`pl0800`), whose folder has no head, the head and hair of Vergil (`pl0300`).
+- **Weapons.** A weapon is a part with `role` `Weapon`, `joints` (the character bones it can hang on, each `id` and `label`) and `joint` (the default). The UI shows a menu of the joints beside it and sends the choice in `weaponAttachments`, by part `id`. In the manifest, give the weapon `attachment` `{"kind": "joint", "bone": "<joint>"}` and name its bones after it ([INTERCHANGE.md](INTERCHANGE.md#character-manifest)). Blender hangs its bones below the joint, so the weapon moves with it, and a new Sekiro character keeps it in its model.
+
+The capability `weapons` stays false: it names FromSoftware's own weapon placement, with dummies and sheaths.
 
 ### What games.api offers
 
@@ -167,7 +192,7 @@ The retarget add-on pairs bones by name and knows the usual names (`Pelvis`, `L_
 }
 ```
 
-`names` maps exact bone names; `patterns` are Python regular expressions that must match the whole name, with `as` as the replacement. Rigs record their game when they are imported, so the add-on uses these names only for rigs of your games. The bone keeps its own name in Blender.
+`names` maps exact bone names; `patterns` are Python regular expressions that must match the whole name, with `as` as the replacement. Rigs record their game when they are imported, so the add-on uses these names only for rigs of your games. The bone keeps its own name in Blender. The character export reads the same names when it pairs a rig of your game with a Sekiro template.
 
 ## Testing
 

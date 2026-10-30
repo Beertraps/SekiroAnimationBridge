@@ -1,0 +1,214 @@
+"""A new Sekiro character: Havok tagfiles patched in place, bones merged to fit a model, and the requests that start it."""
+import json,struct,sys,tempfile,unittest
+from pathlib import Path
+from unittest import mock
+import numpy as np
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+import bridge_ui
+import character_export
+import havok_tagfile as hk
+from havok_tagfile import ARRAY,CLASS,FLOAT,INT,STRING
+
+
+def packed(n):
+    """Havok's variable-length integer, the inverse of havok_tagfile.packed_int."""
+    if n<0x80:return bytes([n])
+    if n<0x4000:return bytes([0x80|n>>8,n&0xFF])
+    if n<0x200000:return bytes([0xC0|n>>16,n>>8&0xFF,n&0xFF])
+    return (0xE0000000|n).to_bytes(4,'big')
+
+
+def section(tag,body,leaf=True):
+    return ((len(body)+8)|(0x40000000 if leaf else 0)).to_bytes(4,'big')+tag.encode('ascii')+body
+
+
+class Types:
+    """A TYPE section built from type definitions; add returns the one-based number items and fields use."""
+    def __init__(self):self.types=[]
+    def add(self,name,format_info,size,alignment,subtype=0,fields=()):
+        self.types.append(dict(name=name,format=format_info,size=size,alignment=alignment,subtype=subtype,fields=fields))
+        return len(self.types)
+    def section(self):
+        type_names=[t['name'] for t in self.types]
+        field_names=sorted({f[0] for t in self.types for f in t['fields']})
+        names=section('TST1',b''.join(n.encode()+b'\0' for n in type_names))
+        table=section('TNA1',packed(len(self.types))+b''.join(packed(i)+packed(0) for i in range(len(self.types))))
+        fields=section('FST1',b''.join(n.encode()+b'\0' for n in field_names))
+        body=bytearray()
+        for i,t in enumerate(self.types,1):
+            flags=hk.HAS_FORMAT|hk.HAS_SIZE|(hk.HAS_SUBTYPE if t['subtype'] else 0)|(hk.HAS_FIELDS if t['fields'] else 0)
+            body+=packed(i)+packed(0)+packed(flags)+packed(t['format'])
+            if t['subtype']:body+=packed(t['subtype'])
+            body+=packed(t['size'])+packed(t['alignment'])
+            if t['fields']:
+                body+=bytes([len(t['fields'])])
+                for name,offset,field_type in t['fields']:body+=packed(field_names.index(name))+packed(0)+packed(offset)+packed(field_type)
+        return section('TYPE',names+table+fields+section('TBDY',bytes(body)),leaf=False)
+
+
+def int_format(bits):return INT|0x200|bits<<10
+
+
+def tagfile(types,data,items,patches):
+    """items: (type, offset, count) after the null item; patches: {slot type: [offsets]}."""
+    rows=struct.pack('<3I',0,0,0)+b''.join(struct.pack('<3I',t|0x10<<24,o,c) for t,o,c in items)
+    table=b''.join(struct.pack('<iI',t,len(o))+struct.pack(f'<{len(o)}I',*sorted(o)) for t,o in sorted(patches.items()))
+    data=bytes(data)+bytes(-len(data)%4)
+    body=section('SDKV',b'20160200')+types.section()+section('DATA',data)+section('INDX',section('ITEM',rows)+section('PTCH',table),leaf=False)
+    return section('TAG0',body,leaf=False)
+
+
+def behavior():
+    """A modifier with a leg's bone numbers, a ragdoll bone number, a bone list, per-bone weights and a name."""
+    t=Types()
+    char=t.add('char',int_format(8),1,1);int16=t.add('hkInt16',int_format(16),2,2);real=t.add('hkReal',FLOAT,4,4)
+    text=t.add('hkStringPtr',STRING,8,8,subtype=char)
+    shorts=t.add('hkArray<hkInt16>',ARRAY,16,8,subtype=int16);reals=t.add('hkArray<hkReal>',ARRAY,16,8,subtype=real)
+    leg=t.add('hkbFootIkDriverInfoLeg',CLASS,8,2,fields=(('kneeIndex',0,int16),('hipIndex',2,int16),('ragdollBoneIndex',4,int16)))
+    root=t.add('hkbTestModifier',CLASS,48,8,fields=(('name',0,text),('leg',8,leg),('boneIndices',16,shorts),('boneWeights',32,reals)))
+    data=bytearray(96)
+    struct.pack_into('<I',data,0,2);struct.pack_into('<3h',data,8,3,1,2);struct.pack_into('<I',data,16,3);struct.pack_into('<I',data,32,4)
+    data[48:59]=b'c1010_test\0';struct.pack_into('<3h',data,64,0,2,3);struct.pack_into('<4f',data,80,.1,.2,.3,.4)
+    return tagfile(t,data,[(root,0,1),(char,48,11),(int16,64,3),(real,80,4)],{text:[0],shorts:[16],reals:[32]})
+
+
+def skeleton_file(names=('Master','Root'),partitions=0):
+    t=Types()
+    char=t.add('char',int_format(8),1,1);int16=t.add('hkInt16',int_format(16),2,2)
+    text=t.add('hkStringPtr',STRING,8,8,subtype=char)
+    bone=t.add('hkaBone',CLASS,16,8,fields=(('name',0,text),))
+    transform=t.add('hkQsTransform',CLASS,48,16)
+    parents=t.add('hkArray<hkInt16>',ARRAY,16,8,subtype=int16);bones=t.add('hkArray<hkaBone>',ARRAY,16,8,subtype=bone)
+    poses=t.add('hkArray<hkQsTransform>',ARRAY,16,8,subtype=transform)
+    skeleton=t.add('hkaSkeleton',CLASS,72,8,fields=(('name',0,text),('parentIndices',8,parents),('bones',24,bones),
+                                                     ('referencePose',40,poses),('partitions',56,parents)))
+    data=bytearray(80)
+    struct.pack_into('<I',data,0,2);struct.pack_into('<I',data,8,3);struct.pack_into('<I',data,24,4);struct.pack_into('<I',data,40,5)
+    data+=b'c1010\0'+bytes(10)
+    items=[(skeleton,0,1),(char,80,6),(int16,96,len(names)),(bone,112,len(names)),(transform,0,len(names))]
+    data+=b''.join(struct.pack('<h',-1 if i==0 else i-1) for i in range(len(names)));data+=bytes(-len(data)%16)
+    bone_at=len(data);items[3]=(bone,bone_at,len(names))
+    for i in range(len(names)):data+=struct.pack('<I',6+i)+bytes(12)
+    data+=bytes(-len(data)%16);items[4]=(transform,len(data),len(names))
+    for i in range(len(names)):data+=struct.pack('<12f',0,i*.5,0,0,0,0,0,1,1,1,1,0)
+    patches={text:[0]+[bone_at+16*i for i in range(len(names))],parents:[8],bones:[24],poses:[40]}
+    for name in names:
+        items.append((char,len(data),len(name)+1));data+=name.encode()+b'\0'
+    if partitions:
+        struct.pack_into('<I',data,56,len(items)+1);items.append((int16,len(data),partitions));data+=bytes(2*partitions)
+        patches[parents].append(56)
+    return tagfile(t,data,items,patches)
+
+
+class Tagfiles(unittest.TestCase):
+    def test_packed_integers_read_back(self):
+        for n in (0,5,0x7F,0x80,0x3FFF,0x4000,0x1FFFFF,0x200000,0x7FFFFFF):
+            self.assertEqual(hk.packed_int(packed(n)+b'\xff',0),(n,len(packed(n))))
+    def test_an_unchanged_file_is_written_byte_for_byte(self):
+        data=behavior();tag=hk.Tagfile(data)
+        self.assertEqual(tag.write(),data)
+        self.assertEqual(tag.unpatched(),([],[]))
+        self.assertEqual(hk.Tagfile(skeleton_file()).write(),skeleton_file())
+    def test_bone_fields_skip_ragdoll_bones_and_lists_of_other_lengths(self):
+        found={f['field']:f for f in hk.bone_fields(hk.Tagfile(behavior()),4)}
+        self.assertEqual({k:(f['kind'],f.get('value',f.get('values'))) for k,f in found.items() if k!='boneWeights'},
+                         dict(kneeIndex=('index',3),hipIndex=('index',1),boneIndices=('indices',[0,2,3])))
+        self.assertEqual(found['boneWeights']['kind'],'weights')
+        self.assertNotIn('boneWeights',{f['field'] for f in hk.bone_fields(hk.Tagfile(behavior()),5)})
+    def test_a_behavior_gets_new_bone_numbers_lists_and_names(self):
+        old=behavior()
+        new,changes=hk.edit_behavior(old,None,bone_map=[0,5,1,2],weight_source=[0,2,3,-1,-1,1],mirror=None,bone_count=6,
+                                     renames=[('c1010','c1800')])
+        tag=hk.Tagfile(new);found={f['field']:f for f in hk.bone_fields(tag,6)}
+        self.assertEqual((found['hipIndex']['value'],found['kneeIndex']['value'],found['boneIndices']['values']),(5,2,[0,1,2]))
+        np.testing.assert_allclose(found['boneWeights']['values'],[.1,.3,.4,0,0,.2],rtol=1e-6)
+        self.assertEqual(struct.unpack_from('<h',tag.data,tag.base+12)[0],2,'the ragdoll bone keeps its number')
+        self.assertEqual([text for _,text in hk.strings(tag)],['c1800_test'])
+        self.assertEqual(tag.unpatched(),([],[]))
+        self.assertEqual(sorted((c['kind'],c['field']) for c in changes),
+                         [('index','boneIndices'),('index','boneIndices'),('index','hipIndex'),('index','kneeIndex'),
+                          ('string','name'),('weights','boneWeights')])
+        # Only the patched values differ inside the template's data; the longer list follows it.
+        self.assertEqual(tag.items[4].offset,96)
+        differ=[i for i in range(96) if old[hk.Tagfile(old).base+i]!=tag.data[tag.base+i]]
+        self.assertEqual(differ,[8,10,50,51,66,68])
+    def test_renames_keep_the_length(self):
+        with self.assertRaisesRegex(ValueError,'as many characters'):hk.edit_behavior(behavior(),None,[0,1,2,3],[0,1,2,3],None,4,[('c1010','c18000')])
+    def test_a_skeleton_gets_new_bones_with_their_names_in_the_patch_table(self):
+        bones=[dict(name=n,parent=p,translation=[0,i,0],rotation=[0,0,0,1],scale=[1,1,1])
+               for i,(n,p) in enumerate((('Master',-1),('Root',0),('Spine',1)))]
+        new=hk.write_skeleton(skeleton_file(),bones,renames=[('c1010','c1800')])
+        found=hk.skeleton(new)
+        self.assertEqual((found['name'],[b['name'] for b in found['bones']],[b['parent'] for b in found['bones']]),
+                         ('c1800',['Master','Root','Spine'],[-1,0,1]))
+        self.assertEqual([b['translation'] for b in found['bones']],[[0,0,0],[0,1,0],[0,2,0]])
+        self.assertEqual(hk.Tagfile(new).unpatched(),([],[]))
+    def test_a_skeleton_with_partitions_is_refused(self):
+        self.assertEqual(hk.skeleton(skeleton_file(partitions=2))['partitions'],2)
+        with self.assertRaisesRegex(ValueError,'partitions'):hk.write_skeleton(skeleton_file(partitions=2),[])
+    def test_a_file_that_is_not_a_tagfile_is_refused(self):
+        with self.assertRaisesRegex(ValueError,'TAG0'):hk.Tagfile(section('TCM0',b''))
+
+
+class Bones(unittest.TestCase):
+    def test_the_lightest_leaves_give_their_weights_to_their_parents(self):
+        # 0 root, 1 spine, 2 head, 3 jaw (under head), 4 eye (under head), 5 unweighted finger under spine.
+        parents=[-1,0,1,2,2,1]
+        mesh=dict(bone_indices=np.array([[1,2],[3,4],[4,2]]),bone_weights=np.array([[.5,.5],[.1,.9],[.3,.7]]))
+        target,merged=character_export.reduce_weighted_bones([mesh],parents,4)
+        self.assertEqual((target.tolist(),merged),([0,1,2,2,4,5],[3]))
+        target,merged=character_export.reduce_weighted_bones([mesh],parents,2)
+        self.assertEqual((target.tolist(),merged),([0,1,1,1,1,5],[2,3,4]))
+    def test_bones_that_fit_stay_apart(self):
+        mesh=dict(bone_indices=np.array([[1,2]]),bone_weights=np.array([[.5,.5]]))
+        target,merged=character_export.reduce_weighted_bones([mesh],[-1,0,1],256)
+        self.assertEqual((target.tolist(),merged),([0,1,2],[]))
+    def test_a_game_package_names_the_bones_of_its_rigs(self):
+        # Eight frame bones the matcher skips, then a pelvis, legs and a spine; FromSoftware space, +X the left side.
+        body=[('Pelvis',1,(0,1,0)),('L_Thigh',8,(.1,.95,0)),('L_Calf',9,(.1,.5,0)),('L_Foot',10,(.1,.08,0)),
+              ('R_Thigh',8,(-.1,.95,0)),('R_Calf',12,(-.1,.5,0)),('R_Foot',13,(-.1,.08,0)),('Spine',8,(0,1.2,0))]
+        template=[(f'frame{i}',i-1,(0,0,0)) for i in range(8)]+body
+        def world(position):
+            m=np.eye(4);m[:3,3]=position;return m
+        bones=[dict(name=n,parent=p) for n,p,_ in template]
+        german={'Pelvis':'Becken','Spine':'Ruecken'}
+        source=[(german.get(n,n.replace('Thigh','Oberschenkel').replace('Calf','Wade').replace('Foot','Fuss')),p-8 if p>=8 else -1,world(t))
+                for n,p,t in body]
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp)/'games.json').write_text(json.dumps(dict(games=[dict(id='testgame',bones=dict(
+                names={'Becken':'Pelvis','Ruecken':'Spine'},patterns=[dict(match='([LR])_Oberschenkel',**{'as':r'\1_Thigh'}),
+                dict(match='([LR])_Wade',**{'as':r'\1_Calf'}),dict(match='([LR])_Fuss',**{'as':r'\1_Foot'})]))])),encoding='utf-8')
+            with mock.patch.object(character_export,'APP',Path(temp)):
+                pair=lambda game:character_export.pair_bones(source,bones,[world(t) for _,_,t in template],
+                                                            character_export.load_mapping(),game=game)[0]
+                pairs,plain=pair('testgame'),pair('')
+        self.assertEqual(pairs,{n:s for (n,_,_),(s,_,_) in zip(body,source)})
+        # The legs pair by their sides and heights alone; only the package's names make Ruecken the spine.
+        self.assertNotIn('Spine',plain)
+    def test_mirror_names_and_ids(self):
+        self.assertEqual([character_export.mirror_name(n) for n in ('L_Thigh','R_Hand','LeftEye','Spine')],
+                         ['R_Thigh','L_Hand','RightEye','Spine'])
+        with self.assertRaisesRegex(ValueError,'four digits'):character_export.check_ids('c1010','c180')
+        with self.assertRaisesRegex(ValueError,'differs'):character_export.check_ids('c1010','c1010')
+    def test_the_me3_profile_names_the_mod_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            profile=character_export.me3_profile(Path(temp)/'dante','dante')
+            self.assertEqual((profile.name,'path = "dante"' in profile.read_text(encoding='utf-8')),('dante.me3',True))
+
+
+class Requests(unittest.TestCase):
+    def test_the_character_page_keeps_its_own_fields(self):
+        request=dict(mode='character-export',writer='python.exe',blender='blender.exe',inputBlend='other.blend',frameStart='3',
+                     characterBlend='dante.blend',characterFrameStart='',characterGameFolder='Sekiro',characterId='c1800',
+                     characterTemplate='',characterMap='m11_00_00_00',characterParts=['c1010_0000'],characterOutput='mods/dante',
+                     characterTextureSize='2048',force=True)
+        self.assertEqual(bridge_ui.character_job(request),
+                         dict(mode='character-export',writer='python.exe',blender='blender.exe',characterId='c1800',force=True,
+                              inputBlend='dante.blend',gameFolder='Sekiro',map='m11_00_00_00',parts=['c1010_0000'],
+                              outputFolder='mods/dante',textureSize='2048'))
+        listing=bridge_ui.character_job(dict(request,mode='character-parts'))
+        self.assertNotIn('parts',listing)
+
+
+if __name__=='__main__':
+    unittest.main()

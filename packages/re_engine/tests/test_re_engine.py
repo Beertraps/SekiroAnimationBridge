@@ -23,7 +23,10 @@ FILES = (MESH.format('pl0100_body', 'pl0100'), MESH.format('pl0100_01_head', 'pl
          'natives/x64/character/player/pl0100_dante/pl0100_body/pl0100.mdf2.10',
          'natives/x64/animation/player/pl0100/base/pl0100_base.motlist.85',
          'natives/x64/animation/enemy/em0000/em0000_base.motlist.85',
-         'natives/x64/character/enemy/em0000_00/em0000.mesh.1808282334')
+         'natives/x64/character/enemy/em0000_00/em0000.mesh.1808282334',
+         # A weapon of the players pl01xx, and the gallery scene that names it.
+         'natives/x64/character/weapon/wp01_000/wp01_000.mesh.1808282334',
+         'natives/x64/scene/menu/gallery/viewer/modelviewer/weapon/wp01_000_viewer_rebellion.scn.19')
 
 
 def fake_decoder(ctx, tool, *args, timeout=900):
@@ -131,6 +134,10 @@ class Source(Package):
         self.assertEqual((chosen['engine'], chosen['game'], chosen['preset'], chosen['motion']), ('re_engine', 'dmc5', 'player', 0))
         picked = [(p['id'], p['role']) for p in chosen['parts'] if p['selected']]
         self.assertEqual(picked, [('pl0100', 'Body'), ('pl0100_01_head', 'Head'), ('pl0100_03_hair', 'Hair')])
+        weapon = chosen['parts'][-1]
+        self.assertEqual((weapon['name'], weapon['role'], weapon['selected'], weapon['joint']),
+                         ('WP01_000 · Rebellion', 'Weapon', False, 'R_WeaponHand'))
+        self.assertEqual(chosen['parts'][0]['note'], 'without head')
 
         notes = []
         motion = self.module.decode(chosen, Path(self.temp.name) / 'motion.json', self.engine.context(self.cache), notes=notes)
@@ -204,6 +211,132 @@ class Materials(Package):
         self.assertEqual(self.characters.texture_paths('Character\\Player\\pl0100_ALBM.tex', self.profile),
                          ['natives/x64/streaming/character/player/pl0100_albm.tex.11', 'natives/x64/character/player/pl0100_albm.tex.11'])
         self.assertEqual(self.characters.role(MESH.format('pl0100_03_hair', 'pl0100_03_hair')), 'Hair')
+
+
+PLAYER = 'natives/x64/character/player/{}/{}.mesh.1808282334'
+
+
+class Parts(Package):
+    """The model parts a character offers: bodies with or without head, borrowed heads, and weapons."""
+
+    def parts(self, owner, paths):
+        work = Path(self.temp.name) / 'work'
+        api.write_json(work / 'index.json', dict(files=[dict(path=p, size=1) for p in paths]))
+        return self.module.model_parts(dict(work=str(work), game='dmc5', folder='game'), owner)
+
+    def test_a_headless_player_borrows_the_head_of_its_namesake(self):
+        parts = self.parts('pl0800', [
+            PLAYER.format('pl0800_vergilpl/pl0800_body', 'pl0800'),
+            PLAYER.format('pl0810_vergil_majinpl/pl0810_body', 'pl0810'),
+            PLAYER.format('pl0300_vergil/pl0300_body', 'pl0300'),
+            PLAYER.format('pl0300_vergil/pl0300_01_head', 'pl0300_01'),
+            PLAYER.format('pl0300_vergil/pl0300_11_head_event', 'pl0300_11'),
+            PLAYER.format('pl0300_vergil/pl0300_03_hair', 'pl0300_03'),
+            PLAYER.format('pl0330_vergil_dirt/pl0330_01_head', 'pl0330_01'),
+            # V's name is a prefix of vergilpl too, but one letter is not a namesake.
+            PLAYER.format('pl0200_v/pl0200_01_head', 'pl0200_01'),
+            'natives/x64/character/weapon/wp08_001/wp08_001.mesh.1808282334'])
+        rows = {p['id']: p for p in parts}
+        self.assertEqual([p['id'] for p in parts if p['selected']], ['pl0800', 'pl0300_01', 'pl0300_03'])
+        self.assertEqual((rows['pl0800']['note'], rows['pl0810']['note']), ('without head', 'with head'))
+        self.assertEqual(rows['pl0300_01']['note'], 'from Vergil (PL0300)')
+        # Only heads and hair are borrowed, and only from the namesake: Vergil's body and dirty Vergil stay out.
+        self.assertNotIn('pl0300', rows)
+        self.assertNotIn('pl0330_01', rows)
+        self.assertNotIn('pl0200_01', rows)
+        self.assertEqual((rows['wp08_001']['role'], rows['wp08_001']['name']), ('Weapon', 'WP08_001'))
+
+    def test_weapons_follow_the_player_number_and_offer_joints(self):
+        parts = self.parts('pl0100', [*FILES,
+                                      'natives/x64/character/weapon/wp01_001_00/wp01_001_00.mesh.1808282334',
+                                      'natives/x64/character/weapon/wp01_001_01/wp01_001_01.mesh.1808282334',
+                                      'natives/x64/character/weapon/wp00_001/wp00_001.mesh.1808282334',
+                                      'natives/x64/scene/menu/gallery/viewer/modelviewer/weapon/wp01_001_00_viewer_ebonyivory.scn.19',
+                                      'natives/x64/scene/menu/gallery/viewer/modelviewer/weapon/wp01_001_00_viewer_ebony.scn.19'])
+        weapons = [(p['id'], p['name'], p['joint']) for p in parts if p['role'] == 'Weapon']
+        # Nero's wp00_001 belongs to pl00xx; the shorter gallery name wins.
+        self.assertEqual(weapons, [('wp01_000', 'WP01_000 · Rebellion', 'R_WeaponHand'),
+                                   ('wp01_001_00', 'WP01_001_00 · Ebony', 'R_WeaponHand'),
+                                   ('wp01_001_01', 'WP01_001_01', 'L_WeaponHand')])
+        self.assertEqual([j['label'] for j in parts[-1]['joints']], ['Right hand', 'Left hand', 'Back', 'Waist'])
+        self.assertFalse(any(p['selected'] for p in parts if p['role'] == 'Weapon'))
+        joints = self.module.chosen_joints(dict(weaponAttachments=dict(wp01_000='WeaponConst', wp01_001_00='Tail')), parts)
+        self.assertEqual(list(joints.values()), ['WeaponConst', 'R_WeaponHand', 'L_WeaponHand'])
+
+    def test_enemy_weapons_carry_the_enemy_id(self):
+        parts = self.parts('em5900', ['natives/x64/character/enemy/em5900/em5900.mesh.1808282334',
+                                      'natives/x64/character/enemy/wpem5900_00/wpem5900_00.mesh.1808282334'])
+        self.assertEqual([(p['id'], p['role'], p.get('note')) for p in parts],
+                         [('em5900', 'Body', 'with head'), ('wpem5900_00', 'Weapon', None)])
+
+
+def mesh_file(stem, bones, head_rows):
+    """A decoder mesh JSON and its arrays: four vertices, of which head_rows follow the last bone."""
+    import numpy as np
+    arrays = dict(positions=np.arange(12, dtype=np.float32).reshape(4, 3), normals=np.ones((4, 3), np.float32),
+                  uv_0=np.zeros((4, 2), np.float32), bone_indices=np.zeros((4, 1), np.int32),
+                  bone_weights=np.ones((4, 1), np.float32), faces=np.asarray([[0, 1, 2], [0, 2, 3]], np.int32),
+                  face_materials=np.zeros(2, np.int32), vertex_materials=np.zeros(4, np.int32))
+    arrays['bone_indices'][list(head_rows)] = len(bones) - 1
+    entries, data = {}, b''
+    for name, values in arrays.items():
+        raw = values.tobytes()
+        entries[name] = dict(dtype='f4' if values.dtype == np.float32 else 'i4', shape=list(values.shape),
+                             offset=len(data), length=len(raw))
+        data += raw
+    bones = [dict(name=n, parent=i - 1, translation=[0, 0, 0], rotation=[0, 0, 0, 1], scale=[1, 1, 1])
+             for i, n in enumerate(bones)]
+    Path(f'{stem}.json').write_text(json.dumps(dict(bones=bones, arrays=entries, materials=['m000'])), encoding='utf-8')
+    Path(f'{stem}.bin').write_bytes(data)
+
+
+class Character(Package):
+    """prepare_character with weapons on joints, and the notice for a model without a head."""
+
+    def setUp(self):
+        super().setUp()
+        self.characters = importlib.import_module('bridge_packages.re_engine.characters')
+        skeletons = dict(pl0800=(['root', 'R_WeaponHand', 'Head'], ()), pl0300_01=(['root', 'Head'], (0, 1, 2)),
+                         wp08_001=(['root', '_000'], ()))
+        test = self
+
+        class Context:
+            def run(self, tool, command, local, stem):
+                test.assertEqual((tool, command), ('decoder', 'mesh'))
+                mesh_file(stem, *skeletons[Path(local).name.split('.')[0]])
+
+            def notify(self, *args, **kwargs):
+                pass
+
+        self.ctx = Context()
+        self.catalog = dict(folder=str(self.root), work=str(Path(self.temp.name) / 'work'), container='natives')
+
+    def prepare(self, *names, joints=None):
+        models = [(f'natives/x64/{n}.mesh.1808282334', f'{n}.mesh.1808282334') for n in names]
+        out = Path(tempfile.mkdtemp(dir=self.temp.name))
+        path = self.characters.prepare_character(self.catalog, models, out, games.profile('dmc5'), self.ctx,
+                                                 {f'natives/x64/{k}.mesh.1808282334': v for k, v in (joints or {}).items()})
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+        # The stand-in models have no material files; the notices that say so are not what these tests check.
+        manifest['warnings'] = [w for w in manifest['warnings'] if 'no material file' not in w]
+        return manifest
+
+    def test_a_weapon_hangs_on_its_joint_with_its_own_bone_names(self):
+        import numpy as np
+        manifest = self.prepare('pl0800', 'pl0300_01', 'wp08_001', joints=dict(wp08_001='R_WeaponHand'))
+        weapon = manifest['models'][-1]
+        self.assertEqual((weapon['role'], weapon['attachment']), ('Weapon', dict(kind='joint', bone='R_WeaponHand')))
+        with np.load(weapon['data']) as data:
+            self.assertEqual(list(data['bone_names']), ['wp08_001_root', 'wp08_001__000'])
+        self.assertEqual([m['attachment'] for m in manifest['models'][:2]], [None, None])
+        self.assertEqual(manifest['warnings'], [])
+
+    def test_a_missing_joint_and_a_missing_head_are_reported(self):
+        manifest = self.prepare('pl0800', 'wp08_001', joints=dict(wp08_001='WeaponConst'))
+        self.assertEqual([m['name'] for m in manifest['models']], ['pl0800'])
+        self.assertEqual(manifest['warnings'], [
+            'wp08_001: the character has no joint WeaponConst; the weapon is left out.',
+            'None of the chosen parts has a head. Tick a Head part, or a body marked "with head".'])
 
 
 if __name__ == '__main__':

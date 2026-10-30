@@ -325,6 +325,8 @@ def convert(request):
               report=dict(catalog=str(path), folder=catalog['folder'], character=entry['id'], clips=entry['count'],
                           ready=entry['ready'], warnings=entry.get('errors', [])))
         return str(path)
+    if mode.startswith('character-'):
+        return character(request)
     if mode not in ('import', 'export', 'inspect', 'verify', 'write'):
         raise ValueError('Choose import, export, inspect or verify.')
     event('validate', 'Checking files and output', 4)
@@ -575,6 +577,73 @@ def convert(request):
                           rootMotion=sampled.get('rootMotion', ''), addedTracks=len(sampled.get('addedTracks', [])),
                           warnings=sampled.get('warnings', []), parts=written, binder=binder))
         return str(output)
+
+
+CHARACTER_MODES = ('character-export', 'character-clone', 'character-verify', 'character-parts')
+
+
+def character(request):
+    """A new Sekiro character (docs/CHARACTER_EXPORT_PLAN.md): export a scene as one, write the template under the new
+    ID, check a written mod folder, or list the template's parts in a map."""
+    import character_export
+    mode = request['mode']
+    if mode not in CHARACTER_MODES:
+        raise ValueError('Choose character-export, character-clone, character-verify or character-parts.')
+    template = request.get('template') or 'c1010'
+    new_id = request.get('characterId', '')
+    game_root = request.get('gameFolder', '')
+    map_name = request.get('map', '')
+    parts = list(request.get('parts') or [])
+    if mode != 'character-verify' and not Path(game_root or '.').joinpath('chr').is_dir():
+        raise ValueError(f"Choose Sekiro's unpacked game folder, the one that holds chr and map.\n{game_root or 'No folder selected'}")
+    if mode == 'character-parts':
+        if not map_name:
+            raise ValueError('Name the map, such as m11_00_00_00.')
+        event('character', f'Reading the {template} parts of {map_name}', 30)
+        with tempfile.TemporaryDirectory(prefix='SekiroBridge-') as scratch:
+            found = character_export.list_parts(game_root, template, map_name, Path(scratch))
+        event('done', f'{len(found)} part(s) of {map_name} use {template}', 100, output='', report=dict(parts=found))
+        return ''
+    if not request.get('outputFolder'):
+        raise ValueError('Choose the mod folder to write.')
+    output = Path(request['outputFolder']).resolve()
+    from dcx_codec import protect_output
+    protect_output(output / 'chr')
+    if mode == 'character-verify':
+        event('character', f'Reading {output.name} back', 30)
+        report = character_export.verify(output, new_id, game_root, template if game_root else '')
+        passed = sum(c['passed'] for c in report['checks'])
+        event('done', f"{passed} of {len(report['checks'])} checks pass in {output.name}", 100, output=str(output), report=report)
+        return str(output)
+    if any(output.iterdir() if output.is_dir() else ()) and not request.get('force'):
+        raise ValueError(f'The mod folder is not empty. Choose a new folder or enable Replace existing output.\n{output}')
+    if parts and not map_name:
+        raise ValueError('Name the map whose parts become the new character.')
+    work = output.with_name(output.name + '.work')
+    if mode == 'character-clone':
+        event('character', f'Writing {template} as {new_id}', 30)
+        report = character_export.clone(game_root, template, new_id, output, map_name, parts, work)
+    else:
+        blend = existing(request.get('inputBlend'), 'Blender scene')
+        blender = existing(request.get('blender'), 'Blender executable')
+        manifest = work / 'scene'
+        if manifest.exists():
+            shutil.rmtree(manifest)
+        event('blender', "Writing the scene's rig, meshes, materials and action", 10)
+        frames = [arg for key, flag in (('frameStart', '--frame-start'), ('frameEnd', '--frame-end'))
+                  if request.get(key) is not None for arg in (flag, request[key])]
+        run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export-character',
+             '--output-dir', manifest, *(['--action', request['action']] if request.get('action') else []), *frames])
+        event('character', 'Writing the model, textures, skeleton, behavior and clip', 40)
+        report = character_export.export(manifest / 'manifest.json', game_root, template, new_id, output, map_name, parts, work,
+                                         pairs=request.get('pairs') or None, texture_size=int(request.get('textureSize') or 2048))
+    for warning in report.get('warnings', []):
+        print('NOTICE: ' + warning, flush=True)
+    checks = report.get('verify', {}).get('checks', [])
+    failed = [c['name'] for c in checks if not c['passed']]
+    event('done', f'{new_id} written to {output.name}' + (f"; check {', '.join(failed)}" if failed else
+          f'; {len(checks)} checks pass'), 100, output=str(output), report=report)
+    return str(output)
 
 
 def atomic_copy(source, target):

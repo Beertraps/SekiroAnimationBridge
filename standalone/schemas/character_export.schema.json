@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sekiro-animation-bridge/character_export.schema.json",
+  "title": "Character export manifest",
+  "description": "A Blender scene's rig, skinned meshes, materials and action, for a new game character. See docs/INTERCHANGE.md.",
+  "type": "object",
+  "required": ["format", "version", "rig", "space", "unit", "bones", "meshes", "materials", "warnings", "motion"],
+  "properties": {
+    "format": {"const": "sekiro-animation-bridge-character-export"},
+    "version": {"enum": [1]},
+    "rig": {"type": "string"},
+    "game": {"type": "string"},
+    "space": {"const": "blender"},
+    "unit": {"const": "meter"},
+    "bones": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/bone"}},
+    "meshes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/mesh"}},
+    "materials": {"type": "array", "items": {"$ref": "#/$defs/material"}},
+    "images": {"type": "object"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "motion": {"$ref": "#/$defs/motion"}
+  },
+  "$defs": {
+    "matrix": {"type": "array", "minItems": 16, "maxItems": 16, "items": {"type": "number"}},
+    "bone": {
+      "type": "object",
+      "required": ["name", "parent", "rest"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "parent": {"type": "integer", "minimum": -1},
+        "rest": {"$ref": "#/$defs/matrix"}
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "required": ["name", "data"],
+      "properties": {
+        "name": {"type": "string"},
+        "data": {"type": "string", "minLength": 1}
+      }
+    },
+    "role": {
+      "type": "object",
+      "required": ["image", "channel", "path"],
+      "properties": {
+        "image": {"type": "string"},
+        "channel": {"enum": ["RGB", "R", "G", "B", "A"]},
+        "path": {"type": "string", "minLength": 1},
+        "convention": {"enum": ["directx", "opengl"]}
+      }
+    },
+    "material": {
+      "type": "object",
+      "required": ["name", "roles"],
+      "properties": {
+        "name": {"type": "string"},
+        "roles": {
+          "type": "object",
+          "properties": {
+            "albedo": {"$ref": "#/$defs/role"},
+            "opacity": {"$ref": "#/$defs/role"},
+            "normal": {"$ref": "#/$defs/role"},
+            "metalness": {"$ref": "#/$defs/role"},
+            "roughness": {"$ref": "#/$defs/role"},
+            "emissive": {"$ref": "#/$defs/role"}
+          }
+        },
+        "alpha": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "color": {"anyOf": [{"type": "null"}, {"type": "array", "minItems": 3, "maxItems": 4, "items": {"type": "number"}}]},
+        "doubleSided": {"type": "boolean"},
+        "cutOut": {"type": "boolean"}
+      }
+    },
+    "motion": {
+      "type": "object",
+      "required": ["action", "frameStart", "frameEnd", "frameRate", "frames", "data"],
+      "properties": {
+        "action": {"type": "string"},
+        "frameStart": {"type": "integer"},
+        "frameEnd": {"type": "integer"},
+        "frameRate": {"type": "number", "exclusiveMinimum": 0},
+        "frames": {"type": "integer", "minimum": 1},
+        "data": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

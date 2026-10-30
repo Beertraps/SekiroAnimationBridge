@@ -295,6 +295,56 @@ The scene holds both rigs, each with its own action, root-motion object and embe
 
 When the file opens in Blender, the add-on fills in **Source** with the donor and **Target** with the target, so you continue with **Match bones automatically**. The same animation cannot be both the donor and the target. **Remove** in the **Retarget donor** block goes back to importing one character.
 
+## New Sekiro character
+
+The **Character** page writes a character from another game, or any rigged character in Blender, into Sekiro under a new character ID, such as `c1800`. It copies a Sekiro character, the template, for everything the bridge cannot make (behavior, script, TAE, parameters) and writes the new model, textures, skeleton and idle clip. The character can take the place of the template's enemies in one map. The plan and its limits are in [CHARACTER_EXPORT_PLAN.md](CHARACTER_EXPORT_PLAN.md). Nothing written this way has been tested in the game yet.
+
+This first version makes a character that stands and plays one animation. It does not fight.
+
+What you need: Sekiro unpacked with UXM (a game folder with `chr` and `map`), [me3](https://github.com/garyttierney/me3) to load the mod, and the bridge's decoder built, which builds the character writer too (`tools\SekiroMotionDecoder\build_decoder.cmd` in a source checkout; release ZIPs include it).
+
+### Step by step: Dante as c1800
+
+1. Import the character. On the **Import** page, add the Devil May Cry 5 folder as a source ([docs/games/dmc5.md](games/dmc5.md)), choose Dante (`pl0100`) and his idle `pl0100_Idle_Normal`, keep **Include the character model** on, and click **Create Blender scene**. To give him his weapons, tick them under the model parts first, such as `WP01_000 · Rebellion` on **Back** ([Model parts](games/dmc5.md#model-parts)); the new character holds them in its model.
+2. Check the scene in Blender, if you like. The character must have one armature, its meshes must follow it with an Armature modifier, and the action you want must be on the armature. Hidden meshes (camera icon off in the Outliner) are left out. Modifiers other than the Armature are not applied: apply them first (**Object > Apply**) if the game should see their result. Save the file.
+3. Open the **Character** page. Under **Character scene**, click **Use the last imported scene**, or **Browse** to the `.blend`. Leave **Action** empty to use the armature's active action.
+4. Under **Sekiro mod**, choose the **Sekiro game folder**. Leave **Template** empty for `c1010`, the Ashina soldier. Type the **New character ID**: `c1800`.
+5. Type the **Map**, `m11_00_00_00` (Ashina Outskirts), and click **List parts**. The list shows the template's enemies in that map with their entity and NPC parameter IDs. Tick `c1010_0000`.
+6. Choose an empty **Mod folder**, such as `D:\SekiroMods\dante`.
+7. Click **Write new character**. Blender reads the scene, then the bridge writes the files. Activity shows each step and the notices. The result line names the meshes, bones, textures and how many checks pass.
+8. Click **Show me3 profile**: it shows `dante.me3` beside the mod folder. Start Sekiro with me3 and this profile, as me3's documentation describes. Go to the place of `c1010_0000` in Ashina Outskirts.
+
+**Write template only** writes the template itself under the new ID, with the same map change. Try it first if Dante does not load: when the copied soldier loads, the problem is in the new model, textures or skeleton, not in the renames or the map. **Check mod folder** runs the checks again on a written folder.
+
+### What the bridge writes
+
+Into the mod folder, with the game's paths: `chr\c1800.chrbnd.dcx` (the model), `chr\c1800.texbnd.dcx` (the textures), `chr\c1800.anibnd.dcx` (the template's TAE, the new skeleton, and the idle in every clip slot), `chr\c1800.behbnd.dcx` (the template's behavior with the new bone numbers), `action\script\c1800.hks`, and with parts ticked `map\mapstudio\m11_00_00_00.msb.dcx`. Beside the folder: `dante.me3`, and `dante.work` with the intermediate files. Another mod that changes the same map file wins over this one or loses to it.
+
+### How the character fits Sekiro
+
+- **Bones.** The character keeps its own bones. The bridge pairs the template's body bones with the scene's by name, side and position, as the Retarget Assistant does, and paired bones take the template's names, such as `Pelvis`, `L_Thigh` and `Head`. The template's behavior then points at the new bones: foot placement, head turning and the per-bone weights. The export stops when the pelvis, a thigh, a calf or a foot has no partner; name it with `--pair` on the command line, such as `--pair L_Thigh=thigh_l`. For Dante, 66 bones pair and none needs help.
+- **256 bones.** A Sekiro model skins with 256 bones at most. When a character has more, the lightest small bones, such as face bones, give their weights to their parents, and a notice lists them. Dante's 150 face bones are merged so.
+- **Materials.** Each material gets an albedo (`_a`), normal (`_n`) and, where the source has one, metalness (`_m`) texture. A transparent overlay without an image, such as Dante's eye wetness, is left out, because Sekiro would draw it opaque. A material without a color image gets a small one in its color. Textures are at most 2048 pixels (**Texture size**).
+- **Animation.** The action becomes clip `a000_000000` and fills every clip slot of the template, so the character idles in every state. The feet's IK target bones follow the feet.
+
+### Command line
+
+```bat
+standalone\bridge_cli.cmd character-parts "D:\Games\Sekiro" --map m11_00_00_00
+standalone\bridge_cli.cmd character-export "D:\SekiroWork\dante.blend" --game-folder "D:\Games\Sekiro" --id c1800 --output "D:\SekiroMods\dante" --map m11_00_00_00 --part c1010_0000
+standalone\bridge_cli.cmd character-clone "D:\Games\Sekiro" --id c1800 --output "D:\SekiroMods\c1800_clone" --map m11_00_00_00 --part c1010_0000
+standalone\bridge_cli.cmd character-verify "D:\SekiroMods\dante" --id c1800 --game-folder "D:\Games\Sekiro"
+```
+
+| Option | Purpose |
+| --- | --- |
+| `--template` | The Sekiro character to copy; `c1010` by default |
+| `--map`, `--part` | The map, and a part name from `character-parts`; repeat `--part` for more |
+| `--action`, `--frame-start`, `--frame-end` | Another action than the active one, and its frames |
+| `--pair TEMPLATE=SOURCE` | A template bone's partner when the matcher misses it; `TEMPLATE=` removes a pair |
+| `--texture-size` | The longest side of a written texture; 2048 by default |
+| `--force` | Write into a mod folder that is not empty |
+
 ## CLI
 
 From the extracted tool folder:
@@ -404,6 +454,10 @@ standalone\bridge_cli.cmd export "D:\SekiroWork\c5060.blend" --output "D:\Sekiro
 | `inspect SCENE` | The scene's actions and frame ranges |
 | `verify SCENE` | Checks of the scene, without saving it: see below |
 | `export SCENE --output HKX` | The HKX, with the export options of the PowerShell CLI in lower case, such as `--frame-range` and `--binder` |
+| `character-parts GAME --map MAP` | The template's enemies in a map, for `--part` |
+| `character-export SCENE --game-folder GAME --id ID --output FOLDER` | A new Sekiro character in a mod folder, with the report and its checks: see [New Sekiro character](#new-sekiro-character) |
+| `character-clone GAME --id ID --output FOLDER` | The template under the new ID, as a first test in the game |
+| `character-verify FOLDER --id ID` | The checks of a written character |
 | `run REQUEST` | Any request in the JSON that the UI and the PowerShell CLI send to `bridge_runtime.py` |
 
 A clip is named by its ID from `clips`, or by its name, such as `a000_003000`, with `--character` to say whose it is: several characters can have a clip of the same name.
@@ -426,6 +480,6 @@ UI settings are stored in `%LOCALAPPDATA%\SekiroAnimationBridge\ui-settings.json
 
 The bridge also records its folder in `%LOCALAPPDATA%\SekiroAnimationBridge\bridge-location.json`, so the retarget add-on can find it.
 
-To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python-exit-code 1 --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_carried.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py`, `blender_mirror.py`, `blender_preview_lighting.py` and `blender_verify_scene.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
+To run the checks, from the tool folder: `%LOCALAPPDATA%\SekiroAnimationBridge\writer-env\Scripts\python.exe -m unittest discover -s standalone/tests -p "test_*.py"` for the unit tests, and `blender --background --factory-startup --python-exit-code 1 --python standalone/tests/<script>.py` for `blender_retarget.py`, `blender_export_options.py`, `blender_synthetic_check.py`, `blender_control_rig.py`, `blender_fixes.py`, `blender_weapon_clearance.py`, `blender_weapon_hands.py`, `blender_carried.py`, `blender_weapon_grips.py`, `blender_two_characters.py`, `blender_arm_gap.py`, `blender_foot_targets.py`, `blender_mirror.py`, `blender_preview_lighting.py`, `blender_verify_scene.py` and `blender_character_export.py`. `blender_weapons.py`, `blender_part_animations.py` and `blender_weapon_locations.py` also need an output folder after `--`. All fixtures are owned synthetic rigs; no game files are needed.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on each version. The release ZIP contains no game assets or local settings; besides the source, it includes the prebuilt decoder and uv, listed in [CREDITS.md](../CREDITS.md).

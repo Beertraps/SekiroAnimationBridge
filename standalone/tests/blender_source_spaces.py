@@ -203,9 +203,62 @@ def check_character(rig, motion, temp):
     assert eye_shader.inputs['Alpha'].default_value == 0.0 and not eye_shader.inputs['Alpha'].links
 
 
+def check_weapon(rig, temp):
+    """A package weapon on a joint: its bones hang below the joint, its mesh starts there and follows it."""
+    space = RE_ENGINE
+    names = ['wp01_000_root', 'wp01_000_blade']
+    # A blade along the weapon's +Z, as DMC5 models Rebellion; its root is at the weapon's origin.
+    positions = np.asarray([[0, 0, 0], [.05, 0, 0], [0, 0, .5]], np.float32)
+    data = Path(temp) / '01_wp01_000.npz'
+    np.savez(data, positions=positions, normals=np.asarray([[0, 1, 0]] * 3, np.float32), uvs=np.zeros((3, 2), np.float32),
+             uv_0=np.zeros((3, 2), np.float32), bone_indices=np.asarray([[0], [0], [1]], np.int32),
+             bone_weights=np.ones((3, 1), np.float32), faces=np.asarray([[0, 1, 2]], np.int32),
+             face_materials=np.asarray([0], np.int32), vertex_materials=np.zeros(3, np.int32),
+             bone_names=np.asarray(names), bone_parents=np.asarray([-1, 0], np.int32),
+             bone_translations=np.asarray([[0, 0, 0], [0, 0, .25]], np.float32),
+             bone_quaternions=np.asarray([[0, 0, 0, 1], [0, 0, 0, 1]], np.float32),
+             bone_scales=np.ones((2, 3), np.float32), material_names=np.asarray(['m000']))
+    steel = dict(name='m000', mtd='Weapon.mmtr', family='Devil May Cry 5', albedo=None, normal=None, emissive=None,
+                 samplers=[], alpha=False, color=[.7, .7, .7])
+    weapon = dict(name='wp01_000', source='natives/x64/character/weapon/wp01_000/wp01_000.mesh.1808282334', data=str(data),
+                  materials=[steel], stats=dict(vertices=3, triangles=1), role='Weapon',
+                  attachment=dict(kind='joint', bone='Spine'))
+    lost = dict(weapon, name='wp01_001', attachment=dict(kind='joint', bone='Tail'))
+    manifest = dict(version=5, game='dmc5', boneRotation='quaternion', warnings=[], material_library='', texture_count=0,
+                    models=[weapon, lost], **space.to_json())
+    path = Path(temp) / 'weapon.json'
+    path.write_text(json.dumps(manifest), encoding='utf-8')
+    bpy.context.scene.frame_set(1)
+    objects = import_character(path, rig)
+    assert [obj.name for obj in objects] == ['WP01_000 | Weapon'], [obj.name for obj in objects]
+    obj = objects[0]
+    assert obj['bridge_joint'] == 'Spine' and obj.parent == rig and not obj.get('sekiro_weapon_preview')
+    assert not any('Weapon rig' in o.name for o in bpy.data.objects), 'A joint weapon received its own rig'
+    spine = rig.data.bones['Spine'].matrix_local
+    to_blender, to_source = Matrix(space.matrix()), Matrix(space.inverse_matrix())
+    root, blade = rig.data.bones['wp01_000_root'], rig.data.bones['wp01_000_blade']
+    assert root.parent.name == 'Spine' and blade.parent == root and root.get('sekiro_model_only')
+    assert matrix_error(root.matrix_local, spine) < 1e-5
+    expected = spine @ to_blender @ Matrix.Translation((0, 0, .25)) @ to_source
+    assert matrix_error(blade.matrix_local, expected) < 1e-5, (blade.matrix_local, expected)
+    for vertex, source in zip(obj.data.vertices, positions):
+        assert close(vertex.co, spine @ Vector(space.point(source)), 1e-5), (vertex.co, source)
+    # The weapon moves with the joint: at the last frame each vertex is where the spine's pose carries it.
+    rest = [spine.inverted() @ v.co for v in obj.data.vertices]
+    bpy.context.scene.frame_set(COUNT)
+    bpy.context.view_layer.update()
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
+    pose = rig.matrix_world @ rig.pose.bones['Spine'].matrix
+    for vertex, local in zip(evaluated.vertices, rest):
+        assert close(obj.matrix_world @ vertex.co, pose @ local, 1e-4), (vertex.co, pose @ local)
+    obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh_clear()
+    bpy.context.scene.frame_set(1)
+
+
 with tempfile.TemporaryDirectory() as temp:
     check_motion(Space(RE_ENGINE_BASIS, .01), temp)
     rig, motion = check_motion(RE_ENGINE, temp)
     check_character(rig, motion, temp)
+    check_weapon(rig, temp)
 print('PASS: FromSoftware conversion unchanged; RE Engine and scaled motions import, export and round-trip in their space; '
-      'manifest 5 meshes, model bones and materials follow it', flush=True)
+      'manifest 5 meshes, model bones and materials follow it; a weapon on a joint hangs below it and follows it', flush=True)

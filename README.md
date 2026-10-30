@@ -25,6 +25,7 @@ flowchart LR
 - **Edit in plain Blender.** The animation is a normal action on a normal armature. Constraints, drivers and NLA strips are baked on export.
 - **Export to the game's own format.** Writes the HKX version the game uses, interleaved (lossless) or spline-compressed, with options for frame range, frame rate, tracks and root motion, and reads the file back to check it.
 - **Retarget between characters.** The optional Blender add-on moves an animation from one skeleton to another, also when bone names differ, and exports it directly from Blender. One import can bring both characters into the scene. The bake places held weapons in the right hand, keeps hands out of the body and keeps arms as close to it as the source's. The bake and the export keep the game's foot targets on the feet.
+- **Make new Sekiro characters.** Write a rigged character from Blender, such as one imported from Devil May Cry 5, into Sekiro under a new character ID, with its own model, textures, skeleton and idle, in place of a vanilla enemy. The first version stands and idles and is not yet tested in the game.
 - **Animate with controls.** The same add-on gives an imported character a control rig: FK controls along the limbs and IK arms and legs with an IK/FK switch, with the clip baked onto them.
 - **Stay local.** A small UI in an app window, served from your own computer, plus a command line for scripting. Your files never leave your PC.
 

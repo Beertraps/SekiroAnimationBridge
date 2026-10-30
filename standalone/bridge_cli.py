@@ -16,6 +16,10 @@ them. The exit code is 0 when the command ran and 1 otherwise; then the result i
   inspect SCENE              the scene's rig, actions and frame ranges
   verify SCENE               numbers to check an import by, with pass or fail checks; --render draws it
   export SCENE               write the edited animation as HKX
+  character-parts GAME       the template's enemy parts in a map, which a new character can replace
+  character-export SCENE     write the scene's rig, meshes and action as a new Sekiro character in a mod folder
+  character-clone GAME       write the template itself under the new ID, to test the files in the game
+  character-verify FOLDER    read a written character back and check that its files fit together
   run REQUEST                any request as the UI and sekiro_animation_cli.ps1 send it to bridge_runtime.py
 
 Blender, the decoder and the Oodle DLL default to those saved in the UI; --blender, --decoder and --oodle choose
@@ -236,7 +240,9 @@ def clip_request(file, catalog, entry, clip, preset, models, rig_only, file_list
     """The input options of a clip from a catalog, as the UI sends them."""
     return dict(inputMethod='folder', game='auto', assetFolder=catalog['folder'], assetCatalog=str(file), assetClip=clip,
                 assetCharacter=entry['id'] if entry else '', sourceLayout=catalog.get('layout', 'folder'),
-                sourceFileList=path(file_list), preset=preset, models=[path(m) for m in models or []], includeCharacter=not rig_only)
+                sourceFileList=path(file_list), preset=preset, includeCharacter=not rig_only,
+                # A game package names its parts by their path in the game, such as natives/x64/character/...
+                models=[path(m) if Path(m).expanduser().exists() else m for m in models or []])
 
 
 def command_import(args, settings, saved):
@@ -279,6 +285,50 @@ def command_export(args, settings, saved):
             request[key] = value
     done = run_job(request)
     return dict(hkx=done['output'], report=done['report'], notices=done['notices'])
+
+
+def pairs(values):
+    """--pair TEMPLATE=SOURCE options as {template bone: source bone}; an empty source unpairs the template bone."""
+    found = {}
+    for value in values:
+        if '=' not in value:
+            raise Failure(f'Write a pair as TEMPLATE=SOURCE, such as Neck=neck_0: {value}')
+        target, source = value.split('=', 1)
+        found[target.strip()] = source.strip()
+    return found
+
+
+def character_request(args, settings, mode, **extra):
+    request = dict(settings, mode=mode, template=args.template, characterId=getattr(args, 'id', ''),
+                   gameFolder=path(getattr(args, 'game_folder', '')), outputFolder=path(getattr(args, 'output', '')), **extra)
+    if getattr(args, 'map', ''):
+        request.update(map=args.map, parts=getattr(args, 'part', []))
+    done = run_job(request)
+    return dict(output=done['output'], report=done['report'], notices=done['notices'])
+
+
+def command_character_parts(args, settings, saved):
+    args.game_folder = args.game
+    return character_request(args, settings, 'character-parts')
+
+
+def command_character_export(args, settings, saved):
+    extra = dict(inputBlend=path(args.scene), action=args.action, pairs=pairs(args.pair), textureSize=args.texture_size,
+                 force=args.force)
+    for key, value in (('frameStart', args.frame_start), ('frameEnd', args.frame_end)):
+        if value is not None:
+            extra[key] = value
+    return character_request(args, settings, 'character-export', **extra)
+
+
+def command_character_clone(args, settings, saved):
+    args.game_folder = args.game
+    return character_request(args, settings, 'character-clone', force=args.force)
+
+
+def command_character_verify(args, settings, saved):
+    args.output = args.folder
+    return character_request(args, settings, 'character-verify')
 
 
 def command_run(args, settings, saved):
@@ -339,11 +389,11 @@ def parser():
     scene.add_argument('--character', default='')
     scene.add_argument('--game', default='auto')
     scene.add_argument('--preset', choices=('auto', 'npc', 'player', 'wolf', 'tutorial', 'mortal'), default='auto')
-    scene.add_argument('--models', nargs='+', default=[], help="model files instead of the selection's chosen parts")
+    scene.add_argument('--models', nargs='+', default=[], help="model files, or a game package's part paths as select lists them, instead of the selection's chosen parts")
     scene.add_argument('--mask', action='append', default=[], help='MODEL=1,2: keep these numbered mesh groups of a model')
     scene.add_argument('--rig-only', action='store_true', help='the rig without models')
     scene.add_argument('--no-part-animations', action='store_true', help="leave Sekiro's weapon part clips out")
-    scene.add_argument('--weapon-attachments', default='', help='weapon placements as JSON or a JSON file, as the CLI takes them')
+    scene.add_argument('--weapon-attachments', default='', help='weapon placements as JSON or a JSON file, as the UI sends them: {"wp01_000": "WeaponConst"} hangs a package weapon on a joint')
     scene.add_argument('--file-list', default='')
     scene.add_argument('--donor-clip', default='', help='a second clip for the retarget add-on, placed beside the target')
     scene.add_argument('--donor-catalog', default='', help="the donor's catalog; the target's by default")
@@ -382,6 +432,42 @@ def parser():
     export.add_argument('--binder', default='', help='also add the HKX to this .anibnd.dcx; a copy beside the HKX for a game file')
     export.add_argument('--binder-member', default='', help="the member name in the binder; the clip's own by default")
     export.add_argument('--force', action='store_true')
+    def character(name, help, first, first_help):
+        found = command(name, help)
+        found.add_argument(first, help=first_help)
+        found.add_argument('--template', default='c1010', help='the vanilla character the new one copies its behavior from')
+        return found
+
+    def placement(found):
+        found.add_argument('--map', default='', help='a map whose template parts become the new character, such as m11_00_00_00')
+        found.add_argument('--part', action='append', default=[], help='a part name from character-parts, such as c1010_0000; repeat for more')
+
+    parts = character('character-parts', "the template's enemy parts in a map, which a new character can replace",
+                      'game', "Sekiro's unpacked game folder")
+    parts.add_argument('--map', required=True, help='the map, such as m11_00_00_00')
+    new = character('character-export', "write the scene's rig, meshes and action as a new Sekiro character in a mod folder",
+                    'scene', 'the .blend with the character, its rig and an action')
+    new.add_argument('--game-folder', required=True, help="Sekiro's unpacked game folder, which holds the template")
+    new.add_argument('--id', required=True, help='the new character ID, such as c1800; a c and four digits')
+    new.add_argument('--output', required=True, help='the mod folder to write; a .work folder goes beside it')
+    placement(new)
+    new.add_argument('--action', default='', help="the action to write as the clip; the rig's active one by default")
+    new.add_argument('--frame-start', type=float)
+    new.add_argument('--frame-end', type=float)
+    new.add_argument('--pair', action='append', default=[], metavar='TEMPLATE=SOURCE',
+                     help="name a template bone's partner when the matcher misses it; repeat for more")
+    new.add_argument('--texture-size', type=int, default=2048, help='the longest side of a written texture (default 2048)')
+    new.add_argument('--force', action='store_true', help='write into a mod folder that is not empty')
+    clone = character('character-clone', 'write the template itself under the new ID, to test the files in the game',
+                      'game', "Sekiro's unpacked game folder")
+    clone.add_argument('--id', required=True)
+    clone.add_argument('--output', required=True)
+    placement(clone)
+    clone.add_argument('--force', action='store_true')
+    check = character('character-verify', 'read a written character back and check that its files fit together',
+                      'folder', 'the mod folder that character-export or character-clone wrote')
+    check.add_argument('--id', required=True)
+    check.add_argument('--game-folder', default='', help='the game folder, to compare the clip count with the template')
     run = command('run', 'any request as the UI and sekiro_animation_cli.ps1 send it to bridge_runtime.py')
     run.add_argument('request', help='the request as JSON or a JSON file')
     return main
@@ -389,7 +475,9 @@ def parser():
 
 COMMANDS = dict(env=command_env, games=command_games, detect=command_detect, scan=command_scan, clips=command_clips,
                 select=command_select, masks=command_masks, inspect=command_inspect, verify=command_verify,
-                export=command_export, run=command_run, **{'import': command_import})
+                export=command_export, run=command_run, **{'import': command_import,
+                'character-parts': command_character_parts, 'character-export': command_character_export,
+                'character-clone': command_character_clone, 'character-verify': command_character_verify})
 
 
 def main(argv=None):

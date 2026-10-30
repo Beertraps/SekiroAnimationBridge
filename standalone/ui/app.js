@@ -28,6 +28,14 @@ const exportable=game=>!!gameProfiles[game]?.capabilities?.export||(!Object.keys
 const layoutNames={auto:'Detect',game:'Game folder',folder:'Collected folder',custom:'Custom layout'};
 const kinds=[['animations','Animations','ANIBND'],['characters','Character models','CHRBND · FLVER'],['parts','Parts','PARTSBND'],['textures','Textures','TEXBND · TPF'],['materials','Material library','MTDBND · MATBINBND']];
 const help={
+ characterBlend:['Character scene','A .blend that holds the new character: one rig, the meshes it moves, their materials and one action. Import the other game’s character with the Import page first and use that scene, or browse to another scene made by Animation Bridge.\n\nThe rig keeps its own bones. Bones with the template’s names, such as Spine, Neck, L_Thigh or R_Hand, are paired with the template’s bones by name and position, so they take over its animations, foot placement and head turning.'],
+ characterAction:['Action','The action written as the new character’s idle clip, a000_000000. Empty: the rig’s active action in the saved scene.'],
+ characterTextureSize:['Texture size','The longest side of each written texture. Larger images are scaled down; smaller ones keep their size. 2048 pixels matches most Sekiro characters.'],
+ characterGameFolder:['Sekiro game folder','The Sekiro folder that holds chr and map, unpacked with UXM or Mod Engine. The template’s files are read from it and never changed. The bridge refuses to write into it.'],
+ characterTemplate:['Template','The Sekiro character whose files the new one starts from: its behavior, animations, parameters and map placements. Empty: c1010, the Ashina soldier. A humanoid template suits a humanoid character.'],
+ characterId:['New character ID','The ID under which the new character is written, such as c1800. Choose an ID that Sekiro does not use, so the template stays as it is in every other place.'],
+ characterMap:['Map','The map whose enemies become the new character, such as m11_00_00_00 for Ashina Outskirts. List parts shows the enemies in that map that use the template; tick the ones to replace. Empty, or no part ticked: the character is written but not placed.'],
+ characterOutput:['Mod folder','An empty folder for the mod. It gets chr\\<ID>.chrbnd.dcx and the other character files, and with parts chosen, map\\mapstudio\\<map>.msb.dcx. A .me3 profile of the same name is written beside it; open it with me3 to start the game with the mod.'],
  source:['Sources','A source is a folder the bridge reads game files from: an unpacked game, a mod folder in the game’s own structure, or a folder of archives you collected. Add as many as you like and switch between them; each one remembers its layout, game and your last selection.\n\nSource files are only read. Extracted animation inputs are cached in the bridge’s work folder, and scenes are saved where you choose.'],
  sourceGame:['Source game','Auto detect identifies the game by its executable (sekiro.exe, DarkSoulsIII.exe, eldenring.exe, DarkSoulsRemastered.exe or DarkSouls.exe), by Elden Ring’s MATBIN library, or by the authoring paths and Havok version inside one small animation archive. Choose the game yourself for a mod folder without an executable.\n\nA game folder or custom layout holds one game. A collected folder can mix games and keeps each game’s characters apart.'],
  layout:['Layout','Detect looks for the game’s own structure: a chr folder with ANIBND archives in the chosen folder, in its Game or DATA subfolder, or above a chosen chr, parts, mtd or material folder. Otherwise it reads the folder as a collected folder.\n\nGame folder reads chr for animations and character models, parts for outfits and weapons, chr and parts for textures, and mtd or material for the material library. Characters are listed by archive name at once; a character’s archives are read when you choose it, and again when they change.\n\nCollected folder reads every archive below the folder. Files that share a folder belong together.\n\nCustom layout names the folders for each kind yourself, relative to the source or absolute, for example animations from a mod and models from the unpacked game. When folders of one kind hold a file of the same name, the first folder wins, the way a mod overrides the game: add the mod’s folders first.'],
@@ -81,7 +89,7 @@ function applyGames(list){
  $('src-game').innerHTML=first('src-game')+options(list);
  help.sourceGame[1]='Auto detect identifies the game by what the folder holds:\n'+list.map(g=>`• ${g.name}: ${g.hint}`).join('\n')+'\n\nChoose the game yourself for a mod folder without an executable. A game folder or custom layout holds one game. A collected folder can mix FromSoftware games and keeps each game’s characters apart.'+(list.some(g=>!g.verified)?'\n\nGames marked untested are supported by their engine but were not yet checked with the game’s own files.':'');
 }
-const filters={'src-list':'File list (*.list)|*.list|All files (*.*)|*.*',package:'Game package (*.zip)|*.zip',animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
+const filters={'src-list':'File list (*.list)|*.list|All files (*.*)|*.*',package:'Game package (*.zip)|*.zip',animation:'Havok animation (*.hkx)|*.hkx|All files (*.*)|*.*',skeleton:'Havok skeleton (*.hkx)|*.hkx|All files (*.*)|*.*',compendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',skeletonCompendium:'Havok compendium (*.compendium)|*.compendium|All files (*.*)|*.*',blender:'Blender executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe',writer:'Python executable (python.exe)|python.exe|Executables (*.exe)|*.exe',decoder:'Animation decoder (*.exe)|*.exe',oodle:'Oodle library (oo2core_6_win64.dll)|oo2core_6_win64.dll',materialBinder:'Material library (*.mtdbnd*;*.matbinbnd*;*.mtd;*.matbin)|*.mtdbnd;*.mtdbnd.dcx;*.matbinbnd;*.matbinbnd.dcx;*.mtd;*.matbin|All files (*.*)|*.*',referenceModel:'Model files (*.chrbnd*;*.flver*)|*.chrbnd;*.chrbnd.dcx;*.flver;*.flver.dcx|All files (*.*)|*.*',outputBlend:'Blender scene (*.blend)|*.blend',inputBlend:'Blender scene (*.blend)|*.blend',characterBlend:'Blender scene (*.blend)|*.blend',outputHKX:'Havok animation (*.hkx)|*.hkx',binder:'Animation binder (*.anibnd.dcx;*.anibnd)|*.anibnd.dcx;*.anibnd|All files (*.*)|*.*',models:'Model files (*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx)|*.flver;*.flver.dcx;*.partsbnd;*.partsbnd.dcx;*.chrbnd.dcx|All files (*.*)|*.*'};
 
 async function api(path,data,signal){
  const response=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'X-Bridge-Token':token,...(data===undefined?{}:{'Content-Type':'application/json'})},body:data===undefined?undefined:JSON.stringify(data),signal});
@@ -91,7 +99,7 @@ async function api(path,data,signal){
 function layer(el){const host=[...document.querySelectorAll('dialog[open]')].pop()||document.body;if(el.parentElement!==host)host.append(el);}
 function toast(message,error=false){clearTimeout(toastTimer);layer($('toast'));$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?13000:4200);}
 
-const pageTitles={import:['FROM GAME TO BLENDER','Import animation'],export:['FROM BLENDER TO GAME','Export animation'],sources:['WHERE FILES COME FROM','Sources'],settings:['THIS COMPUTER','Settings & setup']};
+const pageTitles={import:['FROM GAME TO BLENDER','Import animation'],export:['FROM BLENDER TO GAME','Export animation'],character:['FROM BLENDER TO SEKIRO','New character'],sources:['WHERE FILES COME FROM','Sources'],settings:['THIS COMPUTER','Settings & setup']};
 function currentPage(){return document.querySelector('.page.active')?.id.slice(5)||'import';}
 function showPage(page){
  document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id==='page-'+page));
@@ -118,13 +126,13 @@ function rememberState(){
  source.state={...source.state,character:characterId,clip:clipId,models:parts.filter(p=>p.selected).map(p=>p.path),preset:$('preset').value,outputBlend:$('outputBlend').value.trim(),suggested:lastSuggestedBlend};
 }
 function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{rememberState();config=values();try{await api('settings',config);}catch(e){toast(e.message,true);}},450);}
-const selectDefaults={preset:'auto',game:'auto',exportGame:'auto',frameRange:'scene',trackSet:'original',rootMotion:'auto',quantization:'threecomp40'};
+const selectDefaults={characterTextureSize:'2048',preset:'auto',game:'auto',exportGame:'auto',frameRange:'scene',trackSet:'original',rootMotion:'auto',quantization:'threecomp40'};
 function setValues(data){
  config=data;config.modelMasks||={};sources=Array.isArray(data.sources)?data.sources:[];activeId=sources.some(s=>s.id===data.activeSource)?data.activeSource:(sources[0]?.id||'');
  renderActions(data.exportAction||'');
  document.querySelectorAll('[data-config]').forEach(el=>{if(el.type==='checkbox')el.checked=!!data[el.id];else el.value=data[el.id]||selectDefaults[el.id]||'';});
  document.querySelectorAll('[name="format"]').forEach(el=>el.checked=el.value===data.format);
- $('import-force').checked=!!data.force;$('export-force').checked=!!data.force;
+ $('import-force').checked=!!data.force;$('export-force').checked=!!data.force;$('character-force').checked=!!data.force;renderCharacterParts();
  applyTheme(data.theme||'auto');applyCacheMode(data.previewCache);toggleCharacter();updateExportOptions();
 }
 function applyCacheMode(mode){
@@ -749,7 +757,12 @@ function regionRow([role,label,sub]){
   :`<select data-region="${role}" aria-label="${escape(label)}" title="${escape(selected?.path||'Skip this part')}"><option value="">Skip this part</option>${matches.map(p=>`<option value="${escape(p.path)}" ${p===selected?'selected':''}>${escape(p.name)}</option>`).join('')}</select>`;
  return `<div class="part-row"><span>${escape(label)}${sub?`<small>${escape(sub)}</small>`:''}</span>${control}</div>`;
 }
-const modelRow=p=>`<label class="model-row" title="${escape(p.path)}"><input type="checkbox" data-model="${escape(p.path)}" ${p.selected?'checked':''}><span><strong>${escape(p.name)}</strong><small>${escape(p.role)} · ${escape(p.container)} · ${escape(basename(p.path))}</small></span>${icon('cube')}</label>`;
+const modelRow=p=>`<label class="model-row" title="${escape(p.path)}"><input type="checkbox" data-model="${escape(p.path)}" ${p.selected?'checked':''}><span><strong>${escape(p.name)}</strong><small>${[p.role,p.note,p.container,basename(p.path)].filter(Boolean).map(escape).join(' · ')}</small></span>${p.joints?jointControl(p):icon('cube')}</label>`;
+// A game package's weapon hangs on the character joint chosen here; a saved choice the part does not offer falls back to its default.
+function jointControl(p){
+ const saved=config.weaponAttachments?.[p.id],value=p.joints.some(j=>j.id===saved)?saved:p.joint;
+ return `<select data-joint="${escape(p.id)}" aria-label="Joint for ${escape(p.name)}" title="The character joint this weapon hangs on">${p.joints.map(j=>`<option value="${escape(j.id)}" ${j.id===value?'selected':''}>${escape(j.label)}</option>`).join('')}</select>`;
+}
 const maskCache=new Map();let maskPath='',maskSequence=0;
 function renderModelMasks(){
  const box=$('model-masks'),model=parts.find(p=>p.selected&&/^c\d{4}$/i.test(p.id));
@@ -805,7 +818,8 @@ function renderParts(){
  const wolf=isWolfAssembly(),player=!wolf&&parts.some(p=>/^(fc|hd|hr|am|bd|lg)_/i.test(p.id));
  const roles=wolf?wolfRoles:player?playerRoles.filter(([r])=>parts.some(p=>prefix(p)===r)):[];
  const regions=new Set(roles.map(([r])=>r)),weapons=parts.filter(p=>/^wp_/i.test(p.id)),others=parts.filter(p=>!regions.has(prefix(p))&&!/^wp_/i.test(p.id));
- let html=roles.length?(player?'<p class="note">One piece per region is chosen when only one is available. Pick the outfit pieces you want.</p>':'')+roles.map(regionRow).join(''):(others.length?`<p class="note">Select the model that matches the animation’s skeleton. One model is enough.</p>${others.map(modelRow).join('')}`:'');
+ const pieces=others.some(p=>p.role==='Head'||p.joints);
+ let html=roles.length?(player?'<p class="note">One piece per region is chosen when only one is available. Pick the outfit pieces you want.</p>':'')+roles.map(regionRow).join(''):(others.length?`<p class="note">${pieces?'A body marked “without head” needs a Head and a Hair part; one marked “with head” is complete. A weapon hangs on the joint chosen beside it.':'Select the model that matches the animation’s skeleton. One model is enough.'}</p>${others.map(modelRow).join('')}`:'');
  const extras=roles.length?[...others,...weapons]:weapons;
  if(extras.length)html+=extrasBlock(extras,roles.length?'Weapons & extra parts':'Weapon placement');
  box.innerHTML=html;renderModelMasks();updateAssembly();
@@ -992,7 +1006,7 @@ async function pick(key,{multiple=false,apply}={}){
  layer($('picker-status'));$('picker-status').hidden=false;$('picker-message').textContent=`Choosing ${title.toLowerCase()}…`;$('cancel-picker').disabled=false;
  const timeout=setTimeout(()=>{picker.timedOut=true;picker.controller.abort();api('pick',{kind:'cancel',requestId:picker.id}).catch(()=>{});},310000);
  try{
-  const kind=['characterSource','textureDirectory','src-path','src-scenes','folder'].includes(key)?'folder':['outputBlend','outputHKX'].includes(key)?'save':'file';
+  const kind=['characterSource','textureDirectory','src-path','src-scenes','folder','characterGameFolder','characterOutput'].includes(key)?'folder':['outputBlend','outputHKX'].includes(key)?'save':'file';
   const current=(key==='folder'?$('src-path').value:$(key)?.value)||$('characterSource').value||'';
   const result=await api('pick',{kind,current,title,multiple,requestId:picker.id,filter:filters[key]||''},picker.controller.signal);
   if(!result.paths?.length)return;
@@ -1063,12 +1077,37 @@ async function start(mode){
   await startJob(extra);toast({import:'Creating your Blender scene…',export:'Exporting your animation…',inspect:'Reading the scene in Blender…'}[mode]);
  }catch(e){toast(e.message,true);}
 }
-const stageSets={discover:[['inventory','Scan source'],['done','Choose a character']],inventory:[['inventory','Read archives'],['done','Animations listed']],inspect:[['validate','Check'],['blender','Read scene'],['done','Ready']],
+/* New character */
+// The enemies of the map that use the template, from List parts; the ticked ones become the new character.
+function renderCharacterParts(){
+ const found=config.characterPartsFound||[],chosen=new Set(config.characterParts||[]);
+ $('character-parts').hidden=!found.length;
+ $('character-parts').innerHTML=found.map(p=>`<label class="model-row"><input type="checkbox" data-character-part="${escape(p.name)}" ${chosen.has(p.name)?'checked':''}><span><strong>${escape(p.name)}</strong><small>${escape(p.map)} · entity ${escape(p.entityId)} · NPC param ${escape(p.npcParamId)}</small></span>${icon('person')}</label>`).join('');
+}
+async function startCharacter(mode){
+ try{
+  if(job?.status==='running')throw Error('Wait for the current operation, or cancel it first.');
+  const keys={'character-parts':['characterGameFolder','characterMap'],'character-clone':['characterGameFolder','characterId','characterOutput'],
+   'character-export':['blender','characterBlend','characterGameFolder','characterId','characterOutput'],'character-verify':['characterId','characterOutput']}[mode];
+  requireFields(keys);
+  if(mode!=='character-parts'&&!/^c\d{4}$/i.test($('characterId').value.trim()))throw Error('Write the new character ID like Sekiro’s, a c and four digits, such as c1800.');
+  const found=new Set((config.characterPartsFound||[]).map(p=>p.name));
+  const chosen=(config.characterParts||[]).filter(name=>found.has(name));
+  if(chosen.length&&!$('characterMap').value.trim())throw Error('Name the map whose parts become the new character.');
+  const extra={mode,characterParts:chosen};if(mode==='character-export'||mode==='character-clone')extra.force=$('character-force').checked;
+  await startJob(extra);
+  toast({'character-parts':'Reading the map…','character-clone':'Writing the template under the new ID…','character-export':'Writing the new character…','character-verify':'Checking the mod folder…'}[mode]);
+ }catch(e){toast(e.message,true);}
+}
+function characterChecks(r){return r.checks||r.verify?.checks||[];}
+const stageSets={'character-parts':[['character','Read map'],['done','Parts listed']],'character-verify':[['validate','Check'],['character','Read back'],['done','Ready']],
+ 'character-clone':[['validate','Check'],['character','Write files'],['done','Ready']],'character-export':[['validate','Check'],['blender','Read scene'],['character','Write files'],['done','Ready']],
+ discover:[['inventory','Scan source'],['done','Choose a character']],inventory:[['inventory','Read archives'],['done','Animations listed']],inspect:[['validate','Check'],['blender','Read scene'],['done','Ready']],
  import:[['validate','Check'],['decode','Decode'],['character','Character'],['blender','Blender'],['done','Ready']],export:[['validate','Check'],['blender','Sample'],['write','Write HKX'],['done','Ready']]};
 function updateJob(value){
  if(!value)return;job=value;
  const running=value.status==='running',success=value.status==='success',error=value.status==='failed';
- ['run-import','run-export','inspect-scene','rescan'].forEach(id=>$(id).disabled=running);
+ ['run-import','run-export','inspect-scene','rescan','run-character','character-clone','character-verify','character-list-parts'].forEach(id=>$(id).disabled=running);
  $('rescan').classList.toggle('spinning',running&&value.mode==='discover');
  $('cancel-job').hidden=!running;
  const dock=$('activity');dock.classList.toggle('running',running);dock.classList.toggle('error',error);dock.classList.toggle('success',success);
@@ -1087,10 +1126,19 @@ function updateJob(value){
 }
 function renderResult(value){
  // Scans show their result in the library itself.
- const box=$('result'),r=value.report||{};box.hidden=value.status!=='success'||['inventory','discover'].includes(value.mode);
+ const box=$('result'),r=value.report||{};box.hidden=value.status!=='success'||['inventory','discover','character-parts'].includes(value.mode);
  if(box.hidden||box.dataset.job===value.id)return;
  box.dataset.job=value.id;
  if(value.mode==='inspect'){const info=r.scene;box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(info?`Rig ${info.rig} · ${plural(info.actions.length,'armature action')} · choose the action and frames`:'Scene read')}</p></div>`;return;}
+ if(value.mode.startsWith('character-')){
+  const checks=characterChecks(r),failed=checks.filter(c=>!c.passed);
+  let summary=failed.length?`${failed.length} of ${plural(checks.length,'check')} failed: ${failed.map(c=>`${c.name} (${c.detail})`).join('; ')}`:`${plural(checks.length,'check')} pass`;
+  if(r.model)summary=`${plural(r.model.meshes,'mesh','meshes')} · ${plural(r.bones?.skeleton||0,'bone')}, ${r.bones?.paired||0} paired with ${r.template} · ${plural(r.textures?.textures?.length||0,'texture')}${r.clip?` · idle ${plural(r.clip.frames,'frame')}`:''} · ${summary}`;
+  if(r.warnings?.length)summary+=` · ${plural(r.warnings.length,'notice')} (see Activity)`;
+  box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(summary)}</p></div>${r.profile?`<button type="button" class="secondary" data-profile>${icon('play')}Show me3 profile</button>`:''}<button type="button" class="secondary" data-open="reveal">${icon('folder')}Show folder</button>`;
+  box.querySelectorAll('[data-open],[data-profile]').forEach(el=>el.addEventListener('click',()=>openOutput('reveal',el.dataset.open?value.output:r.profile)));
+  return;
+ }
  let details;
  if(value.mode==='import')details=`${plural(r.frames,'frame')} · ${plural(r.parts,'model part')} · ${plural(r.textures,'material image')}${r.donor?` · donor ${String(r.donor.clip).replace(/\.hkx$/i,'')}, ${plural(r.donor.frames,'frame')}`:''}`;
  else{
@@ -1125,6 +1173,10 @@ function finishJob(value){
   if(r.catalogRefreshed&&activeSource()?.catalog)loadCatalog(activeSource(),true);
  }
  if(value.mode==='inspect'&&success&&r.scene&&samePath(value.output,$('inputBlend').value.trim())){sceneInfo=r.scene;renderScene();}
+ if(value.mode==='character-parts'&&success){
+  config.characterPartsFound=r.parts||[];renderCharacterParts();saveSoon();
+  toast(r.parts?.length?`${plural(r.parts.length,'enemy','enemies')} in this map use the template. Tick the ones that become the new character.`:'No enemy in this map uses the template. Choose another map, or leave Map empty.',!r.parts?.length);
+ }
  renderLibrary();ensureInventory();
 }
 async function openOutput(action,path){try{await api('open',{action,path});}catch(e){toast(e.message,true);}}
@@ -1354,6 +1406,7 @@ $('parts').addEventListener('change',event=>{
   if(source&&clip)source.state={...source.state,modelChoices:{...source.state?.modelChoices,[clip.character]:el.value}};
   renderParts();return saveSoon();
  }
+ if(d.joint){config.weaponAttachments={...config.weaponAttachments,[d.joint]:el.value};return saveSoon();}
  if(d.model||d.extra){const part=parts.find(p=>p.path===(d.model||d.extra));if(part)part.selected=el.checked;if(d.extra&&!el.checked&&document.getElementById('extra-input'))renderParts();else{renderModelMasks();updateAssembly();}return saveSoon();}
  if(d.region!==undefined){parts.filter(p=>prefix(p)===d.region).forEach(p=>p.selected=p.path===el.value);renderParts();return saveSoon();}
  if(d.regionInput!==undefined){
@@ -1401,7 +1454,11 @@ document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('chan
 }));
 ['frameStart','frameEnd','frameRate','rootBone'].forEach(id=>$(id).addEventListener('input',updateExportOptions));
 document.querySelectorAll('[name="format"]').forEach(el=>el.addEventListener('change',()=>{updateExportOptions();saveSoon();}));
-['import-force','export-force'].forEach(id=>$(id).addEventListener('change',()=>{config.force=$(id).checked;saveSoon();}));
+['import-force','export-force','character-force'].forEach(id=>$(id).addEventListener('change',()=>{config.force=$(id).checked;saveSoon();}));
+$('character-parts').addEventListener('change',e=>{const name=e.target.dataset.characterPart;if(!name)return;const chosen=new Set(config.characterParts||[]);if(e.target.checked)chosen.add(name);else chosen.delete(name);config.characterParts=[...chosen];saveSoon();});
+$('character-list-parts').addEventListener('click',()=>startCharacter('character-parts'));$('run-character').addEventListener('click',()=>startCharacter('character-export'));
+$('character-clone').addEventListener('click',()=>startCharacter('character-clone'));$('character-verify').addEventListener('click',()=>startCharacter('character-verify'));
+$('character-use-import').addEventListener('click',()=>{const path=config.lastImportedBlend||'';if(!path)return toast('Import a character first, or browse to an existing scene.');$('characterBlend').value=path;saveSoon();toast('Using '+basename(path)+'.');});
 $('scan').addEventListener('click',()=>findModels());$('add-models').addEventListener('click',()=>pick('models',{multiple:true}));
 $('donor-pin').addEventListener('click',()=>{try{pinDonor();}catch(e){toast(e.message,true);}});$('donor-remove').addEventListener('click',removeDonor);
 $('run-import').addEventListener('click',()=>start('import'));$('run-export').addEventListener('click',()=>start('export'));$('inspect-scene').addEventListener('click',()=>start('inspect'));

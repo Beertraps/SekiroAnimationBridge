@@ -33,7 +33,18 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','sourceOptions','theme','donor',
-        'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember','previewCache'}
+        'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember','previewCache',
+        'characterBlend','characterAction','characterFrameStart','characterFrameEnd','characterGameFolder','characterTemplate',
+        'characterId','characterMap','characterParts','characterPartsFound','characterOutput','characterTextureSize'}
+# The New character page keeps its own fields, so the export page's scene and frames stay apart; a job gets the
+# runtime's names for them.
+CHARACTER_KEYS={'characterBlend':'inputBlend','characterAction':'action','characterFrameStart':'frameStart',
+                'characterFrameEnd':'frameEnd','characterGameFolder':'gameFolder','characterTemplate':'template',
+                'characterMap':'map','characterParts':'parts','characterOutput':'outputFolder','characterTextureSize':'textureSize'}
+CHARACTER_REQUIRED={'character-parts':['writer','characterGameFolder','characterMap'],
+                    'character-clone':['writer','characterGameFolder','characterId','characterOutput'],
+                    'character-export':['writer','blender','characterBlend','characterGameFolder','characterId','characterOutput'],
+                    'character-verify':['writer','characterId','characterOutput']}
 
 
 def find_blender():
@@ -172,6 +183,14 @@ def persist(config):
                            (SOURCES,{k:CONFIG[k] for k in SOURCE_KEYS if k in CONFIG})):
             staging=path.with_suffix('.tmp')
             staging.write_text(json.dumps(value,indent=2),encoding='utf-8'); os.replace(staging,path)
+
+
+def character_job(request):
+    """The runtime's request for a New character page job."""
+    job={k:request[k] for k in ('mode','writer','blender','characterId','force') if k in request}
+    job.update({name:request[key] for key,name in CHARACTER_KEYS.items() if request.get(key) not in (None,'',[])})
+    if job['mode']=='character-parts': job.pop('parts',None)
+    return job
 
 
 def job_running():
@@ -398,8 +417,9 @@ class Handler(BaseHTTPRequestHandler):
                 with CACHE_LOCK, LOCK:
                     if JOB and JOB['status']=='running': raise ValueError('A conversion is already running.')
                     request={k:v for k,v in data.items() if k in KEYS or k=='mode'}
-                    if request.get('mode') not in ('import','export','discover','inventory','inspect'): raise ValueError('Unknown conversion mode.')
-                    if request['mode']=='discover': required=['assetFolder','writer']
+                    if request.get('mode') not in ('import','export','discover','inventory','inspect',*CHARACTER_REQUIRED): raise ValueError('Unknown conversion mode.')
+                    if request['mode'] in CHARACTER_REQUIRED: required=CHARACTER_REQUIRED[request['mode']]
+                    elif request['mode']=='discover': required=['assetFolder','writer']
                     elif request['mode']=='inventory': required=['assetFolder','assetCatalog','assetCharacter','writer']
                     elif request['mode']=='inspect': required=['blender','inputBlend']
                     elif request['mode']=='import' and request.get('inputMethod')=='folder': required=['blender','assetFolder','assetCatalog','assetClip','outputBlend']
@@ -407,6 +427,7 @@ class Handler(BaseHTTPRequestHandler):
                     for key in required:
                         if not request.get(key): raise ValueError(f'Choose a path for {key} first.')
                     persist(request)
+                    if request['mode'] in CHARACTER_REQUIRED: request=character_job(request)
                     JOB=dict(id=secrets.token_hex(8),status='running',mode=request['mode'],stage='validate',progress=0,
                         message='Starting conversion',started=time.time(),ended=None,logs=[],output='',report={})
                     threading.Thread(target=worker,args=(JOB,request),daemon=True).start()

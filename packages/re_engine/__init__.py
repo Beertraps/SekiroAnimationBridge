@@ -19,13 +19,21 @@ from pathlib import Path
 
 from games.api import check_motion, read_json, signature, write_json
 
-CATALOG_SCHEMA = 5
+CATALOG_SCHEMA = 6
 NATIVES = 'natives/x64/'
-# Characters are the players and enemies that have both animations and models. Weapons and props are left out.
+# Characters are the players and enemies that have both animations and models. Their weapons are model parts.
 KINDS = ('player', 'enemy')
 OWNER = re.compile(r'(pl|em)\d{4}')
 # A model folder's name after its ID: pl0100_dante is Dante. em0000_00 is a variant, not a name.
 NAMED = re.compile(r'(?:pl|em)\d{4}(?:_c\d{2})?_([a-z][a-z_]*)')
+# Weapon models: character/weapon/wp01_000 belongs to the players pl01xx, character/enemy/wpem5900_00 to em5900.
+WEAPONS = 'character/weapon'
+# The gallery's model viewer names the weapons: wp01_000_viewer_rebellion.scn is Rebellion.
+WEAPON_NAMES = 'scene/menu/gallery/viewer/modelviewer/weapon'
+VIEWER = re.compile(r'(wp[a-z0-9]+(?:_\d+)*)_viewer_([^.]+)\.scn\.\d+$')
+# The character joints a weapon can hang on, as Devil May Cry 5's skeletons name them.
+JOINTS = (('R_WeaponHand', 'Right hand'), ('L_WeaponHand', 'Left hand'), ('WeaponConst', 'Back'),
+          ('WaistWeaponConst', 'Waist'))
 _LOCK = threading.Lock()
 
 
@@ -116,14 +124,15 @@ def wanted(profile):
     """The files a source index lists, as a regular expression over lower-case natives paths."""
     f = profile.formats
     return (rf'^natives/x64/(animation/({"|".join(KINDS)})/.+\.motlist\.{f["motlist"]}'
-            rf'|character/({"|".join(KINDS)})/.+\.(mesh\.{f["mesh"]}|mdf2\.{f["mdf2"]}))$')
+            rf'|character/({"|".join(KINDS)}|weapon)/.+\.(mesh\.{f["mesh"]}|mdf2\.{f["mdf2"]})'
+            rf'|{WEAPON_NAMES}/[^/]+\.scn\.\d+)$')
 
 
 def natives_index(root, profile):
     pattern = re.compile(wanted(profile))
     files = []
     natives = Path(root) / 'natives' / 'x64'
-    for kind in ('animation', 'character'):
+    for kind in ('animation', 'character', WEAPON_NAMES):
         for base, dirs, names in os.walk(natives / kind):
             for name in names:
                 full = Path(base) / name
@@ -146,7 +155,7 @@ def packed_index(root, profile, file_list, work, ctx):
 
 
 def counts_of(files, profiles):
-    paths = [f['path'] for f in files]
+    paths = [f['path'] for f in files if f'/{WEAPONS}/' not in f['path']]
     versions = tuple(f'.motlist.{v}' for v in {str(p.formats['motlist']) for p in profiles})
     return dict(animations=sum(p.endswith(versions) for p in paths),
                 characters=sum('.mesh.' in p for p in paths), materials=sum('.mdf2.' in p for p in paths))
@@ -324,36 +333,120 @@ def refresh(catalog, clip_id, ctx):
     return catalog, clip_id
 
 
+ROLES = ('Body', 'Head', 'Hair', 'Model', 'Weapon')
+
+
 def model_parts(catalog, owner):
-    """The meshes of a character's model folders: the same ID first, then the variants of its family (pl01xx)."""
+    """The meshes of a character's model folders: the same ID first, then the variants of its family (pl01xx).
+
+    A body says whether it holds the head. A player whose family has no head of its own, such as pl0800_vergilpl,
+    is offered the head and hair of the character it is named after (pl0300_vergil). The character's weapons
+    follow, each with the joint it hangs on.
+    """
     index = read_json(Path(catalog['work']) / 'index.json') or dict(files=[])
     family = owner[:4]
-    parts = []
+    meshes = []
     for entry in index['files']:
         path = entry['path']
         bits = path.split('/')
         if bits[2] != 'character' or '.mesh.' not in path or len(bits) < 6:
             continue
-        folder = bits[4]
-        if not folder.startswith(family):
-            continue
         stem = Path(path).name.split('.')[0]
         sub = bits[5] if len(bits) > 6 else ''
-        role = ('Body' if sub.endswith('_body') or stem == folder[:6] else 'Head' if '_head' in sub
+        role = ('Body' if sub.endswith('_body') or stem == bits[4][:6] else 'Head' if '_head' in sub
                 else 'Hair' if '_hair' in sub else 'Model')
-        parts.append(dict(id=stem, name=f'{stem.upper()} · {character_name(folder)}', path=path, selected=False,
-                          game=catalog['game'], role=role, container='Mesh', scope=catalog['folder'],
-                          folder=folder, size=entry['size'], exact=OWNER.match(folder)[0] == owner if OWNER.match(folder) else False))
-    parts.sort(key=lambda p: (not p['exact'], '_c' in p['folder'][6:9], p['folder'], ['Body', 'Head', 'Hair', 'Model'].index(p['role']), p['id']))
-    # The default look: the body, the first head and the first hair of the character's own folder.
+        meshes.append(dict(entry, folder=bits[4], stem=stem, role=role))
+
+    def part(mesh, role=None, **extra):
+        folder = mesh['folder']
+        return dict(id=mesh['stem'], name=f"{mesh['stem'].upper()} · {character_name(folder)}", path=mesh['path'],
+                    selected=False, game=catalog['game'], role=role or mesh['role'], container='Mesh',
+                    scope=catalog['folder'], folder=folder, size=mesh['size'],
+                    exact=OWNER.match(folder)[0] == owner if OWNER.match(folder) else False, **extra)
+
+    parts = [part(m) for m in meshes if m['folder'].startswith(family)]
+    borrowed = [] if any(p['role'] == 'Head' for p in parts) else related_heads(meshes, owner)
+    headed = {p['folder'] for p in parts if p['role'] == 'Head'}
+    for p in parts:
+        if p['role'] == 'Body':
+            p['note'] = 'without head' if p['folder'] in headed or (borrowed and p['exact']) else 'with head'
+    parts += [part(m, note=f"from {character_name(m['folder'])} ({m['folder'][:6].upper()})") for m in borrowed]
+    parts += weapon_parts(catalog, meshes, owner, index['files'], part)
+    parts.sort(key=lambda p: (p['role'] == 'Weapon', not p['exact'], '_c' in p['folder'][6:9], p['folder'],
+                              ROLES.index(p['role']), p['id']))
+    # The default look: the body, the first head and the first hair of the character's own folder,
+    # or of the character a headless body is named after.
+    lent = {m['path'] for m in borrowed}
     for role in ('Body', 'Head', 'Hair'):
-        first = next((p for p in parts if p['exact'] and p['role'] == role and '_c' not in p['folder'][6:9]
-                      and not re.search(r'event|light|eyelash', p['path'])), None)
+        first = next((p for p in parts if (p['exact'] or p['path'] in lent) and p['role'] == role
+                      and '_c' not in p['folder'][6:9] and not re.search(r'event|light|eyelash', p['path'])), None)
         if first:
             first['selected'] = True
     if not any(p['selected'] for p in parts) and parts:
         parts[0]['selected'] = True
     return parts
+
+
+def related_heads(meshes, owner):
+    """The heads and hair of the player a headless one is named after: vergilpl is Vergil (pl0300_vergil).
+
+    One name starts with the other, and the shared part has three letters or more, so V (pl0200_v) is not
+    Vergil's namesake. Only the closest name counts.
+    """
+    named = [NAMED.fullmatch(m['folder']) for m in meshes if m['folder'].startswith(owner)]
+    own = next((n[1] for n in named if n), '')
+    if not own or not owner.startswith('pl'):
+        return []
+    found = []
+    for mesh in meshes:
+        other = NAMED.fullmatch(mesh['folder'])
+        if not other or mesh['role'] not in ('Head', 'Hair') or not mesh['folder'].startswith('pl') or mesh['folder'].startswith(owner[:4]):
+            continue
+        shared = min(len(own), len(other[1])) if own.startswith(other[1]) or other[1].startswith(own) else 0
+        if shared >= 3:
+            found.append((shared, mesh))
+    closest = max((shared for shared, _ in found), default=0)
+    return [mesh for shared, mesh in found if shared == closest]
+
+
+def weapon_names(files):
+    """Readable weapon names from the gallery's viewer scenes, by model ID: wp01_000 is Rebellion."""
+    names = {}
+    for entry in files:
+        match = VIEWER.search(entry['path'].rsplit('/', 1)[-1]) if f'/{WEAPON_NAMES}/' in entry['path'] else None
+        if match and (match[1] not in names or len(match[2]) < len(names[match[1]])):
+            names[match[1]] = match[2]
+    return {key: value[:1].upper() + value[1:] for key, value in names.items()}
+
+
+def default_joint(stem):
+    """Where a weapon hangs unless the user picks another joint: the second model of a pair, such as Ivory
+    (wp01_001_01), in the left hand, every other in the right hand."""
+    return 'L_WeaponHand' if stem.endswith('_01') else 'R_WeaponHand'
+
+
+def weapon_parts(catalog, meshes, owner, files, part):
+    """A character's weapon models: wpNN_* for the players plNNxx, wp<enemy ID>_* for an enemy."""
+    names = weapon_names(files)
+    prefix = f'wp{owner[2:4]}_' if owner.startswith('pl') else f'wp{owner}'
+    parts = []
+    for mesh in meshes:
+        if not mesh['folder'].startswith(prefix) or (owner.startswith('pl') and f'/{WEAPONS}/' not in mesh['path']):
+            continue
+        stem = mesh['stem']
+        title = names.get(stem) or names.get(mesh['folder']) or names.get(re.sub(r'_\d{2}$', '', stem)) or ''
+        entry = part(mesh, 'Weapon', joints=[dict(id=joint, label=label) for joint, label in JOINTS],
+                     joint=default_joint(stem))
+        entry['name'] = f'{stem.upper()} · {title}' if title else stem.upper()
+        parts.append(entry)
+    return parts
+
+
+def chosen_joints(request, parts):
+    """The joint of each chosen weapon, by its path: the UI's choice when it is one of the part's joints."""
+    picked = request.get('weaponAttachments') or {}
+    return {p['path']: picked[p['id']] if picked.get(p['id']) in {j['id'] for j in p['joints']} else p['joint']
+            for p in parts if p['role'] == 'Weapon'}
 
 
 def selection(catalog, clip_id, preset, ctx):
@@ -439,8 +532,10 @@ def prepare(request, catalog, temp, ctx):
     manifests = []
     if include:
         ctx.notify('character', 'Preparing model parts, skin weights and textures', 32)
+        joints = chosen_joints(request, chosen['parts'])
         manifest = character_assets.prepare_character(catalog, [(p, files.get(p.lower())) for p in models],
-                                                      Path(temp) / 'character', profile, ctx)
+                                                      Path(temp) / 'character', profile, ctx,
+                                                      {p: joints[p] for p in models if p in joints})
         character = json.loads(manifest.read_text(encoding='utf-8'))
         report.update(parts=len(character['models']), textures=character['texture_count'], warnings=report['warnings'] + character['warnings'],
                       vertices=sum(m['stats']['vertices'] for m in character['models']),

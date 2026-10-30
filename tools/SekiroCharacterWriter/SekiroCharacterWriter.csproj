@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SoulsAssetPipelineProject Condition="'$(SoulsAssetPipelineProject)' == ''">$(MSBuildThisFileDirectory)..\..\dependencies\SoulsAssetPipeline\SoulsAssetPipeline\SoulsAssetPipeline.csproj</SoulsAssetPipelineProject>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(BridgeDependencyDirectory)' == ''">
+    <ProjectReference Include="$(SoulsAssetPipelineProject)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(BridgeDependencyDirectory)' != ''">
+    <Reference Include="SoulsAssetPipeline"><HintPath>$(BridgeDependencyDirectory)\SoulsAssetPipeline.dll</HintPath></Reference>
+    <Reference Include="SoulsFormats"><HintPath>$(BridgeDependencyDirectory)\SoulsFormats.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

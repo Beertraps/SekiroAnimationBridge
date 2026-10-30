@@ -4,6 +4,26 @@
 - The Unreal decoder's build copies the licenses of the .NET runtime it carries, and of ACL and RTM when it builds the native library, next to the decoder, so its package ZIP can be handed on. The [Unreal guide](docs/games/unreal.md) says how to build that ZIP and install it into a release.
 - **FromSoftware characters show their true colors in Blender.** Imported characters looked too dark. Soulstruct's PNG conversion turned sRGB textures, such as Sekiro's BC7 and BC1 albedo, into linear values, and Blender then read those values as sRGB a second time. Color images (albedo, tint and emissive) now keep their stored sRGB values. Normal maps stay Non-Color and do not change. Only the preview changes: catalogs and HKX exports are the same. Scenes imported before keep their dark images; import them again.
 
+## Devil May Cry 5: whole characters and their weapons
+
+- **Weapons are model parts.** A character's weapons are listed under its model parts, with their names from the game's gallery: Dante has Rebellion (`wp01_000`), Ebony and Ivory, Coyote-A, Balrog and 16 more. A menu beside each weapon chooses the joint it hangs on: *Right hand*, *Left hand*, *Back* or *Waist*. In Blender the weapon's bones hang below that joint, so it moves with the character, and a new Sekiro character made from the scene keeps it in its model. Weapons with their own animation, such as Cavaliere, stay in their rest pose.
+- **Each body says whether it has a head.** *without head* means the body needs a Head and a Hair part, as Dante's, Nero's and Vergil's do; *with head* means it is complete, as the devil trigger forms and the enemies are. The import says so when none of the ticked parts has a head.
+- **Playable Vergil (`pl0800`) has a head.** His folder holds only a body, so he came in headless. He now gets Vergil's head and hair (`pl0300_01`, `pl0300_03`), ticked by default.
+- **Scan a DMC5 source again once**: the refresh button beside the source menu does it. The scan now also lists the weapons.
+- `bridge_cli import --models` takes a game package's part paths as `select` lists them, such as `natives/x64/character/weapon/wp01_000/wp01_000.mesh.1808282334`, and `--weapon-attachments '{"wp01_000": "WeaponConst"}'` chooses a weapon's joint.
+- Game packages: a part can carry a `note`, and a weapon `joints` and `joint`; a manifest model's `attachment` `{"kind": "joint", "bone": ...}` hangs it on a joint. See [PACKAGES.md](docs/PACKAGES.md#model-parts-and-weapons).
+
+## New Sekiro characters
+
+- **A character from Blender becomes a new Sekiro character.** The new **Character** page and `bridge_cli character-export` write a scene's rig, meshes, materials and one action as a new character ID, such as `c1800`, into a mod folder with a me3 profile beside it. A Sekiro character, the template (`c1010`, the Ashina soldier, by default), gives the behavior, script and TAE; the bridge writes the model, textures, skeleton and clip, and can put the character in place of the template's enemies in one map (**List parts**). The character keeps its own bones. Example: Dante from Devil May Cry 5 as `c1800` in place of `c1010_0000` in `m11_00_00_00`. It stands and idles; it does not fight. Not yet tested in the game. See the [user guide](docs/USER_GUIDE.md#new-sekiro-character) and [the plan](docs/CHARACTER_EXPORT_PLAN.md).
+- **Write template only** (`character-clone`) writes the template under the new ID, as a first in-game test of the files. **Check mod folder** (`character-verify`) reads a written character back and runs 11 checks; both writes run them at the end.
+- The template's behavior follows the new bones: bone numbers, per-bone weight lists, mirror maps and the character properties that name bones, such as `RefTwistNeckStart`, are found by field name in any behavior file and mapped by bone name. New module `havok_tagfile.py` changes Havok 2016 tagfiles in place and keeps every other byte, with their pointer tables complete.
+- A Sekiro model skins with 256 bones at most: when a character has more, the lightest small bones give their weights to their parents, and a notice lists them.
+- **Game packages can say what an image's channels hold.** The character manifest's image `packed` (such as `{"A": "metalness"}`) and the material's `metalness` and `roughness` images are new, optional fields. The import keeps the roles in the Blender material for the character export. The RE Engine package marks DMC5's ALBM and NRMR images. See [PACKAGES.md](docs/PACKAGES.md#materials).
+- The character export pairs bones with the bone names of the rig's game package, as the Retarget Assistant does.
+- New tool `SekiroCharacterWriter.exe`, built by `build_decoder.cmd` next to the decoder: it writes the model, textures and map with SoulsFormats. Release ZIPs include it.
+- New interchange format: the character export manifest, with `character_export.schema.json` ([INTERCHANGE.md](docs/INTERCHANGE.md#character-export-manifest)).
+
 ## Retarget Assistant 0.11.0: weapons and props, bone list search
 
 Install `SekiroRetargetAssistant-0.11.0.zip` over 0.10.0.

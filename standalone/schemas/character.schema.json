@@ -33,11 +33,21 @@
             "convention": {"enum": ["directx", "opengl"]},
             "channels": {"enum": ["xy", "xyz"]},
             "channel": {"enum": ["R", "G", "B"]},
-            "packedAlpha": {"type": "boolean"}
+            "packedAlpha": {"type": "boolean"},
+            "packed": {
+              "type": "object",
+              "properties": {
+                "R": {"$ref": "#/$defs/packedRole"},
+                "G": {"$ref": "#/$defs/packedRole"},
+                "B": {"$ref": "#/$defs/packedRole"},
+                "A": {"$ref": "#/$defs/packedRole"}
+              }
+            }
           }
         }
       ]
     },
+    "packedRole": {"enum": ["metalness", "roughness", "opacity", "emissive"]},
     "material": {
       "type": "object",
       "required": ["name", "albedo", "normal", "emissive", "samplers"],
@@ -51,6 +61,8 @@
         "tint": {"$ref": "#/$defs/image"},
         "opacity": {"$ref": "#/$defs/image"},
         "opacityValue": {"type": "number", "minimum": 0, "maximum": 1},
+        "metalness": {"$ref": "#/$defs/image"},
+        "roughness": {"$ref": "#/$defs/image"},
         "samplers": {"type": "array", "items": {"type": "object"}},
         "alpha": {"type": "boolean"},
         "color": {"type": "array", "items": {"type": "number"}}

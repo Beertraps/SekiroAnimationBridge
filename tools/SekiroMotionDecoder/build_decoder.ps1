@@ -50,3 +50,13 @@ dotnet publish $project -c Release -r win-x64 --self-contained false `
     -o $OutputDirectory
 if ($LASTEXITCODE -ne 0) { throw "Decoder build failed." }
 Write-Host "Decoder ready: $(Join-Path $OutputDirectory 'SekiroMotionDecoder.exe')"
+
+# The character writer reads and writes the model, textures and map of a new character (standalone/character_export.py).
+# It shares SoulsAssetPipeline and the runtime with the decoder, so it goes into the same folder.
+$writerProject = Join-Path $PSScriptRoot "..\SekiroCharacterWriter\SekiroCharacterWriter.csproj"
+dotnet publish $writerProject -c Release -r win-x64 --self-contained false `
+    --artifacts-path $ArtifactsDirectory `
+    -p:SoulsAssetPipelineProject="$sapProject" `
+    -o $OutputDirectory
+if ($LASTEXITCODE -ne 0) { throw "Character writer build failed." }
+Write-Host "Character writer ready: $(Join-Path $OutputDirectory 'SekiroCharacterWriter.exe')"
