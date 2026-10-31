@@ -33,7 +33,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','sourceOptions','theme','donor',
-        'partAnimations','exportParts','writeParts','partsFolder','partId','modelMasks','addToBinder','binder','binderMember','previewCache',
+        'partAnimations','exportParts','writeParts','partsFolder','partId','modelMasks','addToBinder','binder','binderMember','registerSlot','slotSource','previewCache',
         'characterBlend','characterAction','characterFrameStart','characterFrameEnd','characterGameFolder','characterTemplate',
         'characterId','characterMap','characterParts','characterPartsFound','characterOutput','characterTextureSize',
         'characterWeaponBones'}
@@ -81,7 +81,7 @@ def defaults():
         rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
         sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, sourceFileList='', sourceOptions={}, theme='auto',
         partAnimations=True, exportParts=False, writeParts=False, partsFolder='', partId='', addToBinder=False, binder='',
-        binderMember='', previewCache='standard')
+        binderMember='', registerSlot=False, slotSource='', previewCache='standard')
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)
     if SETTINGS.is_file():
@@ -149,6 +149,10 @@ def environment():
     result.append(dict(key='spline',title='Spline compression',ready=runtime.is_file(),optional=True,
         detail='Visual C++ 2010 runtime ready' if runtime.is_file() else
             'Spline export needs the Microsoft Visual C++ 2010 Redistributable (x86). Interleaved export works without it.'))
+    # Registering a new animation ID in a behavior runs Ionian's SDT HKB Duplicator in the conversion Python.
+    from animation_slots import duplicator_status
+    ready, detail = duplicator_status(CONFIG.get('writer', '') or sys.executable)
+    result.append(dict(key='hkbDuplicator',title='SDT HKB Duplicator',ready=ready,optional=True,detail=detail))
     # The decoders of the bridge and of its game packages are .NET programs that share one runtime.
     from dotnet_runtime import status as dotnet_status
     ready, detail = dotnet_status()

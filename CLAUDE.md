@@ -18,6 +18,9 @@ contract) → Blender builds the scene → export samples it back and writes HKX
   for Unreal Engine games: `packages\unreal\decoder\build_decoder.cmd` (.NET 10 SDK; CMake and the C++ build tools for
   ACL clips, [docs/games/unreal.md](docs/games/unreal.md)).
 - Blender 4.5. The bridge finds standard installations; `bridge_cli env` says which one it uses and what is missing.
+- Optional, for `export --register-slot`: `tools\setup_hkb_duplicator.cmd` downloads the SDT HKB Duplicator (commit
+  560426d, no license: never copy its code into the repo) to `%LOCALAPPDATA%\SekiroAnimationBridge\tools`;
+  `setup_writer.cmd` installs its lxml. `SEKIRO_HKB_DUPLICATOR` and `SEKIRO_CHARACTER_WRITER` point at other copies.
 - Inside a packaged app, such as the Claude desktop app, Windows keeps new folders under `%LOCALAPPDATA%` in the app's
   own copy (`%LOCALAPPDATA%\Packages\<app>\LocalCache\Local`). Setup run there is invisible to the bridge started from
   Explorer, and the reverse; run it once in each place that uses the bridge. There, `setup_writer.cmd` stops at the
@@ -40,6 +43,7 @@ standalone\bridge_cli.cmd verify work\scenes\c5060.blend --render work\scenes\c5
 standalone\bridge_cli.cmd export work\scenes\c5060.blend --output work\scenes\c5060_edited.hkx
 standalone\bridge_cli.cmd export work\scenes\wolf.blend --output work\scenes\a000_000000.hkx --write-parts work\mods\umbrella
 standalone\bridge_cli.cmd part-verify work\mods\umbrella
+standalone\bridge_cli.cmd export work\scenes\c1010.blend --output work\scenes\a100_003008.hkx --binder work\mods\c1010\chr\c1010.anibnd.dcx --binder-member a100_003008.hkx --register-slot
 standalone\bridge_cli.cmd character-parts "D:\Games\Sekiro" --map m11_00_00_00
 standalone\bridge_cli.cmd character-export work\scenes\dante.blend --game-folder "D:\Games\Sekiro" --id c1800 --output work\mods\dante --map m11_00_00_00 --part c1010_0000
 standalone\bridge_cli.cmd character-model work\scenes\c1010_gun.blend --template c1010 --game-folder "D:\Games\Sekiro" --output work\mods\c1010_gun
@@ -59,6 +63,10 @@ standalone\bridge_cli.cmd character-verify work\mods\dante --id c1800
 - `export --write-parts` also puts the weapon part clips into their part binders (`parts\wp_a_XXXX.partsbnd.dcx` and the
   `_l` copy) in a mod folder with a me3 profile, and reads them back like `part-verify`. A weapon at rest gets a new clip
   when its weapon rig is keyed. Plan, facts and limits: [docs/PART_ANIMATIONS_PLAN.md](docs/PART_ANIMATIONS_PLAN.md).
+- `export --binder ... --register-slot` gives a clip new to the binder a TAE entry (copied from the source clip by
+  `SekiroCharacterWriter tae`) and a clip generator in `cXXXX.behbnd.dcx` beside the binder (the Duplicator's
+  variation), and reads both back. Only a new category of the source's number: `a000_003008` to `a100_003008`.
+  `--slot-source` names the source; the scene's clip by default. In-game playback is not proven.
 - `character-export` writes a scene as a new Sekiro character (template `c1010` by default) into a mod folder with a
   me3 profile beside it, and ends with the 12 checks of `character-verify`. `character-clone` writes the template itself
   under the new ID. `character-model --template c1010` writes a scene of a vanilla character as its model and textures
@@ -110,6 +118,7 @@ tools\check_package.cmd packages\<id> [--source <game folder>] [--option <id>=<v
 | Blender side | `standalone/blender_bridge.py`, `blender_character.py`, `blender_parts.py`, `blender_verify.py` |
 | HKX writing | `standalone/build_animation.py`, `havok_compat.py`, `binder_members.py` |
 | Weapon part clips | `standalone/part_animations.py` (pairing, import), `blender_parts.py`, `part_export.py` (part binders) |
+| New animation IDs | `standalone/animation_slots.py`, `havok_xml.py` (behavior tagfile to XML and back), `tools/SekiroCharacterWriter/Tae.cs` |
 | New Sekiro characters | `standalone/character_export.py`, `havok_tagfile.py` (TAG0 patching), `blender_character_export.py`, `tools/SekiroCharacterWriter/` |
 | Retarget add-on | `blender_addon/sekiro_retarget/` |
 | Other engines | `packages/re_engine`, `packages/doom_eternal`, `packages/unreal`, template `standalone/tests/fixtures/packages/example` |

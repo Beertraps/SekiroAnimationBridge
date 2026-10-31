@@ -218,6 +218,8 @@
           <div id="binder-fields" hidden>
             <div class="field"><label for="binder">Animation binder <button class="help" data-help="binder" aria-label="About the animation binder">?</button></label><div class="path-row"><input id="binder" data-config placeholder="The archive the clip came from, such as c0000_a05x.anibnd.dcx" spellcheck="false"><button class="browse" data-pick="binder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
             <div class="field"><label for="binderMember">Name in the binder <button class="help" data-help="binderMember" aria-label="About the name in the binder">?</button></label><input id="binderMember" data-config class="text-input" placeholder="The clip’s own name" spellcheck="false"></div>
+            <div class="check-row"><span class="checkbox-help"><label class="checkbox"><input id="registerSlot" type="checkbox" data-config>Register a new ID in the TAE and the behavior</label><button class="help" data-help="registerSlot" aria-label="About registering a new animation ID">?</button></span></div>
+            <div id="slot-fields" class="field" hidden><label for="slotSource">Source clip <span class="optional">optional</span> <button class="help" data-help="slotSource" aria-label="About the source clip">?</button></label><input id="slotSource" data-config class="text-input" placeholder="The scene’s clip" spellcheck="false"></div>
             <p id="binder-note" class="note"></p>
           </div>
           <div id="part-fields" hidden>

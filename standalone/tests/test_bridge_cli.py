@@ -137,6 +137,15 @@ class Commands(unittest.TestCase):
                          ('export',3.0,'auto',True,True))
         self.assertNotIn('frameEnd',request)
         self.assertEqual(request['binder'],str(self.base/'c5060.anibnd.dcx'))
+        self.assertNotIn('registerSlot',request)
+    def test_register_slot_needs_a_binder(self):
+        code,result,_=self.call('export',self.base/'owl.blend','--output',self.base/'owl.hkx','--register-slot')
+        self.assertEqual(code,1);self.assertIn('--binder',result['error'])
+        self.assertEqual(self.jobs,[])
+        self.call('export',self.base/'owl.blend','--output',self.base/'owl.hkx','--binder',self.base/'c5060.anibnd.dcx',
+                  '--binder-member','a100_003008.hkx','--slot-source','a000_003008')
+        request=self.jobs[-1]
+        self.assertEqual((request['registerSlot'],request['slotSource'],request['binderMember']),(True,'a000_003008','a100_003008.hkx'))
     def test_verify_never_needs_an_output_but_takes_a_picture(self):
         self.call('verify',self.base/'owl.blend','--render',self.base/'owl.png','--frames','5')
         request=self.jobs[-1]
