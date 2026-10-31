@@ -1,6 +1,6 @@
 # New part animations, from Sekiro and other games
 
-Plan of 2026-10-30. Part 4.1 was built on 2026-10-31 (see its section); the rest is not built yet. Facts marked *checked* were read from Steam Sekiro (unpacked with UXM, read only) and the bridge's code on that date.
+Plan of 2026-10-30. Part 4.1 was built on 2026-10-31 (see its section); the rest is not built yet. Facts marked *checked* were read from Steam Sekiro (unpacked with UXM, read only) and the bridge's code on that date; section 1.1 was checked on 2026-10-31.
 
 ## Summary
 
@@ -20,7 +20,31 @@ Today the bridge can edit a part clip that a Sekiro weapon already has and write
 - Whether a part clip needs a TAE entry in the part is open. 7 animation binders have no TAE, but all of them are in `_l` or `_m` files, and the ones with clips besides the rest clip are `_m` files: `WP_A_0201.anibnd` (`a003_029001`, `a003_029006`), `WP_A_0300_5.anibnd` (`a023_385090_5`) and `WP_A_9500.anibnd` in `wp_a_9500_m` (9 clips). 31 animation binders hold clips that their TAE does not list, often only `a999_000000`.
 - Some weapons come in more files: `wp_a_0300.partsbnd.dcx` and `wp_a_0300_l.partsbnd.dcx` both hold `WP_A_0300.anibnd`, with smaller models in the `_l` file. `_m` files, such as `wp_a_9500_m`, hold other copies, probably for cutscenes.
 - NPC weapons are not parts. `c1010`'s spear hangs on its skeleton bone `Spear`, and its motion is in the body clips.
-- Vanilla body clips bind every bone in order: Wolf's `a000_003017` has 112 tracks for 112 bones.
+- A body clip lists the bones it moves in `transformTrackToBoneIndices`; it need not move every bone. Wolf's `a000_003017` has 112 tracks for 112 bones. `c1010`'s skeleton has 127 bones, and each of its 349 clips has 109 tracks; the 18 bones that no clip moves are `[cloth]` bones. `c5000` has 223 bones: 91 of its 212 clips move all of them, and 121, among them the idle `a000_000000`, move 169 and leave out all 54 worm bones (`Worm1` to `Worm15`, `L_WormLeg*`, `R_WormLeg*`, `WormHead`, the chins and feelers). Checked on 2026-10-31.
+
+### 1.1 Where Wolf's weapon parts come from, and why NPCs have none
+
+Checked on 2026-10-31 in the params, the MSBs, the HKS scripts and the behavior binders, unless marked *inferred*.
+
+- **Params pick the part.** `EquipParamWeapon` 5100 has `equipModelId` 300, which is `parts\wp_a_0300.partsbnd.dcx`.
+- **Params pick where it hangs.** Its `absorpParamId` 5000 points to `WepAbsorpPosParam` 5000: `right_0` is dummy poly 20, `left_0` is dummy poly 21, `right_1` and `rightHang_0` are dummy poly 147. `wepInvisibleType_0` to `_5` hide the model per slot.
+- **Params pick the body animations.** `wepmotionCategory` is 50; `c0000_transition.hks` reads it (`WEP_MOTION_CATEGORY_`).
+- **The behavior does not load parts.** `c0000.behbnd.dcx` names no `wp_a` file and no part clip. Its weapon names (`WeaponChange_SM`, `WeaponChangeBlend`) are body states. `c1010.behbnd.dcx` has only `WeaponLeftType`, `WeaponRightType` and ladder states from the common `c9997` behavior.
+- **HKS does not load parts.** `c0000.hks` picks states and blends (`AddSubWeaponChangeBlend`, `_IsNpcWeapon`). `c1010.hks` has no weapon logic besides `SP_EFFECT_REF_WEAPON_`.
+- **The engine does the rest** (*inferred*, the exe was not read). It loads the part binder, hangs the model on the dummy poly, and plays the part clip whose ID matches the body's TAE ID. No data file found does any of this.
+- **Only equipped characters get parts.** `NpcParam` has no weapon or equipment field; it has `modelDispMask0` to `31`, `normalChangeModelId` and `partsAtkParamId1` to `8`. Equipment for NPCs comes from `CharaInitParam` (`equip_Wep_Right`, `equip_Wep_Left`, `equip_Subwep_*`), which an MSB enemy names in `CharaInitID`. It applies to `c0000`-model characters only (*inferred*, from the `npcPlayer*` fields and the earlier games).
+- **Vanilla barely uses it.** `CharaInitParam` has 203 rows; 125 equip a right weapon, mostly 5100. Only 4 MSB enemies use a `CharaInitID`: `c0000_0001`, `_0002`, `_0003` and `_0005` in `m11_02_00_00` (entities 1120900 to 1120903, rows 15000 to 15030). All their weapon fields are -1, and their `NPCParamID` and `ThinkParamID` are 0.
+- **A Wolf-model NPC has no AI hooks.** `c9997.hks`, the common enemy script, has `ExecAIAttack`, `ExecAIAction`, `ExecAIGuard`, `ExecAIStep`, `ExecAILadder` and `ExecAIGeneralStance`. `c0000.hks` and `c0000_transition.hks` have none, and the player shares them.
+
+What follows for NPCs:
+
+| Route | Works by data? | Notes |
+| --- | --- | --- |
+| A `c0000`-model NPC with a `CharaInitID` that equips a part | Probably, untested | It needs AI hooks in the HKS that Wolf shares, and it looks like Wolf. |
+| A `cXXXX` NPC, such as `c1010`, loading a part binder | No | Needs an engine patch (DLL). |
+| The weapon built into the NPC's own files | Yes | The mesh goes into the NPC's `chrbnd` on a hand bone, its bones into the skeleton (4.3), its motion into the body clips. Model masks show or hide it (`NpcParam` `modelDispMask*`, TAE events). |
+
+So a part binder meant for NPCs is of no use, except for Wolf-model NPCs. A weapon rigged and animated once is still worth keeping as a source: 4.3 and 4.4 build it into each NPC.
 
 ## 2. What the bridge does today (checked)
 
@@ -65,9 +89,16 @@ Today the bridge can edit a part clip that a Sekiro weapon already has and write
 ### 4.3 Animated bones for NPC weapons
 
 - Editing the motion of an NPC's weapon bone works today: it is a body clip track, such as `c1010`'s `Spear`.
-- A new moving bone, such as a gun's hammer added under `Spear`, needs a new skeleton bone. A new mode of **Write model only** appends such bones after the skeleton's last bone. Old clips keep their tracks, since they bind the first bones in order; the new bones hold their rest pose there. The per-bone behavior lists and the ragdoll's skeleton copy grow by the same bones, as `edit_behaviors()` and `edit_ragdoll()` already do for new characters.
-- New body clips with tracks for the new bones go into the character's animation binder through **Add to an animation binder**.
-- Risk: whether every vanilla clip binds bones in order. Check every clip of the target character before writing.
+- A new moving bone, such as a gun's hammer added under `Spear`, needs a new skeleton bone. A new mode of **Write model only** appends such bones after the skeleton's last bone. They must come last: old clips name bones by their numbers, and a bone put in between would shift them.
+- **Old clips stay as they are.** They have no track for the new bones, as `c5000`'s idle has none for its worm (section 1). Such a bone probably holds the skeleton's rest pose (*inferred*).
+- **Hidden in old clips by a near-zero rest scale.** The weapon's root bone gets scale 0.001 in the rest pose of `skeleton.hkx` (`havok_tagfile.write_skeleton()` writes it). Its child bones shrink with it, so the weapon shrinks to a point at its parent bone in every old clip. Not 0: a zero scale can break the normals (*inferred*). The FLVER keeps the bones at scale 1, so that the mesh binds as modeled.
+- **Shown in new clips.** A new body clip lists the tracks of the clip it starts from, plus one for each new bone, which keys the scale back to 1. It goes into the character's animation binder through **Add to an animation binder**, and gets its TAE entry and behavior clip as that export grows them.
+- The per-bone behavior lists and the ragdoll's skeleton copy grow by the same bones, as `edit_behaviors()` and `edit_ragdoll()` already do for new characters.
+- Check before writing: every clip of the target character names only bones below the new bones' numbers.
+- Fallbacks, if M4 shows the weapon in old clips:
+  - Add a static track at scale 0.001 for each new bone to every old clip. This means re-encoding them (349 for `c1010`), or a patcher that adds static tracks without re-encoding.
+  - Put the weapon mesh on its own model mask. `NpcParam` `modelDispMask*` hides it, and a TAE event in the new clips shows it.
+- This is the only data route to a moving weapon on an NPC that is not built on Wolf's model (section 1.1).
 
 ### 4.4 Weapon motion from other games
 
@@ -90,7 +121,7 @@ Today the bridge can edit a part clip that a Sekiro weapon already has and write
 | M1 | An edited existing part clip, `a076_405010_1`, written into the mod folder's `wp_a_0760.partsbnd.dcx` | Do written part binders load, and do edited part clips play? |
 | M2 | A new clip for an ID the part had none for, such as the umbrella opening in Wolf's idle, first alone, then with a part TAE entry | Does a part clip play by ID alone, or does it need an entry? |
 | M3 | An animation binder added by hand to `wp_a_0700.partsbnd.dcx` | Does the game load an animation binder a weapon did not have? |
-| M4 | `c1010` with an appended moving bone and one new body clip | Do old clips keep working with more bones? |
+| M4 | `c1010` with an appended weapon bone at rest scale 0.001, and one new body clip that keys it to scale 1 | Do old clips keep working with more bones? Is the weapon hidden in them, so that empty tracks take the Havok rest pose? Does it show in the new clip? |
 
 ## 6. Risks and open questions
 
@@ -99,9 +130,11 @@ Today the bridge can edit a part clip that a Sekiro weapon already has and write
 - `_l` files: assumed to be the far-away models; both copies are written so that neither plays the old clip. `_m` files are assumed to be for cutscenes and are not written.
 - Another mod that changes the same part binder wins over this one or loses to it.
 - 4.4c gives odd results between weapons of different builds; the Log should say which bones stayed unpaired.
+- The engine may fill empty tracks from the FLVER's bind pose instead of the Havok rest pose. Then a weapon of 4.3 shows in old clips (M4), and one of the fallbacks of 4.3 is needed.
 
 ## 7. Not in this plan
 
 - Part clips for weapons of other FromSoftware games. Their parts pair by the same ID only (`TAE_VERSIONS`).
 - Weapon TAE events (sounds, effects, hit boxes on dummy polys), and events 710, 711 and 713, which hide weapons or swap model masks.
 - Physics on weapon bones, such as cloth or chains.
+- Part binders on NPCs. A `cXXXX` NPC needs an engine patch for them; a `c0000`-model NPC needs AI hooks in Wolf's HKS (section 1.1).
