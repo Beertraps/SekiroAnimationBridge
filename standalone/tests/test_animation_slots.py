@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import animation_slots as slots
 import bridge_runtime
 import character_export
+import havok_tagfile
 import havok_xml
 from binder_members import Binder, add_member
 from test_binder_members import anibnd
@@ -249,6 +250,62 @@ class BehaviorXml(unittest.TestCase):
             slots.check_variations(index, dict(clip='a100_003008'), [job])
 
 
+NEW_CLIP = 'a100_003008_hkx_AutoSet_01'
+JOB = dict(selector='Attack3008_CMSG', sourceClip='a000_003008_hkx_AutoSet_01', clipName=NEW_CLIP)
+
+
+def varied_xml():
+    """The behavior XML as the Duplicator's variation leaves it: Attack3008_CMSG also holds a copy of its clip
+    generator that plays a100_003008, whose path is added at the end of animationNames."""
+    attack = ATTACK[:3] + (ATTACK[3] + [NEW_CLIP],)
+    return behavior_xml([attack, *IDLES], dict(CLIPS, **{NEW_CLIP: 'a100_003008'}))
+
+
+def game_data_kept(data, patched):
+    """The game file's DATA is the start of the patched file's DATA."""
+    old, new = havok_tagfile.Tagfile(data), havok_tagfile.Tagfile(patched)
+    size = old.data_section.end - old.base
+    return patched[new.base:new.base + size] == data[old.base:old.data_section.end]
+
+
+class InPlace(unittest.TestCase):
+    def test_the_variation_is_written_into_the_game_file(self):
+        data, edited = behavior_tagfile(), varied_xml()
+        patched = slots.patch_variations(data, havok_xml.to_xml(data), edited, [JOB])
+        reread = slots.check_patched(data, patched, edited, 'c9997.hkx')
+        index = slots.behavior_index(reread)
+        self.assertEqual(slots.selectors_playing(index, 'a100_003008'), ['Attack3008_CMSG'])
+        self.assertEqual(index['paths'][-1], '..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx\\a100\\a100_003008.hkx')
+        self.assertTrue(game_data_kept(data, patched))
+        old, new = havok_tagfile.Tagfile(data), havok_tagfile.Tagfile(patched)
+        self.assertEqual(sorted(item.type.name for item in new.items[len(old.items):]), ['char'] * 3 + ['hkbClipGenerator'])
+        moved = [(a.count, b.count) for a, b in zip(old.items, new.items) if (a.offset, a.count) != (b.offset, b.count)]
+        self.assertEqual(sorted(moved), [(1, 2), (2, 3)])  # Attack3008_CMSG's generators and the animation paths
+        self.assertEqual(new.unpatched(), ([], []))
+        # The new clip generator is its source's bytes with three fields changed.
+        clips = {new.text(new.class_fields(v)['name'].at): v for v in new.walk()
+                 if v.type.name == 'hkbClipGenerator' and v.item > 0}
+        source, copy = clips['a000_003008_hkx_AutoSet_01'], clips[NEW_CLIP]
+        changed = [i for i in range(source.type.size) if new.data[source.at + i] != new.data[copy.at + i]]
+        # name, animationName and animationInternalId, each 4 bytes in the synthetic layout
+        self.assertTrue(changed and set(changed) <= set(range(0, 4)) | set(range(16, 20)) | set(range(24, 28)))
+
+    def test_an_edit_the_patch_does_not_carry_fails_the_readback(self):
+        data = behavior_tagfile()
+        edited = varied_xml().replace('<integer value="3008"/>', '<integer value="3009"/>')  # Attack3008_CMSG's animId
+        patched = slots.patch_variations(data, havok_xml.to_xml(data), edited, [JOB])
+        with self.assertRaisesRegex(RuntimeError, "c9997.hkx does not read back as the Duplicator's XML: object"):
+            slots.check_patched(data, patched, edited, 'c9997.hkx')
+
+    def test_a_changed_path_or_a_missing_clip_generator_is_refused(self):
+        data = behavior_tagfile()
+        edited = varied_xml().replace('a000_000000.hkx', 'a000_000001.hkx')
+        with self.assertRaisesRegex(RuntimeError, 'can only add paths'):
+            slots.patch_variations(data, havok_xml.to_xml(data), edited, [JOB])
+        with self.assertRaisesRegex(RuntimeError, "one clip generator a100_003008_hkx_AutoSet_02"):
+            slots.patch_variations(data, havok_xml.to_xml(data), varied_xml(), [dict(JOB, clipName='a100_003008_hkx_AutoSet_02')])
+
+
 # Binders and plans -------------------------------------------------------------------------------------------------------
 
 def enemy_anibnd(entries=ENEMY):
@@ -422,7 +479,9 @@ class Registration(unittest.TestCase):
         index = slots.behavior_index(havok_xml.to_xml(behavior.members[1][2]))
         self.assertEqual(slots.selectors_playing(index, 'a100_003008'), ['Attack3008_CMSG'])
         self.assertIn('..\\..\\..\\..\\..\\Model\\chr\\c9997\\hkx\\a100\\a100_003008.hkx', index['paths'])
-        self.assertEqual(behavior.members[0][2], Binder((self.game / 'c1010.behbnd.dcx').read_bytes()).members[0][2])
+        original = Binder((self.game / 'c1010.behbnd.dcx').read_bytes())
+        self.assertEqual(behavior.members[0][2], original.members[0][2])
+        self.assertTrue(game_data_kept(original.members[1][2], behavior.members[1][2]))
         self.assertEqual(digest(self.game), game)
         # Exporting the same name again replaces the clip; its TAE entry and behavior stay as they are.
         report, log = self.export()

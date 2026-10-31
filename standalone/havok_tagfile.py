@@ -421,6 +421,54 @@ class Tagfile:
     def add_patch(self, type_index, offsets):
         self.new_patches.setdefault(type_index, []).extend(offsets)
 
+    def item_patches(self, item):
+        """{type number: offsets in the item} of the PTCH entries for an item's slots, as the file has them."""
+        start, end = item.offset, item.offset + item.count * item.type.size
+        found = {}
+        for type_index, offsets in self.patches.items():
+            inside = [o - start for o in offsets if start <= o < end]
+            if inside:
+                found[type_index] = inside
+        return found
+
+    def item_bytes(self, item):
+        """An item's data, which must still be where the file has it."""
+        start = self.base + item.offset
+        end = start + item.count * item.type.size
+        if end > self.data_section.end:
+            raise ValueError(f'Item {item.index} has moved to new data; read it before it moves.')
+        return bytes(self.data[start:end])
+
+    def copy_item(self, item, payload=None):
+        """A new item of an item's type and flags with its data, or payload of the same length, and the patches of its
+        slots. Its slots name what the payload names. Returns its number."""
+        payload = self.item_bytes(item) if payload is None else bytes(payload)
+        if len(payload) != item.count * item.type.size:
+            raise ValueError(f'A copy of item {item.index} needs {item.count * item.type.size} bytes, not {len(payload)}.')
+        index = self.add_item(item.type, item.flags, payload, item.count)
+        offset = self.item_at(index).offset
+        for type_index, inside in self.item_patches(item).items():
+            self.add_patch(type_index, [offset + o for o in inside])
+        return index
+
+    def add_string(self, like, text):
+        """A new string item of the type and flags of another string item; returns its number."""
+        raw = text.encode('utf-8') + b'\0'
+        return self.add_item(like.type, like.flags, raw, len(raw))
+
+    def append_elements(self, item, elements):
+        """Grow an array item by elements (bytes each) at its end. The item moves to new data with the patches of its
+        slots; a new pointer or string element that names an item is patched under the element type."""
+        count, size = item.count, item.type.size
+        patches = self.item_patches(item)
+        offset = self.replace_items(item, self.item_bytes(item) + b''.join(elements), count + len(elements))
+        for type_index, inside in patches.items():
+            self.add_patch(type_index, [offset + o for o in inside])
+        if item.type.format in (PTR, STRING):
+            self.add_patch(item.type.index, [offset + (count + i) * size for i, element in enumerate(elements)
+                                             if struct.unpack_from('<I', element)[0]])
+        return offset
+
     def write(self):
         """The file with every patch applied."""
         def header(tag, size, leaf):
