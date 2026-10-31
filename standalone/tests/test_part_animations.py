@@ -16,6 +16,7 @@ def tae(entries, version=0x1000D):
     """A minimal TAE: each animation gives (ID, 'own' | 'hkx' | 'other', source ID[, events]).
 
     An event is (type, start s, end s, slot, (dummy of model 0, ..., 3)), laid out as event 715.
+    An imported ID ('other') is the second field of its file data, after the file name offset.
     """
     data = bytearray(0x60 + 16 * len(entries))
     data[:4] = b'TAE '
@@ -39,8 +40,9 @@ def tae(entries, version=0x1000D):
         struct.pack_into('<i', data, animation + 0x20, len(events))
         struct.pack_into('<q', data, animation + 24, block)
         struct.pack_into('<qq', data, block, int(kind == 'other'), payload)
+        struct.pack_into('<q', data, payload, 0x1234)  # the file name offset, which a reader must skip
         if kind == 'other':
-            struct.pack_into('<i', data, payload, source)
+            struct.pack_into('<i', data, payload + 8, source)
         else:
             data[payload + 9] = int(kind == 'hkx')
             struct.pack_into('<i', data, payload + 12, source if kind == 'hkx' else -1)
@@ -97,6 +99,13 @@ class ChooseTests(unittest.TestCase):
 
     def test_part_tae_redirects_an_id(self):
         self.assertEqual(pa.choose_clip(76405033, self.part, {})[0], 76421020)
+
+    def test_part_tae_import_pairs_a_shared_body_clip(self):
+        # As in the game: Wolf's a076_412001 plays a070_412001, and the umbrella's own TAE entry 412001 imports 412000.
+        part = dict(self.part, tae=pa.read_tae(tae([(76412001, 'other', 76412000)])))
+        wolf = {**self.wolf, 70412001: ('own', 70412001), 76412001: ('hkx', 70412001)}
+        self.assertEqual(pa.choose_clip(70412001, part, wolf, 'c0000'),
+                         (76412000, 'TAE of C0000: a076_412001 plays a070_412001'))
 
     def test_rest_pose_without_a_clip(self):
         self.assertEqual(pa.choose_clip(100, self.part, self.wolf)[0], pa.REST)
