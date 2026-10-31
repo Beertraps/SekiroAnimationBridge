@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 HOME = HERE.parent
@@ -257,6 +257,22 @@ def binder_member(into, motion):
         raise ValueError('The binder does not exist yet, and the scene does not record the archive its clip came from '
                          f'to start it from. Choose an existing binder.\n{binder}')
     return name, base
+
+
+def binder_skeleton(binder, temp):
+    """The skeleton of an existing animation binder as JSON for the Blender export, so that bones it adds after the
+    clip's own, such as weapon bones from character-model, get tracks. None when the binder has no readable skeleton."""
+    if not binder.is_file():
+        return None
+    import havok_tagfile
+    from character_export import read_binder
+    members = {PureWindowsPath(m[1]).name.lower(): m[2] for m in read_binder(binder)[0].members}
+    if 'skeleton.hkx' not in members or members['skeleton.hkx'][4:8] != b'TAG0':
+        return None
+    compendium = next((data for name, data in members.items() if name.endswith('.compendium')), None)
+    path = temp / 'binder_skeleton.json'
+    path.write_text(json.dumps(havok_tagfile.skeleton(members['skeleton.hkx'], compendium)), encoding='utf-8')
+    return path
 
 
 def add_to_binder(into, name, base, motion, hkx, temp):
@@ -583,6 +599,9 @@ def convert(request):
             shutil.copyfile(sampled, motion)
         else:
             sampling = sampling_arguments(request)
+            skeleton = binder_skeleton(into[0], temp) if into else None
+            if skeleton:
+                sampling += ['--skeleton-json', skeleton]
             event('blender', 'Sampling the edited animation in Blender', 25)
             run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export', '--output-json', motion, *sampling])
         doc = json.loads(motion.read_text(encoding='utf-8'))
@@ -624,6 +643,7 @@ def convert(request):
                           sidecar=str(sidecar), bytes=stats['bytes'], quantization=stats['quantization'],
                           tolerance=stats['tolerance'], readback=stats.get('readback'), action=sampled.get('action', ''),
                           rootMotion=sampled.get('rootMotion', ''), addedTracks=len(sampled.get('addedTracks', [])),
+                          weaponTracks=sampled.get('weaponTracks', []),
                           warnings=sampled.get('warnings', []), parts=written, binder=binder, partBinders=part_binders))
         return str(output)
 
@@ -733,10 +753,12 @@ def character(request):
         run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export-character',
              '--output-dir', manifest, *(['--action', request['action']] if request.get('action') else []), *frames])
         if mode == 'character-model':
-            event('character', f"Writing the model and textures of {new_id}; {template}'s skeleton, clips and behavior "
-                               'stay', 40)
+            event('character', f"Writing the model and textures of {new_id}; {template}'s "
+                               + ('clips stay, its skeleton gets the weapon bones' if request.get('weaponBones') else
+                                  'skeleton, clips and behavior stay'), 40)
             report = character_export.model(manifest / 'manifest.json', game_root, template, output, new_id, map_name,
-                                            parts, work, texture_size=int(request.get('textureSize') or 2048))
+                                            parts, work, texture_size=int(request.get('textureSize') or 2048),
+                                            weapon_bones=bool(request.get('weaponBones')))
         else:
             event('character', 'Writing the model, textures, skeleton, behavior and clip', 40)
             report = character_export.export(manifest / 'manifest.json', game_root, template, new_id, output, map_name,

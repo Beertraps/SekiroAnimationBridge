@@ -42,6 +42,9 @@ MTD_CUTOUT = 'N:\\NTC\\data\\Material\\mtd\\character\\C[AMSN]_e_Decal.mtd'
 # TPF format numbers of c1010's textures: BC7 sRGB color, BC7 normal, BC4 metalness.
 FORMATS = dict(a=(102, 'BC7_UNORM_SRGB'), n=(106, 'BC7_UNORM'), m=(103, 'BC4_UNORM'))
 MAX_VERTICES = 65535
+# The rest scale of a weapon bone added to a vanilla character's skeleton: the character's own clips have no track for
+# it, so it holds this rest and shrinks the weapon to a point at its parent bone. Not 0, which can break the normals.
+HIDDEN_SCALE = 0.001
 
 
 # Tools ---------------------------------------------------------------------------------------------------------------
@@ -816,7 +819,7 @@ def edit_behaviors(info, template, new_id, bone_map, weight_source, mirror, coun
         if data[4:8] != b'TAG0':
             continue
         new, changes = havok_tagfile.edit_behavior(data, compendium, bone_map, weight_source, mirror, count,
-                                                   renames=[(template, new_id)])
+                                                   renames=[(template, new_id)] if template.lower() != new_id.lower() else [])
         info['behaviors'][index]['changes'] = changes
         if changes:
             edited[index] = new
@@ -1066,13 +1069,128 @@ def model_bones(manifest, skeleton_bones, character):
     return np.array(target, np.int64), gave
 
 
-def model(manifest_path, game_root, character, output, new_id='', map_name='', parts=(), work=None, texture_size=2048):
+def scene_weapon_bones(manifest, skeleton_bones, own_bones, meshes):
+    """The scene bones that join a vanilla character's skeleton after its last bone, so that a weapon moves on bones of
+    its own (docs/PART_ANIMATIONS_PLAN.md, 4.3): each bone that carries weights and is neither in the skeleton nor in
+    the character's own model (own_bones), and its ancestors up to the skeleton. Parents come before their children.
+    Returns scene bone indices."""
+    in_skeleton = {b['name'] for b in skeleton_bones}
+    bones = manifest['bones']
+    weighted = set()
+    for data in meshes:
+        weighted.update(np.unique(data['bone_indices'][data['bone_weights'] > 0]).tolist())
+    chosen = set()
+    for i in sorted(weighted):
+        j = i
+        if bones[i]['name'] in own_bones:
+            continue
+        while j >= 0 and bones[j]['name'] not in in_skeleton and j not in chosen:
+            chosen.add(j)
+            j = bones[j]['parent']
+    order = []
+
+    def place(i):
+        if i not in order:
+            if bones[i]['parent'] in chosen:
+                place(bones[i]['parent'])
+            order.append(i)
+    for i in sorted(chosen):
+        place(i)
+    return order
+
+
+def appended_skeleton(skeleton_bones, manifest, appended, rest_worlds, scene_worlds):
+    """The character's skeleton with the appended scene bones after its last bone, as write_skeleton takes it, and the
+    rest of every bone in the world (game space).
+
+    The skeleton's own bones keep their values. An appended bone rests where the scene has it, relative to its parent's
+    rest in rest_worlds, which is where the model binds. One that hangs on a bone of the skeleton gets HIDDEN_SCALE,
+    and its children shrink with it, in every clip that has no track for them.
+    """
+    bones = [dict(name=b['name'], parent=b['parent'], translation=list(b['translation']), rotation=list(b['rotation']),
+                  scale=list(b['scale'])) for b in skeleton_bones]
+    worlds = list(rest_worlds)
+    number = {b['name']: i for i, b in enumerate(bones)}
+    for i in appended:
+        bone = manifest['bones'][i]
+        parent = number[manifest['bones'][bone['parent']]['name']]
+        t, r, s = trs(np.linalg.inv(worlds[parent]) @ scene_worlds[i])
+        if parent < len(skeleton_bones):
+            s = s * HIDDEN_SCALE
+        number[bone['name']] = len(bones)
+        bones.append(dict(name=bone['name'], parent=parent, translation=t.tolist(), rotation=r.tolist(), scale=s.tolist()))
+        worlds.append(scene_worlds[i])
+    return bones, worlds
+
+
+def nearest_of(parents, count):
+    """For each bone, itself if its number is below count, else its nearest ancestor that is."""
+    nearest = []
+    for i, parent in enumerate(parents):
+        nearest.append(i if i < count else nearest[parent])
+    return nearest
+
+
+def add_skeleton_bones(info, files, character, new_id, bones, chrbnd, report):
+    """Put a skeleton with appended bones into the character's other files: the animation binder's skeleton.hkx, the
+    behavior's per-bone lists and the ragdoll's copy of the skeleton in chrbnd. The clips stay as they are; each must
+    move only bones before the new ones. Returns (skeleton bytes, behavior members by index)."""
+    old = len(info['skeleton']['bones'])
+    compendium = Path(info['paths']['compendium']).read_bytes()
+    binders = sorted(Path(files['anibnd']).parent.glob(f'{character}*.anibnd.dcx'))
+    clips, past = 0, []
+    for path in binders:
+        binder, _ = read_binder(path)
+        if path != Path(files['anibnd']) and any(PureWindowsPath(m[1]).name.lower() == 'skeleton.hkx' for m in binder.members):
+            raise ValueError(f'{path.name} holds a skeleton of its own. Weapon bones are written for characters whose '
+                             f'skeleton is only in {Path(files["anibnd"]).name}.')
+        for entry in binder.members:
+            name = PureWindowsPath(entry[1]).name
+            if CLIP.fullmatch(name):
+                clips += 1
+                moved = havok_tagfile.track_bones(entry[2], compendium)
+                if moved and max(moved) >= old:
+                    past.append(f'{name} ({max(moved)})')
+    if past:
+        raise ValueError(f"{len(past)} clips of {character} move bones past its skeleton's {old}: " + ', '.join(past[:6]) +
+                         '. New bones would take their numbers.')
+    names, parents = [b['name'] for b in bones], [b['parent'] for b in bones]
+    skeleton_data = havok_tagfile.write_skeleton(Path(info['paths']['skeleton']).read_bytes(), bones, compendium)
+    identity = list(range(old))
+    source = nearest_of(parents, old)
+    # A new bone mirrors onto itself; every behavior that has a mirror map must have the same one.
+    mirrors = {tuple(f['values']) for b in info['behaviors'] for f in b['boneFields'] if f['kind'] == 'mirror'
+               and len(f['values']) == old}
+    if len(mirrors) > 1:
+        raise ValueError(f"{character}'s behavior files have different mirror maps; the export cannot grow them.")
+    mirror = list(next(iter(mirrors))) + list(range(old, len(bones))) if mirrors else None
+    behaviors = edit_behaviors(info, character, new_id, identity, source, mirror, len(bones))
+    locals_ = [matrix(b['translation'], b['rotation'], b['scale']) for b in bones]
+    rig = dict(names=names, parents=parents, locals=locals_, worlds=worlds_of(locals_, parents), boneMap=identity,
+               templateNames=names[:old])
+    for entry in chrbnd.members:
+        if ragdoll_member(character, entry[1]):
+            if PureWindowsPath(entry[1]).suffix.lower() == '.hkx':
+                entry[2], report['ragdoll'] = edit_ragdoll(entry[2], rig)
+            else:
+                entry[2] = edit_pwv(entry[2], source)
+    report['skeleton'] = dict(bones=len(bones), added=names[old:], hiddenScale=HIDDEN_SCALE, clipsChecked=clips,
+                              behaviorsEdited=sorted(behaviors))
+    return skeleton_data, behaviors
+
+
+def model(manifest_path, game_root, character, output, new_id='', map_name='', parts=(), work=None, texture_size=2048,
+          weapon_bones=False):
     """Write the scene of an export manifest as the model of a vanilla character that keeps its skeleton, clips,
     behavior and ragdoll. Returns a report of what was written and checked.
 
     Without new_id, or with the character's own ID, only the model and texture binders are written, under the
     character's ID: every instance of it in the game changes. With another new_id the character's other files are
     copied under it, as clone writes them, and map parts can use it.
+
+    With weapon_bones, the scene's weighted bones outside the skeleton, such as a weapon rig's, are added after the
+    skeleton's last bone instead of giving their weights away (scene_weapon_bones). The animation binder, behavior and
+    ragdoll are then written too, with the skeleton grown; the clips stay as they are.
     """
     from dcx_codec import configure_oodle
     new_id = new_id or character
@@ -1114,6 +1232,16 @@ def model(manifest_path, game_root, character, output, new_id='', map_name='', p
                                   "rest, so the model there may not match Blender.")
 
     meshes = [np.load(m['data']) for m in manifest['meshes']]
+    bones = skeleton
+    if weapon_bones:
+        appended = scene_weapon_bones(manifest, skeleton, {b['name'] for b in info['flver']['bones']}, meshes)
+        if not appended:
+            raise ValueError(f"No weighted bone of the scene is outside {character}'s skeleton, so there is no weapon "
+                             'bone to add. Bind the weapon with Add weapon in the Retarget Assistant, or bring a weapon rig.')
+        bones, worlds = appended_skeleton(skeleton, manifest, appended, worlds, src_worlds)
+        target, gave = model_bones(manifest, bones, character)
+        gave = set(gave)
+    parents = [b['parent'] for b in bones]
     weighted = set()
     for data in meshes:
         weighted.update(np.unique(target[data['bone_indices'][data['bone_weights'] > 0]]).tolist())
@@ -1128,15 +1256,15 @@ def model(manifest_path, game_root, character, output, new_id='', map_name='', p
     for b in weighted:
         while b >= 0 and b not in needed:
             needed.add(b)
-            b = t_parents[b]
-    order = list(range(len(skeleton)))
+            b = parents[b]
+    order = list(range(len(bones)))
     if max(weighted, default=0) > 255:
         # Byte bone indices: the weighted bones and their ancestors first.
         order = [i for i in order if i in needed] + [i for i in order if i not in needed]
     nodes, flver_index = [], {}
     for i in order:
         flver_index[i] = len(nodes)
-        nodes.append(dict(name=skeleton[i]['name'], parent=flver_index.get(t_parents[i], -1),
+        nodes.append(dict(name=bones[i]['name'], parent=flver_index.get(parents[i], -1),
                           world=[float(v) for v in np.asarray(worlds[i]).T.ravel()]))
     node_of_source = np.array([flver_index[t] for t in target.tolist()], np.int32)
     if any(flver_index[b] > 255 for b in weighted):
@@ -1149,18 +1277,30 @@ def model(manifest_path, game_root, character, output, new_id='', map_name='', p
     member(chrbnd, lambda n: n.lower().endswith('.flver'))[2] = (work / f'{new_id}.flver').read_bytes()
     texbnd, tex_kind = read_binder(files['texbnd'])
     member(texbnd, lambda n: n.lower().endswith('.tpf'))[2] = (work / f'{new_id}.tpf').read_bytes()
+    skeleton_data, behaviors = None, None
+    if weapon_bones:
+        skeleton_data, behaviors = add_skeleton_bones(info, files, character, new_id, bones, chrbnd, report)
     if own:
-        # The character's other model files, such as its ragdoll and cloth, stay as they are.
+        # The character's other model files, such as its cloth, stay as they are; so do its clips.
         report['files'] = [write_binder(chrbnd, kind, output / f'chr/{new_id}.chrbnd.dcx', character, new_id),
                            write_binder(texbnd, tex_kind, output / f'chr/{new_id}.texbnd.dcx', character, new_id)]
+        if weapon_bones:
+            anibnd, ani_kind = read_binder(files['anibnd'])
+            member(anibnd, lambda n: n.lower() == 'skeleton.hkx')[2] = skeleton_data
+            behbnd, beh_kind = read_binder(files['behbnd'])
+            for index, data in behaviors.items():
+                behbnd.members[index][2] = data
+            report['files'] += [write_binder(anibnd, ani_kind, output / f'chr/{new_id}.anibnd.dcx', character, new_id),
+                                write_binder(behbnd, beh_kind, output / f'chr/{new_id}.behbnd.dcx', character, new_id)]
     else:
         chrbnd.members = [m for m in chrbnd.members
                           if PureWindowsPath(m[1]).suffix.lower() == '.flver' or ragdoll_member(character, m[1])]
-        identity = list(range(len(skeleton)))
-        behaviors = edit_behaviors(info, character, new_id, identity, identity, None, len(identity))
+        if behaviors is None:
+            identity = list(range(len(skeleton)))
+            behaviors = edit_behaviors(info, character, new_id, identity, identity, None, len(identity))
         written = [write_binder(chrbnd, kind, output / f'chr/{new_id}.chrbnd.dcx', character, new_id),
                    write_binder(texbnd, tex_kind, output / f'chr/{new_id}.texbnd.dcx', character, new_id)]
-        write_common(files, character, new_id, output, report, parts, behaviors, None, None, work)
+        write_common(files, character, new_id, output, report, parts, behaviors, skeleton_data, None, work)
         report['files'] = written + report['files']
     report['profile'] = str(me3_profile(output, output.name))
     report['verify'] = verify(output, new_id, game_root, '' if own else character, work / 'verify')

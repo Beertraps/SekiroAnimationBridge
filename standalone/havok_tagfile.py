@@ -655,6 +655,20 @@ def skeleton(data, compendium=None):
         referenceFloats=count('referenceFloats'))
 
 
+def track_bones(data, compendium=None):
+    """The skeleton bone numbers that an animation file's tracks move, in track order: its binding's
+    transformTrackToBoneIndices, or the first numberOfTransformTracks bones where the binding lists none."""
+    tag = Tagfile(data, compendium)
+    indices, tracks = None, 0
+    for value in tag.walk():
+        if value.field == 'transformTrackToBoneIndices' and value.type.format == ARRAY and indices is None:
+            item, offsets = tag.array(value)
+            indices = [] if item is None else [tag.integer(item.type, a) for a in offsets]
+        elif value.field == 'numberOfTransformTracks' and value.type.format == INT and not tracks:
+            tracks = tag.integer(value.type, value.at)
+    return indices or list(range(tracks))
+
+
 def write_skeleton(data, bones, compendium=None, renames=()):
     """The file with new bones for its first hkaSkeleton. Each bone is a dict of name, parent, translation (3),
     rotation (x, y, z, w) and scale (3). Bone names become new string items; the old ones stay unused. renames

@@ -1,6 +1,6 @@
 # New part animations, from Sekiro and other games
 
-Plan of 2026-10-30. Part 4.1 was built on 2026-10-31 (see its section); the rest is not built yet. Facts marked *checked* were read from Steam Sekiro (unpacked with UXM, read only) and the bridge's code on that date; section 1.1 was checked on 2026-10-31.
+Plan of 2026-10-30. Parts 4.1 and 4.3 were built on 2026-10-31 (see their sections); the rest is not built yet. Facts marked *checked* were read from Steam Sekiro (unpacked with UXM, read only) and the bridge's code on that date; section 1.1 was checked on 2026-10-31.
 
 ## Summary
 
@@ -87,6 +87,14 @@ So a part binder meant for NPCs is of no use, except for Wolf-model NPCs. A weap
 - Nobody knows yet whether the game loads an animation binder that a weapon did not have. Build 4.2 only after M3 passes on a binder made by hand.
 
 ### 4.3 Animated bones for NPC weapons
+
+**Built on 2026-10-31**, with these details. M4 is not tested yet.
+
+- Option: **Write model only: add weapon bones to the skeleton** (`characterWeaponBones`), request `weaponBones`, `bridge_cli character-model --weapon-bones`. It works under the template's own ID and under a new ID.
+- Which bones: every bone that a written mesh weights and that is neither a skeleton bone nor a node of the template's FLVER, with its parents up to the skeleton, parents first (`character_export.scene_weapon_bones()`). Only a new bone whose parent is a skeleton bone gets scale 0.001; its children rest at scale 1 below it (`appended_skeleton()`).
+- Written (`add_skeleton_bones()`): the animation binder with only `skeleton.hkx` replaced; the behavior binder's `Characters\c1010.hkx` with its per-bone lists grown; the ragdoll and its `.hkxpwv` in the model binder. A new bone's behavior weights copy those of its nearest skeleton ancestor; the mirror map pairs it with itself. The export stops when another binder holds `skeleton.hkx`, or when the character's mirror maps differ.
+- The check reads each clip's `transformTrackToBoneIndices` (`havok_tagfile.track_bones()`).
+- New clips: an export with **Add to an animation binder** reads that binder's skeleton (`bridge_runtime.binder_skeleton()`). When it starts with the clip's bones and has more, Blender samples each extra bone that the rig or the bound mesh's armature has, and the clip gets their tracks after the others (`blender_bridge.appended_bones()`, report `weaponTracks`).
 
 - Editing the motion of an NPC's weapon bone works today: it is a body clip track, such as `c1010`'s `Spear`.
 - A new moving bone, such as a gun's hammer added under `Spear`, needs a new skeleton bone. A new mode of **Write model only** appends such bones after the skeleton's last bone. They must come last: old clips name bones by their numbers, and a bone put in between would shift them.

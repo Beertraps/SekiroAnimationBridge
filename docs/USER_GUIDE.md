@@ -396,6 +396,19 @@ Written under the character's own ID, the new model replaces that character ever
 
 A bone that is not in the character's skeleton, such as the weapon bone that Add weapon makes, gives its weights to the skeleton bone it hangs from. In the game it moves with that bone as one piece, as in Blender, and a notice names it. The export stops when the scene has fewer than 90% of the character's bones, such as a scene of another character.
 
+#### A weapon that moves in new clips
+
+A weapon bone that gives its weights away moves as one piece with its parent bone. To let the weapon move on its own, such as a gun that swings while the hand holds still, give its bones a place in the character's skeleton:
+
+1. Do steps 1 to 3 above.
+2. Tick **Write model only: add weapon bones to the skeleton**. Choose an empty **Mod folder** and click **Write model only**. The mod folder's `chr` now holds four binders: the model, the textures, the clips with the grown skeleton (`c1010.anibnd.dcx`) and the behavior (`c1010.behbnd.dcx`). The report lists the new bones under `skeleton`, such as `Gun`.
+3. The character's own clips stay as they are and have no track for the new bones. There the bones rest at 1/1000 of their size, so the weapon should shrink to a point at its parent bone. This is not yet checked in the game.
+4. To show the weapon in a clip, open the scene in Blender. In the 3D Viewport, click the armature that you clicked for **Add weapon**, press Ctrl+Tab for Pose Mode, and click the weapon bone, such as `Gun`. To make it move, press R to turn it or G to move it, then press I to key it. Do this on each frame where the pose should change. Leave the bone without keys to keep the weapon where Add weapon placed it. Save the file.
+5. On the **Export** page, choose the scene under **Blender scene**. Tick **Also add it to an animation binder** and set **Animation binder** to the mod's binder, such as `D:\SekiroMods\c1010_gun\chr\c1010.anibnd.dcx`. Leave **Name in the binder** empty to replace the scene's own clip, or type a new name; see [Add to an animation binder](#add-to-an-animation-binder).
+6. Click **Export HKX animation**. Activity says *Weapon bones of the animation binder's skeleton get tracks: Gun*. In that clip the weapon has its full size.
+
+To go back to a model without weapon bones, write it into a new, empty mod folder. Without the tick the bridge writes only the model and the textures, so an old folder would keep the clips and behavior of the grown skeleton.
+
 ### Command line
 
 ```bat
@@ -414,6 +427,7 @@ standalone\bridge_cli.cmd character-verify "D:\SekiroMods\dante" --id c1800 --ga
 | `--action`, `--frame-start`, `--frame-end` | Another action than the active one, and its frames |
 | `--pair TEMPLATE=SOURCE` | A template bone's partner when the matcher misses it; `TEMPLATE=` removes a pair |
 | `--texture-size` | The longest side of a written texture; 2048 by default |
+| `--weapon-bones` | `character-model` only: the scene's weapon bones join the skeleton after its last bone, at rest scale 0.001 |
 | `--force` | Write into a mod folder that is not empty |
 
 ## CLI

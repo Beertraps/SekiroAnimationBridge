@@ -325,7 +325,7 @@ def command_character_export(args, settings, saved):
 
 def command_character_model(args, settings, saved):
     return character_request(args, settings, 'character-model', inputBlend=path(args.scene), textureSize=args.texture_size,
-                             force=args.force)
+                             force=args.force, weaponBones=args.weapon_bones)
 
 
 def command_character_clone(args, settings, saved):
@@ -484,6 +484,9 @@ def parser():
     model.add_argument('--id', default='', help="write under a new ID with copies of the character's other files; "
                                                 "the character's own ID by default")
     placement(model)
+    model.add_argument('--weapon-bones', action='store_true',
+                       help="add the scene's weapon bones after the character's last bone, hidden in its own clips, so "
+                            'that new clips can move them; writes the skeleton, behavior and ragdoll too')
     model.add_argument('--texture-size', type=int, default=2048, help='the longest side of a written texture (default 2048)')
     model.add_argument('--force', action='store_true', help='write into a mod folder that is not empty')
     clone = character('character-clone', 'write the template itself under the new ID, to test the files in the game',

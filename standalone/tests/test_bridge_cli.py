@@ -169,9 +169,13 @@ class Commands(unittest.TestCase):
                   '--output',output)
         request=self.jobs[-1]
         expected=dict(mode='character-model',template='c1010',characterId='',gameFolder=str(self.base/'Sekiro'),
-                      outputFolder=str(output),inputBlend=str(self.base/'wolf.blend'),textureSize=2048,force=False)
+                      outputFolder=str(output),inputBlend=str(self.base/'wolf.blend'),textureSize=2048,force=False,
+                      weaponBones=False)
         self.assertEqual({k:request[k] for k in expected},expected)
         self.assertNotIn('pairs',request)
+        self.call('character-model',self.base/'wolf.blend','--template','c1010','--game-folder',self.base/'Sekiro',
+                  '--output',output,'--weapon-bones')
+        self.assertTrue(self.jobs[-1]['weaponBones'])
         with self.assertRaises(SystemExit),redirect_stderr(io.StringIO()):
             self.call('character-model',self.base/'wolf.blend','--game-folder',self.base/'Sekiro','--output',output)
     def test_character_parts_and_verify_name_their_folders(self):

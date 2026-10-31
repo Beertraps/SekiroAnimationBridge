@@ -483,7 +483,7 @@ def import_preview_model(preview_data_path: Path, rig, texture_path: Path | None
 
 
 EXPORT_OPTIONS = dict(action="", frame_range="scene", frame_start=None, frame_end=None, frame_rate=None,
-                      tracks="original", root_motion="auto", root_bone="", root_axes="xy", root_yaw=False)
+                      tracks="original", root_motion="auto", root_bone="", root_axes="xy", root_yaw=False, skeleton=None)
 BONE_CURVE = re.compile(r'^pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 
 
@@ -712,6 +712,35 @@ def extract_root_motion(matrices, axes, yaw, space=FROMSOFT):
     return transforms, samples
 
 
+def appended_bones(rig, bones, skeleton):
+    """The bones that skeleton has after the clip's own bones, when it starts with them, as an animation binder's
+    skeleton does after character-model added weapon bones: [(bone, armature, pose bone)] for each. The pose bone is
+    the scene's bone of that name in the rig, or in a weapon rig that follows it, named as the character export names
+    it (blender_character_export.armature_bones); None where the scene has no such bone."""
+    names = [bone["name"] for bone in bones]
+    if not skeleton or len(skeleton) <= len(bones) or [bone["name"] for bone in skeleton[:len(bones)]] != names:
+        return []
+    from blender_character_export import armature_bones, bound_meshes
+    others = {name: (armature, armature.pose.bones[bone.name])
+              for name, armature, bone, _ in armature_bones(bound_meshes(rig)[0], {b.name for b in rig.data.bones})}
+    found = []
+    for bone in skeleton[len(bones):]:
+        if bone["name"] in rig.pose.bones:
+            found.append((bone, rig, rig.pose.bones[bone["name"]]))
+        else:
+            found.append((bone, *others.get(bone["name"], (None, None))))
+    return found
+
+
+def rig_matrix(rig, armature, pose_bone):
+    """A pose bone's matrix in rig's armature space, also for a bone of another armature."""
+    if pose_bone is None:
+        return Matrix.Identity(4)
+    if armature == rig:
+        return pose_bone.matrix.copy()
+    return rig.matrix_world.inverted() @ armature.matrix_world @ pose_bone.matrix
+
+
 def export_motion(output_json: Path, **overrides):
     """Sample the bridge rig into motion JSON. Returns a summary of what was exported.
 
@@ -720,7 +749,8 @@ def export_motion(output_json: Path, **overrides):
     a bone without a track keeps its reference pose in game, and its children
     absorb any motion it has in Blender. FromSoftware's foot target chains
     stand upright on the exported feet, as in the game's clips, whatever
-    Blender shows for them.
+    Blender shows for them. Bones that the skeleton option adds after the
+    clip's own (appended_bones) get tracks of their own.
     """
     options = {**EXPORT_OPTIONS, **{key: value for key, value in overrides.items() if value is not None}}
     scene = bpy.context.scene
@@ -781,6 +811,22 @@ def export_motion(output_json: Path, **overrides):
                             "though tracked child bones follow it. Choose the keyed track set to add them.".format(len(untracked), listed))
     track_bones = source_tracks + added
     track_names = [str(name) for name in motion["trackNames"]] + [names[index] for index in added]
+    # Weapon bones of the animation binder's skeleton follow the clip's bones, each with a track.
+    appended = appended_bones(rig, bones, options["skeleton"])
+    weapon_tracks = []
+    if appended:
+        first = len(bones)
+        bones = bones + [dict(index=first + k, name=bone["name"], parent=int(bone["parent"]), translation=bone["translation"],
+                              rotation=bone["rotation"], scale=bone["scale"]) for k, (bone, _, _) in enumerate(appended)]
+        names = [bone["name"] for bone in bones]
+        parents = [int(bone["parent"]) for bone in bones]
+        weapon_tracks = [first + k for k, (_, _, pose_bone) in enumerate(appended) if pose_bone is not None]
+        track_bones = track_bones + weapon_tracks
+        track_names = track_names + [names[index] for index in weapon_tracks]
+        missing = [bone["name"] for bone, _, pose_bone in appended if pose_bone is None]
+        if missing:
+            warnings.append("The animation binder's skeleton has bones that this scene lacks ({}): {}. They get no track, "
+                            "so they keep their rest pose.".format(len(missing), ", ".join(missing[:8])))
 
     scene_rate = scene.render.fps / scene.render.fps_base
     rate = float(options["frame_rate"] or motion["frameRate"])
@@ -812,9 +858,12 @@ def export_motion(output_json: Path, **overrides):
                 warnings.append("No root-motion action matches '{}'. Root motion uses the root object's current action.".format(action.name))
         for time in times:
             set_time(scene, time)
-            worlds.append([pose_bone.matrix.copy() for pose_bone in pose_bones])
-            bases.append([pose_bone.matrix_basis.copy() for pose_bone in pose_bones])
-            rotations.append([own_rotation(pose_bone) for pose_bone in pose_bones])
+            worlds.append([pose_bone.matrix.copy() for pose_bone in pose_bones] +
+                          [rig_matrix(rig, armature, pose_bone) for _, armature, pose_bone in appended])
+            bases.append([pose_bone.matrix_basis.copy() for pose_bone in pose_bones] +
+                         [pose_bone.matrix_basis.copy() if pose_bone else Matrix.Identity(4) for _, _, pose_bone in appended])
+            rotations.append([own_rotation(pose_bone) for pose_bone in pose_bones] +
+                             [own_rotation(pose_bone) if pose_bone else Quaternion() for _, _, pose_bone in appended])
             if root_mode == "object":
                 root_samples.append(root_sample(root.location, root.rotation_euler.z, space))
     finally:
@@ -843,7 +892,7 @@ def export_motion(output_json: Path, **overrides):
     # A bone's own rest offset from its parent, where Blender's parent is the skeleton's.
     own_rest = [pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local
                 if parent >= 0 and pose_bone.parent is not None and pose_bone.parent.name == names[parent] else None
-                for pose_bone, parent in zip(pose_bones, parents)]
+                for pose_bone, parent in zip(pose_bones, parents)] + [None] * len(appended)
     exported = set(track_bones)
     # Foot target chains stand on the feet as exported, after root motion left them: each keeps its rest pose and moves
     # as one, without turning, so that its target sits on the foot, and the target turns with the foot. They and the
@@ -905,6 +954,8 @@ def export_motion(output_json: Path, **overrides):
     edited = dict(motion)
     edited.update(frameCount=count, frameRate=rate, duration=(count - 1) / rate, trackCount=len(track_bones),
                   trackBoneIndices=track_bones, trackNames=track_names, frames=frames)
+    if appended:
+        edited["skeleton"] = dict(motion["skeleton"], bones=bones, boneCount=len(bones))
     if root_mode == "none":
         edited.update(rootMotion=None, rootUp=None, rootForward=None)
     else:
@@ -912,7 +963,8 @@ def export_motion(output_json: Path, **overrides):
                       rootForward=motion.get("rootForward") or [0.0, 0.0, 1.0, 0.0])
     summary = dict(action=action.name, frameStart=start, frameEnd=end, sceneRate=scene_rate, frames=count,
                    frameRate=rate, tracks=len(track_bones), trackSet=options["tracks"],
-                   addedTracks=[names[index] for index in added], rootMotion=root_mode,
+                   addedTracks=[names[index] for index in added], weaponTracks=[names[index] for index in weapon_tracks],
+                   rootMotion=root_mode,
                    rootBone=names[root_index] if root_index is not None else "",
                    footTargets={names[target]: names[foot] for target, (foot, chain) in sorted(targets.items()) if target in exported},
                    warnings=warnings)
@@ -926,6 +978,8 @@ def export_motion(output_json: Path, **overrides):
         " from " + summary["rootBone"] if root_index is not None else ""), flush=True)
     if summary["footTargets"]:
         print("Foot targets follow the feet: " + ", ".join(summary["footTargets"]), flush=True)
+    if weapon_tracks:
+        print("Weapon bones of the animation binder's skeleton get tracks: " + ", ".join(summary["weaponTracks"]), flush=True)
     for warning in warnings:
         print("WARNING: " + warning, flush=True)
     return summary
@@ -1006,6 +1060,8 @@ def main():
     export_parser.add_argument("--root-axes", choices=("xy", "xyz"), default="xy",
                                help="extract ground travel only, or vertical travel as well")
     export_parser.add_argument("--root-yaw", action="store_true", help="also extract the bone's heading")
+    export_parser.add_argument("--skeleton-json", type=Path,
+                               help="the animation binder's skeleton; bones it adds after the clip's get tracks")
     inspect_parser = modes.add_parser("inspect", help="Describe the bridge rig, its actions and frame ranges as JSON.")
     inspect_parser.add_argument("--output-json", required=True, type=Path)
     verify_parser = modes.add_parser("verify", help="Measure the scene's rigs, skin and textures as JSON, with pass or fail checks.")
@@ -1042,7 +1098,8 @@ def main():
         export_motion(args.output_json.resolve(), action=args.action, frame_range=args.frame_range,
                       frame_start=args.frame_start, frame_end=args.frame_end, frame_rate=args.frame_rate,
                       tracks=args.tracks, root_motion=args.root_motion, root_bone=args.root_bone,
-                      root_axes=args.root_axes, root_yaw=args.root_yaw)
+                      root_axes=args.root_axes, root_yaw=args.root_yaw,
+                      skeleton=json.loads(args.skeleton_json.read_text(encoding="utf-8"))["bones"] if args.skeleton_json else None)
     elif args.mode == "verify":
         from blender_verify import verify_scene
         verify_scene(args.output_json.resolve(), args.render.resolve() if args.render else None, args.frames)

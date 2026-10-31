@@ -148,6 +148,21 @@ class Tagfiles(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'partitions'):hk.write_skeleton(skeleton_file(partitions=2),[])
     def test_a_file_that_is_not_a_tagfile_is_refused(self):
         with self.assertRaisesRegex(ValueError,'TAG0'):hk.Tagfile(section('TCM0',b''))
+    def test_a_clip_names_the_bones_its_tracks_move(self):
+        def clip(indices,tracks):
+            t=Types()
+            int16=t.add('hkInt16',int_format(16),2,2);int32=t.add('hkInt32',int_format(32),4,4)
+            shorts=t.add('hkArray<hkInt16>',ARRAY,16,8,subtype=int16)
+            root=t.add('hkaTestClip',CLASS,24,8,fields=(('numberOfTransformTracks',0,int32),('transformTrackToBoneIndices',8,shorts)))
+            data=bytearray(24);struct.pack_into('<i',data,0,tracks)
+            items=[(root,0,1)]
+            if indices:
+                struct.pack_into('<I',data,8,2);items.append((int16,24,len(indices)))
+                data+=b''.join(struct.pack('<h',i) for i in indices)
+            return tagfile(t,data,items,{shorts:[8]} if indices else {})
+        # c5000's idle moves 169 of its 223 bones, by a list; a clip without a list moves its first bones in order.
+        self.assertEqual(hk.track_bones(clip([0,1,5,2],4)),[0,1,5,2])
+        self.assertEqual(hk.track_bones(clip([],3)),[0,1,2])
 
 
 class Bones(unittest.TestCase):
@@ -201,6 +216,30 @@ class Bones(unittest.TestCase):
         manifest['bones']=[dict(name='Pelvis',parent=-1),dict(name='Master',parent=-1),dict(name='R_Hand',parent=3),
                            dict(name='Spine',parent=0)]
         self.assertEqual(character_export.model_bones(manifest,skeleton,'c1010')[0].tolist(),[1,0,3,2])
+    def test_weapon_bones_join_the_skeleton_after_its_last_bone(self):
+        # The skeleton: Master, Pelvis, R_Hand. The scene: a hammer under a gun under R_Hand, listed before the gun; a
+        # bone of the character's own model; an unweighted helper.
+        skeleton=[dict(name=n,parent=p,translation=[0,i,0],rotation=[0,0,0,1],scale=[1,1,1])
+                  for i,(n,p) in enumerate((('Master',-1),('Pelvis',0),('R_Hand',1)))]
+        manifest=dict(bones=[dict(name='Master',parent=-1),dict(name='Pelvis',parent=0),dict(name='R_Hand',parent=1),
+                             dict(name='Hammer',parent=5),dict(name='Sleeve',parent=1),dict(name='Gun',parent=2),
+                             dict(name='Helper',parent=2)])
+        mesh=dict(bone_indices=np.array([[3,1],[4,0],[2,6]]),bone_weights=np.array([[1.,0],[.5,.5],[1.,0]]))
+        appended=character_export.scene_weapon_bones(manifest,skeleton,{'Sleeve'},[mesh])
+        self.assertEqual(appended,[5,3],'the gun carries the weighted hammer and comes first')
+        rest=[placed(0,0,0),placed(0,1,0),placed(0,2,0)]
+        scene=rest+[placed(.5,2,0),placed(0,1,0),placed(.2,2,0),placed(0,2,0)]
+        bones,worlds=character_export.appended_skeleton(skeleton,manifest,appended,rest,scene)
+        self.assertEqual([(b['name'],b['parent']) for b in bones[3:]],[('Gun',2),('Hammer',3)])
+        self.assertEqual(bones[:3],skeleton,"the skeleton's own bones keep their values")
+        np.testing.assert_allclose(bones[3]['scale'],[.001]*3);np.testing.assert_allclose(bones[4]['scale'],[1]*3)
+        np.testing.assert_allclose(bones[3]['translation'],[.2,0,0],atol=1e-9)
+        np.testing.assert_allclose(bones[4]['translation'],[.3,0,0],atol=1e-9)
+        self.assertEqual(len(worlds),5)
+        self.assertEqual(character_export.nearest_of([b['parent'] for b in bones],3),[0,1,2,2,2])
+        # The helper and the model's own bone still give their weights to a bone of the grown skeleton.
+        target,gave=character_export.model_bones(manifest,bones,'c1010')
+        self.assertEqual((target.tolist(),gave),([0,1,2,4,1,3,2],[4,6]))
     def test_a_model_only_export_needs_the_characters_skeleton(self):
         skeleton=[dict(name=f'b{i}') for i in range(10)]
         manifest=dict(bones=[dict(name=f'b{i}',parent=i-1) for i in range(8)])
@@ -298,6 +337,7 @@ class Requests(unittest.TestCase):
                               outputFolder='mods/dante',textureSize='2048'))
         listing=bridge_ui.character_job(dict(request,mode='character-parts'))
         self.assertNotIn('parts',listing)
+        self.assertTrue(bridge_ui.character_job(dict(request,mode='character-model',characterWeaponBones=True))['weaponBones'])
 
 
 if __name__=='__main__':

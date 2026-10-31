@@ -35,12 +35,14 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','sourceOptions','theme','donor',
         'partAnimations','exportParts','writeParts','partsFolder','partId','modelMasks','addToBinder','binder','binderMember','previewCache',
         'characterBlend','characterAction','characterFrameStart','characterFrameEnd','characterGameFolder','characterTemplate',
-        'characterId','characterMap','characterParts','characterPartsFound','characterOutput','characterTextureSize'}
+        'characterId','characterMap','characterParts','characterPartsFound','characterOutput','characterTextureSize',
+        'characterWeaponBones'}
 # The New character page keeps its own fields, so the export page's scene and frames stay apart; a job gets the
 # runtime's names for them.
 CHARACTER_KEYS={'characterBlend':'inputBlend','characterAction':'action','characterFrameStart':'frameStart',
                 'characterFrameEnd':'frameEnd','characterGameFolder':'gameFolder','characterTemplate':'template',
-                'characterMap':'map','characterParts':'parts','characterOutput':'outputFolder','characterTextureSize':'textureSize'}
+                'characterMap':'map','characterParts':'parts','characterOutput':'outputFolder','characterTextureSize':'textureSize',
+                'characterWeaponBones':'weaponBones'}
 CHARACTER_REQUIRED={'character-parts':['writer','characterGameFolder','characterMap'],
                     'character-clone':['writer','characterGameFolder','characterId','characterOutput'],
                     'character-export':['writer','blender','characterBlend','characterGameFolder','characterId','characterOutput'],

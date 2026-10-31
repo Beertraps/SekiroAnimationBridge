@@ -117,6 +117,22 @@ def bound_meshes(rig):
     return bound, left_out
 
 
+def armature_bones(bound, taken):
+    """The bones of each other armature that moves with a bone of the rig, parents first, as the skeleton names them:
+    [(name, armature, bone, holder)], holder being the rig bone the armature follows. A name in taken gets the
+    armature's model name before it, as WP_A_0300_Blade00."""
+    found, taken = [], set(taken)
+    for armature, holder in dict.fromkeys((armature, bone) for obj, how, bone, armature in bound if how == 'armature'):
+        model = armature.name.split(' | ')[0]
+        for bone in sorted(armature.data.bones, key=lambda b: len(b.parent_recursive)):
+            name = bone.name if bone.name not in taken else f'{model}_{bone.name}'
+            while name in taken:
+                name += '_'
+            taken.add(name)
+            found.append((name, armature, bone, holder))
+    return found
+
+
 def settle(rig, bone):
     """The change that carries whatever moves with bone as a whole from where it is now to where it is when bone
     rests: the bone's rest in the world after its current pose's inverse."""
@@ -318,20 +334,13 @@ def export_character(output_dir, rig, action_name='', frame_start=None, frame_en
     # The bones of another armature that moves with a bone of the rig join the skeleton below that bone, parents
     # first; a name the skeleton has already takes the armature's name before it, as WP_A_0300_Blade00.
     extra, indices = [], {}
-    taken = set(bone_index)
-    for armature, holder in dict.fromkeys((armature, bone) for obj, how, bone, armature in bound if how == 'armature'):
+    for name, armature, bone, holder in armature_bones(bound, bone_index):
         rest = settle(rig, holder) @ armature.matrix_world
-        model = armature.name.split(' | ')[0]
-        own = indices[armature.name] = {}
-        for bone in sorted(armature.data.bones, key=lambda b: len(b.parent_recursive)):
-            name = bone.name if bone.name not in taken else f'{model}_{bone.name}'
-            while name in taken:
-                name += '_'
-            taken.add(name)
-            own[bone.name] = len(manifest['bones'])
-            manifest['bones'].append(dict(name=name, parent=own[bone.parent.name] if bone.parent else bone_index[holder],
-                                          rest=rows(rest @ bone.matrix_local)))
-            extra.append(armature.pose.bones[bone.name])
+        own = indices.setdefault(armature.name, {})
+        own[bone.name] = len(manifest['bones'])
+        manifest['bones'].append(dict(name=name, parent=own[bone.parent.name] if bone.parent else bone_index[holder],
+                                      rest=rows(rest @ bone.matrix_local)))
+        extra.append(armature.pose.bones[bone.name])
 
     materials, written = {}, {}
     for obj, how, bone, armature in bound:

@@ -43,6 +43,7 @@ standalone\bridge_cli.cmd part-verify work\mods\umbrella
 standalone\bridge_cli.cmd character-parts "D:\Games\Sekiro" --map m11_00_00_00
 standalone\bridge_cli.cmd character-export work\scenes\dante.blend --game-folder "D:\Games\Sekiro" --id c1800 --output work\mods\dante --map m11_00_00_00 --part c1010_0000
 standalone\bridge_cli.cmd character-model work\scenes\c1010_gun.blend --template c1010 --game-folder "D:\Games\Sekiro" --output work\mods\c1010_gun
+standalone\bridge_cli.cmd character-model work\scenes\c1010_gun.blend --template c1010 --game-folder "D:\Games\Sekiro" --output work\mods\c1010_wbones --weapon-bones
 standalone\bridge_cli.cmd character-verify work\mods\dante --id c1800
 ```
 
@@ -62,7 +63,9 @@ standalone\bridge_cli.cmd character-verify work\mods\dante --id c1800
   me3 profile beside it, and ends with the 12 checks of `character-verify`. `character-clone` writes the template itself
   under the new ID. `character-model --template c1010` writes a scene of a vanilla character as its model and textures
   only; its skeleton, clips and behavior stay the game's. Plan, facts and limits:
-  [docs/CHARACTER_EXPORT_PLAN.md](docs/CHARACTER_EXPORT_PLAN.md).
+  [docs/CHARACTER_EXPORT_PLAN.md](docs/CHARACTER_EXPORT_PLAN.md). With `--weapon-bones` the scene's weapon bones join
+  the skeleton after its last bone at rest scale 0.001; its clips stay, and an `export --binder` into that mod's anibnd
+  gives a new clip their tracks ([docs/PART_ANIMATIONS_PLAN.md](docs/PART_ANIMATIONS_PLAN.md) 4.3).
 - `run <request.json>` takes any request that the UI or `sekiro_animation_cli.ps1` sends to `bridge_runtime.py`.
 
 ## Tests
