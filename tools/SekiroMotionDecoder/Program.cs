@@ -4,7 +4,7 @@ using SoulsAssetPipeline.Animation;
 
 if (args.Length == 1 && args[0] == "--version")
 {
-    Console.WriteLine("SekiroMotionDecoder 0.6.0 (spline, interleaved, skeleton-compendiums, separate-compendiums, native-packfiles, preview)");
+    Console.WriteLine("SekiroMotionDecoder 0.7.0 (spline, interleaved, skeleton-compendiums, separate-compendiums, native-packfiles, preview, additive)");
     return 0;
 }
 
@@ -63,8 +63,9 @@ try
     int floatTrackCount = spline?.FloatTrackCount ?? interleaved!.FloatTrackCount;
     if (floatTrackCount != 0)
         throw new NotSupportedException("This animation has float tracks. This version exports skeletal transform tracks only.");
-    if (animationData.IsAdditiveBlend)
-        throw new NotSupportedException("This animation uses additive blending, which is not supported by this version.");
+    // An additive clip (blendHint 1 or 2) holds changes to the pose below it, not a pose. Its frames are written as
+    // decoded: channels it does not animate are no change (translation 0, rotation identity, scale 1).
+    int blendHint = (int)animationData.BlendHint;
 
     var trackToBone = animationData.TransformTrackIndexToHkxBoneMap;
     int trackCount = spline?.TransformTrackCount ?? interleaved!.TransformTrackCount;
@@ -76,7 +77,7 @@ try
     if (previewLimit > 0)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        Preview.Write(outputPath, Path.GetFileName(animationPath), skeleton, animationData, trackToBone, trackCount, previewLimit);
+        Preview.Write(outputPath, Path.GetFileName(animationPath), skeleton, animationData, trackToBone, trackCount, previewLimit, blendHint);
         Console.WriteLine(outputPath);
         return 0;
     }
@@ -151,7 +152,18 @@ try
     Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
     // Compact: a long clip's indented JSON runs to tens of megabytes, and the UI preview reads it all back.
     using (var stream = File.Create(outputPath))
-        JsonSerializer.Serialize(stream, motionData);
+    {
+        if (animationData.IsAdditiveBlend)
+        {
+            // Only additive clips get the field, so a normal clip's JSON stays as earlier versions wrote it.
+            var document = JsonSerializer.SerializeToNode(motionData)!.AsObject();
+            document["additive"] = JsonSerializer.SerializeToNode(new { blendHint, space = blendHint == 1 ? "parent" : "child" });
+            using var writer = new Utf8JsonWriter(stream);
+            document.WriteTo(writer);
+        }
+        else
+            JsonSerializer.Serialize(stream, motionData);
+    }
     Console.WriteLine($"Decoded {Path.GetFileName(animationPath)}: skeleton={skeleton.Name.GetString()}, frames={animationData.FrameCount}, tracks={trackCount}, mapped={namesByTrack.Count}, rootMotion={animationData.RootMotion?.Frames.Length ?? 0}");
     Console.WriteLine(outputPath);
     return 0;
@@ -201,12 +213,45 @@ static class Preview
     // Rounded like Python's round(value, 4); adding 0.0 turns -0 into 0.
     static void WriteRounded(Utf8JsonWriter json, double value) => json.WriteNumberValue(Math.Round(value, 4) + 0.0);
 
+    static (double x, double y, double z, double w) Multiply((double x, double y, double z, double w) a, (double x, double y, double z, double w) b) =>
+        (a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+         a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z);
+
+    static (double x, double y, double z) Rotate((double x, double y, double z, double w) q, (double x, double y, double z) v)
+    {
+        var turned = Multiply(Multiply(q, (v.x, v.y, v.z, 0)), (-q.x, -q.y, -q.z, q.w));
+        return (turned.x, turned.y, turned.z);
+    }
+
+    // An additive track's change on the bone's rest pose, as standalone/games/additive.py composes it: Havok's
+    // product change * rest in the parent's space for blendHint 1, rest * change for blendHint 2.
+    static (double x, double y, double z, double w) Normalized((double x, double y, double z, double w) q)
+    {
+        double length = Math.Sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+        return length > 0 ? (q.x / length, q.y / length, q.z / length, q.w / length) : (0, 0, 0, 1);
+    }
+
+    static double[] Additive(NewBlendableTransform change, HKX.Transform rest, int blendHint)
+    {
+        // Decoded rotations are unit length only to their compression's precision.
+        var d = Normalized((change.Rotation.X, change.Rotation.Y, change.Rotation.Z, change.Rotation.W));
+        var b = Normalized((rest.Rotation.Vector.X, rest.Rotation.Vector.Y, rest.Rotation.Vector.Z, rest.Rotation.Vector.W));
+        (double x, double y, double z) dt = (change.Translation.X, change.Translation.Y, change.Translation.Z);
+        (double x, double y, double z) bt = (rest.Position.Vector.X, rest.Position.Vector.Y, rest.Position.Vector.Z);
+        var r = Normalized(blendHint == 1 ? Multiply(d, b) : Multiply(b, d));
+        var moved = blendHint == 1 ? Rotate(d, bt) : Rotate(b, dt);
+        var t = blendHint == 1 ? (dt.x + moved.x, dt.y + moved.y, dt.z + moved.z) : (bt.x + moved.x, bt.y + moved.y, bt.z + moved.z);
+        return Matrix(r.x, r.y, r.z, r.w, change.Scale.X * rest.Scale.Vector.X,
+            change.Scale.Y * rest.Scale.Vector.Y, change.Scale.Z * rest.Scale.Vector.Z, t.Item1, t.Item2, t.Item3);
+    }
+
     public static void Write(string outputPath, string clip, HKX.HKASkeleton skeleton, HavokAnimationData animation,
-        int[] trackToBone, int trackCount, int limit)
+        int[] trackToBone, int trackCount, int limit, int blendHint)
     {
         var bones = skeleton.Bones.GetArrayData().Elements;
         var parents = skeleton.ParentIndices.GetArrayData().Elements.Select(p => (int)p.data).ToArray();
-        var rest = skeleton.Transforms.GetArrayData().Elements.Select(t => Matrix(
+        var restTransforms = skeleton.Transforms.GetArrayData().Elements;
+        var rest = restTransforms.Select(t => Matrix(
             t.Rotation.Vector.X, t.Rotation.Vector.Y, t.Rotation.Vector.Z, t.Rotation.Vector.W,
             t.Scale.Vector.X, t.Scale.Vector.Y, t.Scale.Vector.Z,
             t.Position.Vector.X, t.Position.Vector.Y, t.Position.Vector.Z)).ToArray();
@@ -226,8 +271,9 @@ static class Preview
                 if (bone < 0 || bone >= count)
                     continue;
                 var t = animation.GetTransformOnFrame(track, frame, false);
-                local[bone] = Matrix(t.Rotation.X, t.Rotation.Y, t.Rotation.Z, t.Rotation.W,
-                    t.Scale.X, t.Scale.Y, t.Scale.Z, t.Translation.X, t.Translation.Y, t.Translation.Z);
+                local[bone] = blendHint != 0 ? Additive(t, restTransforms[bone], blendHint)
+                    : Matrix(t.Rotation.X, t.Rotation.Y, t.Rotation.Z, t.Rotation.W,
+                        t.Scale.X, t.Scale.Y, t.Scale.Z, t.Translation.X, t.Translation.Y, t.Translation.Z);
             }
             var row = new double[count * 3];
             for (int bone = 0; bone < count; bone++)

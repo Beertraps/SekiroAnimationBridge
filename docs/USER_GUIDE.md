@@ -289,6 +289,17 @@ Export creates a raw `.hkx` and adjacent `.motion.json` sidecar. To put it into 
 - **Name in the binder** starts empty, which uses the clip's own name, such as `a050_002000.hkx`, and replaces that clip. Another `aXXX_YYYYYY.hkx` name adds a new clip, with the member ID and folder that the binder's clips follow (`a050_002000.hkx` is ID 1050002000). The game plays a new clip only once a TAE entry of that animation ID points at it and the behavior has a clip that plays it. **Register a new ID in the TAE and the behavior** writes both for another category of a move; see [Register a new animation ID](#register-a-new-animation-id).
 - Before its first change the binder is kept as `.bak` beside it. Its other members stay byte for byte as they were, and the result is read back before it is written.
 
+### Additive clips
+
+Some clips hold changes, not poses. The game adds them on top of the clip that plays: Wolf's hit flinches `a000_100000` to `a000_100003`, Isshin's flinch under super armor `a000_009500` and guard bounce `a000_009700`. [LAYERED_ANIMATIONS.md](LAYERED_ANIMATIONS.md) lists them all. They need decoder 0.7.0 (`tools\SekiroMotionDecoder\build_decoder.cmd`).
+
+- **Import** one like any clip. The log says *Additive clip (parent space): its changes show on the rest pose*, and Blender shows the changes on the character's rest pose. To see them on a move, name a normal clip of the same character as the base: `bridge_cli import <catalog> <clip> --additive-base a000_000100`. The UI has no field for the base yet.
+- **Edit** the bones as usual. Blender shows the result on the base, so judge the pose there. Leave the first and last frames as they are: the game's additive clips start and end at no change, and a change there makes the body jump when the flinch starts or ends.
+- **Export** like any clip. The export takes the same base off again and writes the clip as additive (`blendHint` 1). It writes no root motion and does not stand the foot targets on the feet, as it does for a normal clip: the game adds the clip on top of the move, which moves the character. Root motion from the `HKX_RootMotion` empty or a bone is refused.
+- **A normal clip as an additive clip**: `bridge_cli export <scene> --output <hkx> --additive rest` writes each frame's change from the rest pose; `--additive first-frame` writes the change from the first exported frame, which then is no change. Use `first-frame` for a move that starts from a pose of its own, such as a retargeted shooting clip that should go on top of running.
+- In the game, a layer weight dampens the clip: the player's flinch layer adds at 0.6 on the body and at full weight from bone 112, the sword arm.
+- DOOM Eternal's additive clips, such as the Marauder's hit twitches, import the same way; the base is a clip name such as `combat/idle_01`. See [DOOM Eternal](games/doom_eternal.md#additive-clips).
+
 ### Register a new animation ID
 
 A clip under a new name, such as `a100_003008.hkx` in `c1010.anibnd.dcx`, does nothing in the game on its own. Two more files must know its ID:

@@ -85,6 +85,44 @@ The bridge adds `game`, `archive` and `member` at the top level for every game, 
 
 Values are dense samples: a decoder evaluates its format's curves at every frame. Components a source does not animate take the bone's rest value.
 
+### Additive clips
+
+An additive clip holds changes that the game puts on top of the pose below it, not a pose. Its motion JSON has an
+`additive` object; a normal clip has none, so its JSON stays as before.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `additive.blendHint` | 1 or 2 | Havok's `hkaAnimationBinding.blendHint`: 1 `ADDITIVE_DEPRECATED`, 2 `ADDITIVE`. Absent for a clip from another engine. |
+| `additive.space` | `parent`, `child` or `separate` | how a change *D* goes on a base pose *B*: `parent` (blendHint 1) is *D* · *B*, `child` (blendHint 2) is *B* · *D*, `separate` (DOOM Eternal) composes each part on its own |
+| `additive.base` | null or object | the normal clip that Blender shows the changes on: `clip`, `frameRate`, `trackBoneIndices[]`, `frames[f][t]` as in a motion JSON. Absent or null: the rest pose. |
+
+`frames` then holds the changes. A channel the clip does not animate is no change: translation 0, rotation
+identity, scale 1, not the rest value. In parent space, per bone in its parent's space:
+
+    pose.translation = D.translation + D.rotation · B.translation
+    pose.rotation    = D.rotation · B.rotation
+    pose.scale       = D.scale · B.scale
+
+So a change made from a pose *A* on *B* is `rotation = A.r · B.r⁻¹`, `translation = A.t − rotation · B.t`,
+`scale = A.s / B.s`. `standalone/games/additive.py` has both directions. Sekiro uses blendHint 1 only; the child-space
+formula is inferred from Havok's names.
+
+In `separate` space the change's rotation does not turn the base's translation:
+
+    pose.translation = B.translation + D.translation
+    pose.rotation    = D.rotation · B.rotation
+    pose.scale       = D.scale · B.scale
+
+So a change made from *A* on *B* is `rotation = A.r · B.r⁻¹`, `translation = A.t − B.t`, `scale = A.s / B.s`. DOOM
+Eternal's additive md6 clips are in this form ([games/doom_eternal.md](games/doom_eternal.md#additive-clips)).
+
+The base clip repeats from its start when the additive clip runs longer, as Havok loops a clip: the base frame at
+time *t* is `round(t · frameRate) mod (frameCount − 1)`. Bones that the base moves and the additive clip has no track
+for show the base's pose. Export writes `additive` back; with `export --additive` a normal clip's scene gets
+`{"blendHint": 1, "space": "parent"}`, and for `first-frame` also a `base` of that one frame. Havok has no
+`separate` form, so export takes the base off in parent space and writes blendHint 1: on the same base, the
+game shows the same pose.
+
 ## Character manifest
 
 `character.json`: the models of a character, their materials and the paths of their arrays and textures.
@@ -194,7 +232,7 @@ The skeleton preview's joint positions, gzipped by `clip_preview.preview`.
 | `frameStep` | every `frameStep`th frame is included |
 | `bones[]`, `parents[]` | the skeleton |
 | `tracks` | number of animated bones |
-| `positions[f]` | world positions, x, y, z per bone, in source space |
+| `positions[f]` | world positions, x, y, z per bone, in source space; an additive clip's changes on the rest pose |
 | `detached[]` | bones far from the body, hidden by default |
 | `root` | null or `[[x, y, z, yaw], …]` |
 | `basis`, `unitScale` | optional source space; the FromSoftware space when absent |
@@ -205,6 +243,7 @@ The skeleton preview's joint positions, gzipped by `clip_preview.preview`.
 | --- | --- | --- |
 | Motion JSON | 1 | first version |
 | Motion JSON | 2 | `source`, `basis`, `unitScale` |
+| Motion JSON | 1 and 2 | `additive` (optional addition; decoder 0.7.0) |
 | Character manifest | 4 | current FromSoftware manifest |
 | Character manifest | 5 | `basis`, `unitScale`, `boneRotation`, normal-map convention |
 | Character manifest | 5 | image `packed`, material `metalness` and `roughness` (optional additions) |

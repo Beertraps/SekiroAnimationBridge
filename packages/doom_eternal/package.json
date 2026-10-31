@@ -1,7 +1,7 @@
 {
   "id": "doom_eternal",
   "name": "DOOM Eternal",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "apiVersion": 1,
   "description": "Imports the animations and models of DOOM Eternal's characters: the Doom Slayer, the demons and the cinematics, with skin weights, textures, their looks and their weapons. Reads the game's .resources and .streamdb files in place with the game's own Oodle library; needs no other program.",
   "authors": ["Sekiro Animation Bridge contributors"],

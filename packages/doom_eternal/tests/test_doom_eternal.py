@@ -358,5 +358,82 @@ class Materials(Package):
             self.assertEqual(spec.get('opacityValue') == 0.0, hidden, name)
 
 
+
+class Additive(Package):
+    """An additive md6 clip becomes an additive motion: its changes, and no change where a channel has no keys."""
+
+    HAND = 'md6/characters/owned/base/motion/additive/hand.md6anim'
+    SKELETON = 'md6/characters/owned/base/assets/mesh/owned.md6skl'
+
+    def setUp(self):
+        super().setUp()
+        # The game binds the hand at scale 1.2, which the Blender skeleton takes out.
+        self.skeleton = skeleton(self.md6, ['origin', 'hips_part01_md', 'hand'], [-1, 0, 1], [[0, 0, 0], [0, 0, 1], [0, .5, 0]])
+        self.skeleton.scales[2] = 1.2
+        self.turned = np.array([0, 0, np.sin(.25), np.cos(.25)])
+        entry = SimpleNamespace(path=Path('gameresources.resources'), version=12)
+        self.entries = {('anim', self.HAND): entry, ('skeleton', self.SKELETON): entry}
+        self.ctx = SimpleNamespace(cache=str(self.cache), notify=lambda *args, **kwargs: None,
+                                   profile=lambda game: self.profile)
+
+    def patched(self, flags):
+        keys = {'r': {2: ([0, 1], [np.array([0, 0, 0, 1.0]), self.turned])}, 's': {2: ([0], [np.array([2.0, 2, 2])])}, 't': {}}
+        anim = self.md6.Animation(self.skeleton, 2, 30.0, keys)
+        found = {self.HAND: [self.SKELETON, flags]}
+        return [mock.patch.object(self.module, 'game_of', return_value=SimpleNamespace(read=lambda entry: b'')),
+                mock.patch.object(self.module, 'entries_of', return_value=self.entries),
+                mock.patch.object(self.module, 'owners', return_value=found),
+                mock.patch.object(self.md6, 'read_skeleton', return_value=self.skeleton),
+                mock.patch.object(self.md6, 'read_animation', return_value=(self.SKELETON, anim)),
+                mock.patch.object(self.md6, 'read_info', return_value=(self.SKELETON, flags))]
+
+    def motion(self, flags):
+        notes = []
+        patches = self.patched(flags)
+        for patch in patches:
+            patch.start()
+        try:
+            document = self.module.motion(dict(animation=self.HAND, skeleton=self.SKELETON, root='game', clipName='hand'),
+                                          self.ctx, notes)
+        finally:
+            for patch in patches:
+                patch.stop()
+        return document, notes
+
+    def test_an_additive_clip_holds_changes(self):
+        document, notes = self.motion(0x41F)
+        self.assertEqual(document['additive'], dict(space='separate'))
+        self.assertIn(self.module.ADDITIVE_NOTE, notes)
+        self.assertEqual(document['trackBoneIndices'], [2])
+        first, second = (frame[0] for frame in document['frames'])
+        # No translation keys: no change, where a normal clip would hold the rest offset.
+        self.assertEqual(first['translation'], [0, 0, 0])
+        self.assertEqual(first['rotation'], [0, 0, 0, 1])
+        np.testing.assert_allclose(second['rotation'], self.turned, atol=1e-6)
+        # A change of scale keeps its value: the bind scale that the Blender skeleton takes out cancels out of it.
+        self.assertEqual(first['scale'], [2, 2, 2])
+
+    def test_a_normal_clip_stays_as_it_was(self):
+        document, notes = self.motion(0x41E)
+        self.assertNotIn('additive', document)
+        self.assertEqual(notes, [])
+        first = document['frames'][0][0]
+        self.assertEqual(first['translation'], [0, .5, 0])
+        np.testing.assert_allclose(first['scale'], [2 / 1.2] * 3, atol=1e-6)
+
+    def test_additive_clips_can_be_chosen(self):
+        catalog = dict(folder='game', characters=[dict(id=self.SKELETON, name='Owned')], clips=[])
+        patches = self.patched(0x41F)
+        for patch in patches:
+            patch.start()
+        try:
+            catalog = self.module.inventory(catalog, self.SKELETON, self.ctx)
+        finally:
+            for patch in patches:
+                patch.stop()
+        clip = catalog['clips'][0]
+        self.assertEqual((clip['ready'], clip['issues'], catalog['characters'][0]['ready']), (True, [], 1))
+
+
 if __name__ == '__main__':
     unittest.main()

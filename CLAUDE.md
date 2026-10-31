@@ -67,6 +67,11 @@ standalone\bridge_cli.cmd character-verify work\mods\dante --id c1800
   `SekiroCharacterWriter tae`) and a clip generator in `cXXXX.behbnd.dcx` beside the binder (the Duplicator's
   variation), and reads both back. Only a new category of the source's number: `a000_003008` to `a100_003008`.
   `--slot-source` names the source; the scene's clip by default. In-game playback is not proven.
+- An additive clip (`blendHint` 1, such as the flinch `a000_100002`) imports on the rest pose, or on a normal clip of
+  the same character with `import --additive-base CLIP`, and exports as additive again. `export --additive
+  rest|first-frame` writes a normal clip's scene as an additive clip. Needs decoder 0.7.0. Convention and the game's
+  layers: [docs/LAYERED_ANIMATIONS.md](docs/LAYERED_ANIMATIONS.md). DOOM Eternal's additive md6 clips import the same
+  way (space `separate`, base clip by name such as `combat/idle_01`); a package's base clip comes from its `preview`.
 - `character-export` writes a scene as a new Sekiro character (template `c1010` by default) into a mod folder with a
   me3 profile beside it, and ends with the 12 checks of `character-verify`. `character-clone` writes the template itself
   under the new ID. `character-model --template c1010` writes a scene of a vanilla character as its model and textures
@@ -118,6 +123,7 @@ tools\check_package.cmd packages\<id> [--source <game folder>] [--option <id>=<v
 | Blender side | `standalone/blender_bridge.py`, `blender_character.py`, `blender_parts.py`, `blender_verify.py` |
 | HKX writing | `standalone/build_animation.py`, `havok_compat.py`, `binder_members.py` |
 | Weapon part clips | `standalone/part_animations.py` (pairing, import), `blender_parts.py`, `part_export.py` (part binders) |
+| Additive clips | `standalone/games/additive.py` (compose and difference), `blender_bridge.py` import and export |
 | New animation IDs | `standalone/animation_slots.py`, `havok_xml.py` (behavior tagfile to XML, read only), `havok_tagfile.py` (patches in place), `tools/SekiroCharacterWriter/Tae.cs` |
 | New Sekiro characters | `standalone/character_export.py`, `havok_tagfile.py` (TAG0 patching), `blender_character_export.py`, `tools/SekiroCharacterWriter/` |
 | Retarget add-on | `blender_addon/sekiro_retarget/` |

@@ -116,6 +116,13 @@ def build(input_json: Path, output_hkx: Path, output_format: str, game='auto', q
         from hkx_compression import compress_spline
         animation = compress_spline(animation, quantization, tolerance)
         animation.dcx_type = DCXType.Null
+    # An additive clip's tracks are changes that the game adds to the pose below (games/additive.py).
+    blend_hint = int((document.get("additive") or {}).get("blendHint", 0))
+    if blend_hint:
+        if blend_hint not in (1, 2):
+            raise ValueError(f"Unknown additive blend hint {blend_hint}; Havok knows 1 and 2.")
+        for binding in animation.animation_container.hkx_container.bindings:
+            binding.blendHint = blend_hint
 
     # Retain native PC packfile layout; tagfile games keep their own SDK version.
     source_info = document.get('sourceHavok', {})
@@ -133,6 +140,8 @@ def build(input_json: Path, output_hkx: Path, output_format: str, game='auto', q
     print(f"Wrote {GAMES[game]} / {animation.hk_version} {output_format} HKX ({detail}, {len(data):,} bytes): {output_hkx}")
     stats = dict(bytes=len(data), format=output_format, quantization=quantization if output_format == 'spline' else '',
                  tolerance=float(tolerance) if output_format == 'spline' else 0.0)
+    if blend_hint:
+        stats['blendHint'] = blend_hint
     if verify:
         started = time.perf_counter()
         expected = np.asarray([[[*t['translation'], *t['rotation'], *t['scale']] for t in frame] for frame in frames_json],

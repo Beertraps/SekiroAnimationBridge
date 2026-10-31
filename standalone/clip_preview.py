@@ -83,11 +83,13 @@ def joint_positions(motion):
     All frames are composed at once, one bone at a time down the hierarchy.
     """
     import numpy as np
+    from games.additive import posed_frames
     bones = motion['skeleton']['bones']
     parents = [int(bone['parent']) for bone in bones]
     # A track that no bone takes (-1) is left out.
     mapped = [(track, int(bone)) for track, bone in enumerate(motion['trackBoneIndices']) if 0 <= int(bone) < len(bones)]
-    frames = motion['frames']
+    # An additive clip shows on the rest pose.
+    frames = posed_frames(motion)
     if not frames:
         return []
     rest = matrices(*(np.array([bone[key] for bone in bones], dtype=float) for key in ('rotation', 'scale', 'translation')))

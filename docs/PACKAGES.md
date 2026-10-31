@@ -106,7 +106,7 @@ Every function is a module-level function. Each gets plain dictionaries and path
 | `scan(detection, options, ctx, previous)` | A catalog of the source's characters. Clips of a character can wait until it is chosen. `previous` is the last catalog of the same source, or `None`, so characters already read can be kept. |
 | `inventory(catalog, character, ctx)` | The catalog with the clips of one character, and that character's `inventoried` set to true. |
 | `selection(catalog, clip_id, preset, ctx)` | What the import uses of one clip: `animation` (a path), `game`, `character`, `clipName`, and `parts`, the model parts the UI lists, each with `id`, `path`, `role` and `selected`. Optional: `name`, `note` (a few words the UI shows beside the role, such as `without head`), and for a weapon `joints` (the joints it can hang on, each `id` and `label`) and `joint` (the default). |
-| `preview(selection, ctx)` | A motion JSON version 2 of the clip, as a dictionary. The bridge turns it into the skeleton preview and caches the result. |
+| `preview(selection, ctx)` | A motion JSON version 2 of the clip, as a dictionary. The bridge turns it into the skeleton preview and caches the result. It also decodes an additive clip's base clip with it (`import --additive-base`), so it returns every frame and track. |
 | `prepare(request, catalog, temp, ctx)` | A dictionary: `motion` (path of a motion JSON version 2 written into `temp`), `characters` (a list with at most one path of a character manifest version 5), `report` (`clip`, `frames`, `tracks`, `warnings`, `parts`, `textures`), and optionally `catalog` (when it read more of the source) and `request` (keys the bridge sets on the import request, such as `game`). `request` holds `assetClip`, `assetCharacter`, `includeCharacter` and the source's `assetFolder`, `sourceFileList` and `sourceOptions`; `models` (the paths of the parts the user ticked, empty for the default ones) and `weaponAttachments` (the joint the user chose for a weapon, by part `id`). |
 | `refresh(catalog, clip_id, ctx)` | Optional. `(catalog, clip_id)` after the files of a clip changed, such as a mod archive. |
 | `validate(catalog, folder, check_sources, ctx)` | Optional. Raise `ValueError` when a stored catalog no longer fits the source, for example after a game update. |
@@ -121,6 +121,8 @@ Every function is a module-level function. Each gets plain dictionaries and path
 - A clip: `id` (unique in the catalog, such as `pl0100/pl0100_base#0`), `name`, `character`, `characterKey` (the ID of its character), `game`, `ready` (whether it can be imported) and `issues` (why not). Optional: `archive`, `member`, `path`.
 
 Keep other keys you need: the bridge stores the catalog as you return it and adds `engine` and `package`.
+
+An additive clip, which holds changes that the game adds on top of another clip, is a clip like any other. Its motion JSON has an `additive` object whose `space` says how a change goes on a pose ([INTERCHANGE.md](INTERCHANGE.md#additive-clips)); a channel without keys then holds no change, not the rest pose. The DOOM Eternal package writes `{"space": "separate"}`.
 
 ### Context
 
