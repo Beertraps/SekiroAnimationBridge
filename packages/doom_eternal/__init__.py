@@ -23,7 +23,7 @@ import numpy as np
 
 from games.api import check_motion, read_json, signature, with_source, write_json
 
-from . import md6
+from . import md6, models
 from .formats import Game
 
 # 2: readable character names, shorter clip names, and ready counts.
@@ -125,21 +125,115 @@ def model_owners(game, entries, ctx, key=None):
     return found
 
 
+def definitions(game, entries, ctx, key=None):
+    """{model: its md6def} for every model an md6def decl names, read once and cached.
+
+    Each holds the decl's looks and gore meshes, and the weapons among its props: models of their own from
+    WEAPON_PROPS, each with the tags it hangs on. Where several decls name one model, the decl with the model's
+    own name counts (arachnotron, not arachnotron_darklord)."""
+    key = key or source_key(game)
+    cached = Path(ctx.cache) / f'md6defs-{key}.json'
+    found = read_json(cached)
+    if isinstance(found, dict) and found:
+        return found
+    names = [name for (kind, name) in entries if kind == 'rs_streamfile' and name.startswith(models.MD6DEFS)]
+    ctx.notify('character', f'Reading {len(names)} model definitions', 30)
+    with ThreadPoolExecutor(8) as pool:
+        decls = dict(zip(names, pool.map(lambda name: definition(game, entries[('rs_streamfile', name)]), names)))
+    meshes = {name: d['mesh'] for name, d in decls.items() if d}
+
+    def stem(path):
+        return path.rsplit('/', 1)[-1].split('.', 1)[0]
+
+    found = {}
+    for name, decl in sorted(((n, d) for n, d in decls.items() if d and d['mesh']),
+                             key=lambda item: (stem(item[0]) != stem(item[1]['mesh']), len(item[0]), item[0])):
+        if decl['mesh'] in found:
+            continue
+        weapons = []
+        for prop in decl['props']:
+            target = next((meshes[p] for p in models.prop_decls(prop['prop']) if meshes.get(p)), '')
+            if (prop['prop'].startswith(models.WEAPON_PROPS) and ('baseModel', target) in entries
+                    and not models.PROXY.search(target) and prop['tags']):
+                weapons.append(dict(model=target, visible=prop['visible'], tags=prop['tags']))
+        found[decl['mesh']] = dict(decl=name, looks=decl['looks'], gore=decl['gore'], weapons=weapons)
+    write_json(cached, found)
+    return found
+
+
+def definition(game, entry):
+    try:
+        return models.read_md6def(game.read(entry).decode('utf-8', 'replace'))
+    except (ValueError, OSError):
+        return None
+
+
+# A weapon's tag on these joints only places it in the world, not on the character.
+LOOSE_JOINTS = {'origin', '(null)'}
+
+
 def model_parts(catalog, skeleton, ctx):
-    """The models that use a character's skeleton; the plainest one of its own folder is chosen."""
+    """The models that use a character's skeleton, one part per look, then the weapons they hold.
+
+    A model with several looks (soldier_blaster: Base, Shield, Chaingunner) gets a part for each, as
+    model#look. The plainest model of the character's own folder is chosen, in its first look. A body says
+    whether it holds the head. A weapon hangs on the tags its prop names; the ones the game shows from the start
+    are chosen."""
+    from . import characters
     game = game_of(catalog['folder'])
-    owned = sorted(m for m, s in model_owners(game, entries_of(game), ctx, catalog.get('sourceKey')).items() if s == skeleton)
+    entries = entries_of(game)
+    key = catalog.get('sourceKey')
+    owned = sorted(m for m, s in model_owners(game, entries, ctx, key).items() if s == skeleton)
+    defs = definitions(game, entries, ctx, key)
     folder = skeleton.rsplit('/', 1)[0]
     parts = []
     for model in owned:
         stem = model.rsplit('/', 1)[-1].rsplit('.', 1)[0]
         where = model.split('/')[-5] if model.startswith('md6/customization/') and model.count('/') > 5 else ''
-        parts.append(dict(id=model, name=f'{stem} · {where}' if where else stem, path=model, selected=False, game=GAME,
-                          role='Body', container='Model', scope=catalog['folder'], own=model.rsplit('/', 1)[0] == folder))
-    parts.sort(key=lambda p: (not p['own'], len(p['name']), p['name']))
+        name = f'{stem} · {where}' if where else stem
+        looks = [look for look, _ in defs.get(model, {}).get('looks', [])]
+        heads = characters.head_notes(game, entries, model, defs.get(model))
+        for look in looks if len(looks) > 1 else ['']:
+            parts.append(dict(id=f'{model}#{look}' if look else model, name=f'{name} · {look}' if look else name,
+                              path=f'{model}#{look}' if look else model, selected=False, game=GAME, role='Body',
+                              container='Model', scope=catalog['folder'], own=model.rsplit('/', 1)[0] == folder,
+                              note=heads.get(look, ''), first=not look or look == looks[0]))
+    parts.sort(key=lambda p: (not p['own'], not p['first'], len(p['name']), p['name']))
     if parts:
         parts[0]['selected'] = True
+    return parts + weapon_parts(catalog, game, entries, skeleton, owned, defs)
+
+
+def weapon_parts(catalog, game, entries, skeleton, owned, defs):
+    """The weapons of a character's models: each with the tags it hangs on, by the tag's name."""
+    found = entries.get(('skeleton', skeleton))
+    joints = set(md6.read_skeleton(game.read(found)).names) - LOOSE_JOINTS if found else set()
+    weapons = {}
+    for model in owned:
+        for weapon in defs.get(model, {}).get('weapons', []):
+            tags = [t for t in weapon['tags'] if t['bone'] in joints]
+            if not tags:
+                continue
+            entry = weapons.setdefault(weapon['model'], dict(visible=False, tags={}))
+            entry['visible'] |= weapon['visible']
+            for tag in tags:
+                entry['tags'].setdefault(tag['id'], tag)
+    parts = []
+    for model, weapon in sorted(weapons.items()):
+        tags = list(weapon['tags'].values())
+        parts.append(dict(id=model, name=model.rsplit('/', 1)[-1].rsplit('.', 1)[0], path=model, selected=weapon['visible'],
+                          game=GAME, role='Weapon', container='Model', scope=catalog['folder'],
+                          note='shown from the start' if weapon['visible'] else 'hidden until the game shows it',
+                          joints=[dict(id=t['id'], label=f"{t['id'].replace('_', ' ').capitalize()} · {t['bone']}") for t in tags],
+                          joint=tags[0]['id'], tags=weapon['tags']))
     return parts
+
+
+def chosen_joints(request, parts):
+    """The tag each chosen weapon hangs on, by its path: the UI's choice when it is one of the part's joints."""
+    picked = request.get('weaponAttachments') or {}
+    return {p['path']: p['tags'][picked[p['id']] if picked.get(p['id']) in p['tags'] else p['joint']]
+            for p in parts if p['role'] == 'Weapon'}
 
 
 # Names
@@ -414,8 +508,10 @@ def prepare(request, catalog, temp, ctx):
         from . import characters
         ctx.notify('character', 'Reading the model, its skin and materials', 32)
         game = game_of(chosen['root'])
+        joints = chosen_joints(request, chosen['parts'])
         manifest = characters.prepare_character(game, entries_of(game), chosen_models, Path(temp) / 'character',
-                                                ctx.profile(GAME), ctx)
+                                                ctx.profile(GAME), ctx, {p: joints[p] for p in chosen_models if p in joints},
+                                                definitions(game, entries_of(game), ctx, catalog.get('sourceKey')))
         character = json.loads(manifest.read_text(encoding='utf-8'))
         report.update(parts=len(character['models']), textures=character['texture_count'],
                       warnings=report['warnings'] + character['warnings'],
