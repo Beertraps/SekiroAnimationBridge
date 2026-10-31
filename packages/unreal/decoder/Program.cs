@@ -21,7 +21,7 @@ namespace UnrealDecoder;
 /// </summary>
 internal static class Program
 {
-    public const string VersionLine = "UnrealDecoder 0.1.0 (scan, decode, mesh; CUE4Parse 460fc477)";
+    public const string VersionLine = "UnrealDecoder 0.2.0 (scan, decode, mesh, dump, list; CUE4Parse 460fc477)";
 
     /// <summary>
     /// Unreal is Z-up and left-handed, and its skeletal meshes face +Y with their left side on +X.
@@ -40,7 +40,8 @@ internal static class Program
         "       UnrealDecoder scan <source.json> <output.json>\n" +
         "       UnrealDecoder decode <source.json> <animation path> <output.json> [--mesh <skeletal mesh path>]\n" +
         "       UnrealDecoder mesh <source.json> <output folder> <skeletal mesh path> [<skeletal mesh path> ...]\n" +
-        "       UnrealDecoder dump <source.json> <object path>\n" +
+        "       UnrealDecoder dump <source.json> <object path> [<object path> ...]\n" +
+        "       UnrealDecoder list <source.json> [<folder>]\n" +
         "       UnrealDecoder selftest\n" +
         "A source.json holds root (the game folder), engine (a CUE4Parse EGame name such as GAME_UE4_27) and,\n" +
         "when the game needs them, aesKey, mappings (a .usmap file) and oodle (an Oodle library to use instead of\n" +
@@ -65,7 +66,8 @@ internal static class Program
                 "decode" when args.Length == 4 => MotionCommand.Decode(args[1], args[2], args[3], null),
                 "decode" when args.Length == 6 && args[4] == "--mesh" => MotionCommand.Decode(args[1], args[2], args[3], args[5]),
                 "mesh" when args.Length >= 4 => MeshCommand.Export(args[1], args[2], args[3..]),
-                "dump" when args.Length == 3 => Dump(args[1], args[2]),
+                "dump" when args.Length >= 3 => Dump(args[1], args[2..]),
+                "list" when args.Length is 2 or 3 => List(args[1], args.Length == 3 ? args[2] : "/"),
                 "selftest" when args.Length == 1 => SelfTest.Run(),
                 _ => Usage(),
             };
@@ -88,13 +90,47 @@ internal static class Program
         return 2;
     }
 
-    /// <summary>One object with its properties as JSON, as CUE4Parse reads it: for finding out what an asset holds.</summary>
-    private static int Dump(string optionsPath, string objectPath)
+    /// <summary>One object with its properties as JSON, as CUE4Parse reads it: for finding out what an asset holds.
+    /// Several objects come as one JSON array of {path, object, error}, read with one mount.</summary>
+    private static int Dump(string optionsPath, string[] objectPaths)
     {
         var options = Source.Read(optionsPath);
         using var provider = Source.Open(options);
-        var loaded = provider.LoadPackageObject(Source.ObjectPath(objectPath));
-        Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(loaded, Newtonsoft.Json.Formatting.Indented));
+        if (objectPaths.Length == 1)
+        {
+            var loaded = provider.LoadPackageObject(Source.ObjectPath(objectPaths[0]));
+            Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(loaded, Newtonsoft.Json.Formatting.Indented));
+            return 0;
+        }
+        var results = new List<object>();
+        foreach (var path in objectPaths)
+        {
+            try
+            {
+                results.Add(new { path, @object = provider.LoadPackageObject(Source.ObjectPath(path)), error = "" });
+            }
+            catch (Exception ex)
+            {
+                results.Add(new { path, @object = (object?)null, error = OneLine(Describe(ex)) });
+            }
+        }
+        Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(results));
+        return 0;
+    }
+
+    /// <summary>The packages below a folder such as /Game/Characters, one path per line: for finding out what a game holds.</summary>
+    private static int List(string optionsPath, string folder)
+    {
+        var options = Source.Read(optionsPath);
+        using var provider = Source.Open(options);
+        var prefix = folder.TrimEnd('/') + "/";
+        var paths = provider.Files.Keys
+            .Where(key => key.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) || key.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
+            .Select(key => SourceCommands.Normalize(key[..key.LastIndexOf('.')], provider.ProjectName))
+            .Where(path => prefix == "/" || path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths)
+            Console.WriteLine(path);
         return 0;
     }
 

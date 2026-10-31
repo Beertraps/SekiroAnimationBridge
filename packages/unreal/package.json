@@ -1,12 +1,52 @@
 {
   "id": "unreal",
   "name": "Unreal Engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": 1,
   "description": "Imports animations and characters of Unreal Engine 4 and 5 games: skeletons, animation sequences, skeletal meshes, materials and textures, read in place from the game's PAK or IoStore archives. Encrypted games need their AES key; games that store properties without names need a mappings file (.usmap).",
   "authors": ["Sekiro Animation Bridge contributors"],
   "license": "GPL-3.0-or-later; the decoder uses CUE4Parse (Apache-2.0)",
   "homepage": "https://github.com/Beertraps/SekiroAnimationBridge",
+  "bones": {
+    "names": {
+      "Dwarf_Pelvis": "Pelvis",
+      "Dwarf_Spine1": "Spine",
+      "Dwarf_Spine2": "Spine1",
+      "Dwarf_Spine3": "Spine2",
+      "Dwarf_Ribcage": "Chest",
+      "Dwarf_Neck": "Neck",
+      "Dwarf_Head": "Head"
+    },
+    "patterns": [
+      {"match": "Dwarf_Arm([LR])Shoulder", "as": "\\1_Clavicle"},
+      {"match": "Dwarf_Arm([LR])1", "as": "\\1_UpperArm"},
+      {"match": "Dwarf_Arm([LR])21", "as": "\\1_Forearm"},
+      {"match": "Dwarf_Arm([LR])22", "as": "\\1_ForeArmTwist"},
+      {"match": "Dwarf_Arm([LR])Hand", "as": "\\1_Hand"},
+      {"match": "Dwarf_Arm([LR])Digit0([1-3])", "as": "\\1_Thumb\\2"},
+      {"match": "Dwarf_Arm([LR])Digit04", "as": "\\1_Index1"},
+      {"match": "Dwarf_Arm([LR])Digit05", "as": "\\1_Index2"},
+      {"match": "Dwarf_Arm([LR])Digit06", "as": "\\1_Index3"},
+      {"match": "Dwarf_Arm([LR])Digit07", "as": "\\1_Index4"},
+      {"match": "Dwarf_Arm([LR])Digit08", "as": "\\1_Middle1"},
+      {"match": "Dwarf_Arm([LR])Digit09", "as": "\\1_Middle2"},
+      {"match": "Dwarf_Arm([LR])Digit010", "as": "\\1_Middle3"},
+      {"match": "Dwarf_Arm([LR])Digit011", "as": "\\1_Middle4"},
+      {"match": "Dwarf_Arm([LR])Digit012", "as": "\\1_Ring1"},
+      {"match": "Dwarf_Arm([LR])Digit013", "as": "\\1_Ring2"},
+      {"match": "Dwarf_Arm([LR])Digit014", "as": "\\1_Ring3"},
+      {"match": "Dwarf_Arm([LR])Digit015", "as": "\\1_Ring4"},
+      {"match": "Dwarf_Arm([LR])Digit016", "as": "\\1_Pinky1"},
+      {"match": "Dwarf_Arm([LR])Digit017", "as": "\\1_Pinky2"},
+      {"match": "Dwarf_Arm([LR])Digit018", "as": "\\1_Pinky3"},
+      {"match": "Dwarf_Arm([LR])Digit019", "as": "\\1_Pinky4"},
+      {"match": "Dwarf_Leg([LR])1", "as": "\\1_Thigh"},
+      {"match": "Dwarf_Leg([LR])2", "as": "\\1_Calf"},
+      {"match": "Dwarf_Leg([LR])Heel", "as": "\\1_Foot"},
+      {"match": "Dwarf_Leg([LR])Toe", "as": "\\1_Toe"},
+      {"match": "Dwarf_Hand([LR])_Attach", "as": "\\1_Weapon"}
+    ]
+  },
   "sourceOptions": [
     {
       "id": "engineVersion",
@@ -98,7 +138,52 @@
       "capabilities": {"packed_archives": true, "root_motion": false},
       "basis": [[1, 0, 0], [0, -1, 0], [0, 0, 1]],
       "unitScale": 0.01,
-      "formats": {"project": "FSD", "engine": "GAME_UE4_27"},
+      "formats": {
+        "project": "FSD",
+        "engine": "GAME_UE4_27",
+        "detailTextures": "^T_(Base|Noise|Grunge|Blob|Tiling|Tile)",
+        "items": {
+          "folders": ["/Game/Character/Vanity2"],
+          "prefix": "VAN_",
+          "kinds": {
+            "EArmorMeshType::DefaultBeardCompatible": "cut out for a beard",
+            "EArmorMeshType::Sleeveless": "bare arms",
+            "EArmorMeshType::SleevelessBeardCompatible": "bare arms, cut out for a beard"
+          }
+        },
+        "characters": {
+          "/Game/CharacterStructure/Rig/3P_Dwarf_Rig_Skeleton.3P_Dwarf_Rig_Skeleton": {
+            "parts": [
+              {"folder": "/Game/CharacterStructure/Rig/Facial_Hair_Rig", "role": "Hair", "note": "stubble"},
+              {"folder": "/Game/CharacterStructure/Rig", "role": "Body", "note": "with head, no armor"},
+              {"folder": "/Game/Character/Vanity2/Armor", "role": "Body", "note": "without head", "default": "SK_Vanity_ArmorDriller001new"},
+              {"folder": "/Game/GameElements/Holidays", "role": "Body", "note": "without head"},
+              {"folder": "/Game/Character/Vanity2/Heads", "role": "Head", "default": "SK_Vanity_Head001"},
+              {"folder": "/Game/Character/Vanity2/Beards", "role": "Hair", "note": "beard", "material": "/Game/Character/Vanity2/HairColors/M_HairColor_Brown02.M_HairColor_Brown02"},
+              {"folder": "/Game/Character/Vanity2/Moustaches", "role": "Hair", "note": "moustache", "material": "/Game/Character/Vanity2/HairColors/M_HairColor_Brown01.M_HairColor_Brown01"},
+              {"folder": "/Game/Character/Vanity2/Sideburns", "role": "Hair", "note": "sideburns", "material": "/Game/Character/Vanity2/HairColors/M_HairColor_Brown01.M_HairColor_Brown01"},
+              {"folder": "/Game/Character/Vanity2/Eyebrows", "role": "Hair", "note": "eyebrows", "material": "/Game/Character/Vanity2/HairColors/M_HairColor_Brown03.M_HairColor_Brown03", "default": "SK_Vanity_Eyebrows001_FuzzySlugs"},
+              {"folder": "/Game/Character/Vanity2/Headwear", "role": "Headwear"},
+              {"folder": "/Game/Character/Vanity2/Mannequin", "note": "shop mannequin"}
+            ],
+            "weapons": {
+              "folder": "/Game/WeaponsNTools",
+              "skip": ["/Skins/", "_Skin_", "/SupplyPod/", "/SentryGun/", "_Projectile", "/Snowball/", "_ZipPole"],
+              "left": "_(Left|L)(_|$)",
+              "joints": [
+                {"id": "Dwarf_HandR_Attach", "label": "Right hand"},
+                {"id": "Dwarf_HandL_Attach", "label": "Left hand"},
+                {"id": "Dwarf_BackHigh_Attach", "label": "Back, high"},
+                {"id": "Dwarf_BackMid_Attach", "label": "Back, middle"},
+                {"id": "Dwarf_BackLow_Attach", "label": "Back, low"},
+                {"id": "Dwarf_HipR_Attach", "label": "Right hip"},
+                {"id": "Dwarf_HipL_Attach", "label": "Left hip"},
+                {"id": "Dwarf_HipF_Attach", "label": "Front hip"}
+              ]
+            }
+          }
+        }
+      },
       "hint": "the Deep Rock Galactic folder with FSD/Content/Paks",
       "verified": true,
       "documentation": "docs/games/unreal.md"
@@ -110,7 +195,7 @@
       "name": "Unreal decoder",
       "path": "tools/unreal-decoder/UnrealDecoder.exe",
       "version": ["--version"],
-      "expect": "UnrealDecoder 0.1",
+      "expect": "UnrealDecoder 0.2",
       "build": "decoder/build_decoder.cmd",
       "help": "Mounts PAK and IoStore archives and reads skeletons, animation sequences, skeletal meshes, materials and textures. Built on CUE4Parse."
     }

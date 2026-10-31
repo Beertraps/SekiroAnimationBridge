@@ -190,6 +190,10 @@ def scan(detection, options, ctx, previous=None):
     index = read_json(index_path) or {}
     if index.get('format') != 'unreal-scan':
         raise ValueError('The Unreal decoder wrote no scan. Rebuild it with decoder/build_decoder.cmd.')
+    items_path = folder / 'items.json'
+    if profile.formats.get('items') and (not reuse or not items_path.is_file()):
+        ctx.notify('inventory', f'Reading the item names of {profile.name}', 80)
+        write_json(items_path, read_items(catalog, index, profile.formats['items'], ctx))
     if index.get('closed'):
         catalog['warnings'].append(f"{len(index['closed'])} archives stay closed: their AES key is missing or wrong.")
 
@@ -227,6 +231,53 @@ def scan(detection, options, ctx, previous=None):
     return catalog
 
 
+def read_items(catalog, index, items, ctx, batch=120):
+    """The game's own items that name skeletal meshes, by mesh path: {item, material, kind}.
+
+    Deep Rock Galactic describes each armor, headwear and so on in an item asset: its name ("MK1 Drill Suit"), its
+    meshes (an armor has a default, a beard-compatible and two sleeveless ones) and the material the game puts on
+    meshes that have none of their own. items names the folders with such assets and the prefix of their names.
+    """
+    meshes = {m['path'] for m in index.get('meshes', [])}
+    paths = []
+    for folder in items['folders']:
+        printed = ctx.run('decoder', 'list', catalog['source'], folder)
+        paths += [line.strip() for line in printed.splitlines()
+                  if line.startswith('/') and line.strip().rsplit('/', 1)[-1].startswith(items.get('prefix', ''))]
+    found = {}
+    for start in range(0, len(paths), batch):
+        objects = [f"{p}.{p.rsplit('/', 1)[-1]}" for p in paths[start:start + batch]]
+        try:
+            document = json.loads(ctx.run('decoder', 'dump', catalog['source'], *objects) or '[]')
+        except ValueError:
+            continue
+        # One object comes alone, several as a list of {path, object, error}.
+        for entry in document if len(objects) > 1 else [dict(path=objects[0], object=document)]:
+            properties = ((entry.get('object') or {}) if isinstance(entry.get('object'), dict) else {}).get('Properties') or {}
+            name = (properties.get('ItemName') or {}).get('SourceString') or ''
+            material = (properties.get('MaterialOverride') or {}).get('AssetPathName') or ''
+            for mesh, kind in asset_references({k: v for k, v in properties.items() if k != 'MaterialOverride'}):
+                if mesh in meshes and mesh not in found:
+                    found[mesh] = dict(item=name, material=material, kind=kind, asset=entry['path'])
+    return dict(format='unreal-items', items=found)
+
+
+def asset_references(value, kind=''):
+    """(asset path, key) for each soft reference in an item's properties; a map entry's key, such as
+    EArmorMeshType::Sleeveless, comes with the references in its value."""
+    if isinstance(value, dict):
+        if 'Key' in value and 'Value' in value:
+            yield from asset_references(value['Value'], str(value['Key']))
+            return
+        if isinstance(value.get('AssetPathName'), str):
+            yield value['AssetPathName'], kind
+        for item in value.values():
+            yield from asset_references(item, kind)
+    elif isinstance(value, list):
+        for item in value:
+            yield from asset_references(item, kind)
+
+
 def tool_signature(ctx):
     """The decoder's path and signature, or '' while it is not built; a new build means a new scan and new previews."""
     try:
@@ -261,15 +312,94 @@ def role(name, index):
     return next((label for word, label in ROLES if word in lowered), 'Body' if index == 0 else 'Model')
 
 
-def model_parts(catalog, entry):
-    """The skeletal meshes on a character's skeleton; the main one is chosen."""
+def in_folder(path, folder):
+    return path.lower().startswith(folder.rstrip('/').lower() + '/')
+
+
+def words(name):
+    """AssaultRifle as Assault Rifle, for a weapon's label."""
+    return re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', name).replace('_', ' ').strip()
+
+
+def model_parts(catalog, entry, profile=None):
+    """The skeletal meshes on a character's skeleton; the main one is chosen.
+
+    A game profile can describe its characters' parts in formats.characters, by skeleton: each folder of meshes
+    with a role, a note, whether its first mesh (or the mesh it names) is chosen and the material for slots the game
+    fills at run time, and a folder of weapons with the joints they hang on. Deep Rock Galactic's dwarves are put together from armor, a head, facial hair and
+    headwear, and hold weapons and tools that have skeletons of their own.
+    """
     index = read_json(Path(catalog['work']) / 'index.json') or {}
+    rules = ((profile.formats if profile else {}).get('characters') or {}).get(entry.get('id', ''))
     meshes = sorted((m for m in index.get('meshes', []) if m.get('skeleton') == entry['id']),
                     key=lambda m: (m['path'] != entry.get('model'), m['name'].lower(), m['path']))
-    return [dict(id=m['path'], name=m['name'], path=m['path'], selected=m['path'] == entry.get('model'), game=catalog['game'],
-                 role=role(m['name'], position), container='SkeletalMesh', scope=catalog['folder'], folder=package_folder(m['path']),
-                 size=0, exact=m['path'] == entry.get('model'))
-            for position, m in enumerate(meshes)]
+
+    def part(mesh, role, **extra):
+        return dict(id=mesh['path'], name=mesh['name'], path=mesh['path'], selected=False, game=catalog['game'], role=role,
+                    container='SkeletalMesh', scope=catalog['folder'], folder=package_folder(mesh['path']), size=0,
+                    exact=mesh['path'] == entry.get('model'), **extra)
+
+    if not rules:
+        parts = [part(m, role(m['name'], position)) for position, m in enumerate(meshes)]
+        for p in parts:
+            p['selected'] = p['exact']
+        return parts
+    groups = rules.get('parts') or []
+    items = (read_json(Path(catalog['work']) / 'items.json') or {}).get('items') or {}
+    kinds = ((profile.formats if profile else {}).get('items') or {}).get('kinds') or {}
+    parts, order = [], {}
+    for mesh in meshes:
+        group = next((g for g in groups if in_folder(mesh['path'], g['folder'])), None)
+        item = items.get(mesh['path']) or {}
+        note = ', '.join(n for n in ((group or {}).get('note'), kinds.get(item.get('kind', ''))) if n)
+        shown = part(mesh, (group or {}).get('role') or role(mesh['name'], 1), **(dict(note=note) if note else {}))
+        if item.get('item'):
+            shown['name'] = f"{mesh['name']} · {item['item']}"
+        # The material for slots the game fills at run time: the item's, else the folder's, such as a hair color.
+        if item.get('material') or (group or {}).get('material'):
+            shown['material'] = item.get('material') or group['material']
+        parts.append(shown)
+        order[mesh['path']] = groups.index(group) if group else len(groups)
+    parts.sort(key=lambda p: (order[p['path']], p['name'].lower(), p['path']))
+    for group in groups:
+        members = [p for p in parts if in_folder(p['path'], group['folder'])]
+        wanted = group.get('default')
+        chosen = (next((p for p in members if p['path'].rsplit('.', 1)[-1] == wanted), None) if isinstance(wanted, str)
+                  else members[0] if wanted and members else None)
+        if chosen:
+            chosen['selected'] = True
+    parts += weapon_parts(catalog, index, rules.get('weapons'), part)
+    if not any(p['selected'] for p in parts) and parts:
+        parts[0]['selected'] = True
+    return parts
+
+
+def weapon_parts(catalog, index, weapons, part):
+    """The weapons a character can hold: each mesh of the weapons folder outside the skipped folders (their skins),
+    with the joints it can hang on. A mesh whose name says left, such as a left drill, hangs on the second joint."""
+    if not weapons:
+        return []
+    joints = [dict(id=j['id'], label=j['label']) for j in weapons['joints']]
+    skip = [s.lower() for s in weapons.get('skip') or []]
+    left = re.compile(weapons['left']) if weapons.get('left') else None
+    parts = []
+    for mesh in sorted(index.get('meshes', []), key=lambda m: (m['path'].lower(), m['name'].lower())):
+        path = mesh['path']
+        if not in_folder(path, weapons['folder']) or any(s in path.lower() for s in skip):
+            continue
+        family = path[len(weapons['folder'].rstrip('/')) + 1:].split('/')[0]
+        joint = joints[1]['id'] if left and left.search(mesh['name']) and len(joints) > 1 else joints[0]['id']
+        entry = part(mesh, 'Weapon', joints=joints, joint=joint)
+        entry['name'] = f"{mesh['name']} · {words(family)}"
+        parts.append(entry)
+    return parts
+
+
+def chosen_joints(request, parts):
+    """The joint of each chosen weapon, by its path: the UI's choice when it is one of the part's joints."""
+    picked = request.get('weaponAttachments') or {}
+    return {p['path']: picked[p['id']] if picked.get(p['id']) in {j['id'] for j in p['joints']} else p['joint']
+            for p in parts if p['role'] == 'Weapon' and p.get('joints')}
 
 
 def selection(catalog, clip_id, preset, ctx):
@@ -281,8 +411,9 @@ def selection(catalog, clip_id, preset, ctx):
         raise ValueError('\n'.join(clip['issues']))
     entry = next((c for c in catalog['characters'] if c['id'] == clip['characterKey']), {})
     digest = hashlib.sha256(json.dumps([catalog['archiveSignatures'], catalog['engineVersion']], sort_keys=True).encode()).hexdigest()[:24]
+    parts = model_parts(catalog, entry, ctx.profile(catalog['game']))
     return dict(animation=clip['path'], layout='game', preset=preset if preset in ('player', 'npc') else 'npc', game=clip['game'],
-                parts=model_parts(catalog, entry), character=clip['character'], clipName=clip['name'], archive=clip['archive'],
+                parts=parts, character=clip['character'], clipName=clip['name'], archive=clip['archive'],
                 model=entry.get('model', ''), source=catalog['source'], sourceDigest=digest, characterKey=clip['characterKey'])
 
 
@@ -348,8 +479,9 @@ def prepare(request, catalog, temp, ctx):
     profile = ctx.profile(chosen['game'])
     models = request.get('models') or [p['path'] for p in chosen['parts'] if p['selected']]
     include = request.get('includeCharacter', True) and bool(models)
-    # The clip plays on the bones of the first model, as the game plays it on that mesh.
-    mesh = models[0] if include else chosen['model']
+    joints = chosen_joints(request, chosen['parts'])
+    # The clip plays on the bones of the first model that is not a weapon, as the game plays it on that mesh.
+    mesh = next((m for m in models if m not in joints), chosen['model']) if include else chosen['model']
     ctx.notify('decode', 'Decoding animation and skeleton', 15)
     motion_path = Path(temp) / 'motion.json'
     notes = []
@@ -360,7 +492,8 @@ def prepare(request, catalog, temp, ctx):
     manifests = []
     if include:
         ctx.notify('character', 'Preparing model parts, skin weights and textures', 32)
-        manifest = character_assets.prepare_character(chosen, models, Path(temp) / 'character', profile, ctx)
+        manifest = character_assets.prepare_character(chosen, models, Path(temp) / 'character', profile, ctx,
+                                                      {p: joints[p] for p in models if p in joints})
         character = json.loads(manifest.read_text(encoding='utf-8'))
         report.update(parts=len(character['models']), textures=character['texture_count'], warnings=report['warnings'] + character['warnings'],
                       vertices=sum(m['stats']['vertices'] for m in character['models']),

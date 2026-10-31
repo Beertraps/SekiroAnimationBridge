@@ -58,11 +58,14 @@ internal static class MeshCommand
         var exported = 0;
         for (var index = 0; index < meshPaths.Length; index++)
         {
-            var objectPath = Source.ObjectPath(meshPaths[index]);
+            // MESH|MATERIAL gives slots without a material of their own the one the game sets at run time.
+            var parts = meshPaths[index].Split('|', 2);
+            var objectPath = Source.ObjectPath(parts[0]);
+            var fill = parts.Length > 1 && parts[1].Length > 0 ? Source.ObjectPath(parts[1]) : null;
             try
             {
                 var stem = Path.Combine(output, $"{index:00}_{SafeName(objectPath[(objectPath.LastIndexOf('.') + 1)..])}");
-                ExportMesh(provider, objectPath, stem, options, textures);
+                ExportMesh(provider, objectPath, stem, options, textures, fill);
                 results.Add(new { path = objectPath, json = stem + ".json", error = "" });
                 exported++;
             }
@@ -83,7 +86,8 @@ internal static class MeshCommand
         return 0;
     }
 
-    private static void ExportMesh(IFileProvider provider, string objectPath, string stem, SourceOptions options, TextureFolder textures)
+    private static void ExportMesh(IFileProvider provider, string objectPath, string stem, SourceOptions options, TextureFolder textures,
+                                   string? fill)
     {
         var mesh = provider.LoadPackageObject<USkeletalMesh>(objectPath);
         using var dto = new SkeletalMeshDto(mesh, EMeshQuality.Highest);
@@ -157,7 +161,10 @@ internal static class MeshCommand
             arrays = arrayWriter.Arrays;
         }
 
-        var materials = dto.Materials.Select(slot => Material(slot, textures)).ToArray();
+        UMaterialInterface? filled = null;
+        if (fill != null && !provider.TryLoadPackageObject(fill, out filled))
+            Console.WriteLine($"NOTE {mesh.Name}: its material {fill} could not be read");
+        var materials = dto.Materials.Select(slot => Material(slot, textures, filled)).ToArray();
         Program.WriteJson(stem + ".json", new
         {
             format = "unreal-mesh",
@@ -194,11 +201,14 @@ internal static class MeshCommand
     }
 
     /// <summary>A material slot with the textures and color the bridge can show.</summary>
-    private static object Material(MeshMaterialDto slot, TextureFolder textures)
+    private static object Material(MeshMaterialDto slot, TextureFolder textures, UMaterialInterface? filled)
     {
         UMaterialInterface? material = null;
         if (slot.Material != null && slot.Material.TryLoad<UMaterialInterface>(out var loaded))
             material = loaded;
+        // A slot filled with the game's run-time material is named after that material, as "None" says nothing.
+        var slotName = material == null && filled != null ? filled.Name : slot.SlotName;
+        material ??= filled;
         if (material == null)
             return new { slot = slot.SlotName, name = slot.SlotName, path = "", blendMode = "", albedo = (object?)null, normal = (object?)null,
                          mask = (object?)null, emissive = (object?)null, color = (float[]?)null };
@@ -226,13 +236,21 @@ internal static class MeshCommand
                 if (guessed != null && (name == fallback || name == "Texture") && !Regex.IsMatch(texture.Name, guessed, RegexOptions.IgnoreCase))
                     continue;
                 var file = textures.Write(texture);
-                return file == null ? null : new { texture = textures.PathOf(texture), file, srgb = texture.SRGB, normalMap = texture.IsNormalMap };
+                return file == null ? null : new { texture = textures.PathOf(texture), file, srgb = texture.SRGB, normalMap = texture.IsNormalMap, parameter = name };
             }
             return null;
         }
+        // Every texture parameter of the material and its parents, by name, without decoding the images: the package
+        // reads from a name such as ORM or MRA what the channels of a mask hold.
+        var named = parameters.Textures.Keys
+            .Where(name => !name.StartsWith("PM_", StringComparison.Ordinal))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .Select(name => parameters.TryGetTexture2d(out var texture, name) ? new { parameter = name, texture = textures.PathOf(texture) } : null)
+            .Where(entry => entry != null)
+            .ToArray();
         return new
         {
-            slot = slot.SlotName,
+            slot = slotName,
             name = material.Name,
             path = SourceCommands.Normalize(material.GetPathName(), textures.Project),
             blendMode = parameters.BlendMode.ToString(),
@@ -241,12 +259,14 @@ internal static class MeshCommand
             mask = Texture(CMaterialParams2.SpecularMasks, CMaterialParams2.FallbackSpecularMasks),
             emissive = Texture(CMaterialParams2.Emissive, CMaterialParams2.FallbackEmissive),
             color,
+            textures = named,
         };
     }
 
     private static string SafeName(string name) => Regex.Replace(name, @"[^A-Za-z0-9_.-]", "_");
 
-    private static readonly Regex BaseTint = new(@"base ?colou?r|albedo|diffuse", RegexOptions.IgnoreCase);
+    // Deep Rock Galactic names its main tint "DIFF || TintPrimary - Armor1": one tint per zone of the model.
+    private static readonly Regex BaseTint = new(@"base ?colou?r|albedo|diffuse|tint ?primary", RegexOptions.IgnoreCase);
 
     /// <summary>The PNG images of one export, each texture once, named after the texture.</summary>
     private sealed class TextureFolder(string directory, string project)
