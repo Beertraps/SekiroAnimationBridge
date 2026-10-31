@@ -188,10 +188,11 @@ def put_member(binder, name, data, near='', pattern=CLIP):
     return path, ident, False
 
 
-def add_member(binder_path, name, data, base_path=None, near=''):
+def add_member(binder_path, name, data, base_path=None, near='', replace=None):
     """Add data to the binder as member name, or replace the member of that name. Returns (new binder bytes, report).
 
     The binder is read from binder_path when it exists, else from base_path, such as the archive the clip came from.
+    replace gives other members new data by their full path, such as the TAE that registers a new clip.
     """
     from dcx_codec import unwrap
     from soulstruct.dcx import DCXType, compress
@@ -202,10 +203,17 @@ def add_member(binder_path, name, data, base_path=None, near=''):
     raw, kind = unwrap(source.read_bytes())
     binder = Binder(raw)
     path, ident, replaced = put_member(binder, name, data, near)
+    for other, content in (replace or {}).items():
+        member = next((m for m in binder.members if m[1] == other), None)
+        if member is None:
+            raise ValueError(f'The binder has no member {other} to replace.')
+        member[2] = content
     written = binder.to_bytes()
     check = Binder(written)
     if not any(m[1] == path and m[2] == data for m in check.members) or len(check.members) != len(binder.members):
         raise RuntimeError('The rewritten binder did not read back with the new member.')
+    if any(not any(m[1] == other and m[2] == content for m in check.members) for other, content in (replace or {}).items()):
+        raise RuntimeError('The rewritten binder did not read back with its replaced members.')
     if kind != DCXType.Null:
         packed = compress(written, kind)
         if unwrap(packed)[0] != written:

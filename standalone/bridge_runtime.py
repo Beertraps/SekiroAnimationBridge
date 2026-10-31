@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 HOME = HERE.parent
@@ -259,12 +259,42 @@ def binder_member(into, motion):
     return name, base
 
 
-def add_to_binder(into, name, base, motion, hkx, temp):
-    """Add the written HKX to the binder, keeping a .bak of the binder the first time. Returns the report."""
+def slot_request(request):
+    """The source clip that a new animation ID copies its TAE entry and behavior from ('' for the scene's clip), checked
+    before anything is written; None without registerSlot, or without addToBinder, whose clip it registers."""
+    if not request.get('registerSlot') or not request.get('addToBinder'):
+        return None
+    source = str(request.get('slotSource') or '').strip()
+    from animation_slots import parse
+    if source and parse(source) is None:
+        raise ValueError(f'Name the source clip like the game\'s clips, aXXX_YYYYYY, such as a000_003000: {source}')
+    return source
+
+
+def prepare_slot(source, into, name, base, motion, writer, temp):
+    """The TAE entry and behavior variation of a new animation ID (animation_slots), made and read back before anything
+    is written. None when the binder already holds the clip."""
+    import animation_slots
+    event('write', f'Planning the TAE entry and behavior of {name}', 55)
+    plan = animation_slots.plan(into[0], name, base, source, Path(str(motion.get('clip') or '')).name)
+    if plan is None:
+        print(f'NOTICE: {into[0].name} holds {name} already, so its TAE entry and behavior stay as they are.', flush=True)
+        return None
+    return animation_slots.prepare(plan, temp / 'slot', writer, lambda message: event('write', message, 58))
+
+
+def add_to_binder(into, name, base, motion, hkx, temp, slot=None):
+    """Add the written HKX to the binder, keeping a .bak of the binder the first time. Returns the report.
+
+    slot, from prepare_slot(), also writes the new ID's TAE entry and behavior variation, and reads them back."""
     from binder_members import add_member, backup
     binder = into[0]
     event('write', f'Adding {name} to {binder.name}', 92)
-    data, report = add_member(binder, name, hkx.read_bytes(), base or None, motion.get('member', ''))
+    extra = {}
+    if slot:
+        from animation_slots import shared_replacement
+        extra = dict(replace=shared_replacement(slot))
+    data, report = add_member(binder, name, hkx.read_bytes(), base or None, motion.get('member', ''), **extra)
     report['backup'] = backup(binder)
     staging = temp / 'binder.dcx'
     staging.write_bytes(data)
@@ -273,10 +303,48 @@ def add_to_binder(into, name, base, motion, hkx, temp):
     print(f"{'Replaced' if report['replaced'] else 'Added'} {report['member']} (ID {report['id']}) in {binder}"
           + (f", from {report['base']}" if report['base'] != str(binder) else '')
           + (f"; the binder before it is kept as {Path(report['backup']).name}" if report['backup'] else ''), flush=True)
-    if not report['replaced']:
-        print('NOTICE: A new animation ID needs a TAE entry of its own, and something that plays it, before the game uses it.',
-              flush=True)
+    if slot:
+        report['slot'] = write_slot(slot, temp)
+    elif not report['replaced']:
+        print('NOTICE: A new animation ID needs a TAE entry of its own, and something that plays it, before the game uses it. '
+              'Register a new ID in the TAE and the behavior does both for a new category of an existing move.', flush=True)
     return report
+
+
+def write_slot(slot, temp):
+    """Write the new ID's TAE binder and behavior binder, read them back, and log what changed."""
+    import animation_slots
+    event('write', f"Writing the TAE entry and behavior of {slot['plan']['clip']}", 95)
+    files = animation_slots.write(slot, temp, atomic_copy)
+    plan, tae, behavior = slot['plan'], slot['tae'], slot['behavior']
+    member = PureWindowsPath(tae['member']).name
+    print({'added': f"TAE: added {plan['clip']} to {member} with the events of {plan['source']}",
+           'own': f"TAE: {member} has its own entry for {plan['clip']} already",
+           'borrowed': f"TAE: {plan['clip']} in {member} played the HKX of ID {tae['eventsFrom']}; it now plays its own",
+           'imported': f"TAE: {plan['clip']} in {member} imported entry {tae['eventsFrom']}; it now has those events and "
+                       'plays its own HKX'}[tae['kind']] + (f" ({tae['readback']})" if tae['readback'] else '')
+          + f", in {Path(tae['binder']).name}", flush=True)
+    for entry in behavior['files']:
+        file = PureWindowsPath(entry['member']).name
+        for row in entry['added']:
+            print(f"Behavior: added {row['clipGenerator']} to {row['selector']} in {file}, copied from {row['copiedFrom']}",
+                  flush=True)
+        for selector in entry['present']:
+            print(f"Behavior: {selector} in {file} plays {plan['clip']} already", flush=True)
+    for file in files['written']:
+        print(f"Wrote {file['path']}" + (f"; the file before it is kept as {Path(file['backup']).name}" if file['backup'] else ''),
+              flush=True)
+    event('write', f"Reading the TAE and behavior of {plan['clip']} back", 97)
+    checks = animation_slots.verify(slot)
+    print(f"New animation ID checks: {sum(c['passed'] for c in checks)} of {len(checks)} pass", flush=True)
+    for check in checks:
+        print(f"{'PASS' if check['passed'] else 'FAIL'} {check['name']}: {check['detail']}", flush=True)
+    if not all(check['passed'] for check in checks):
+        raise RuntimeError(f"The TAE or behavior of {plan['clip']} did not read back as written. See the activity log.")
+    print(f"NOTICE: The behavior plays {plan['clip']} instead of {plan['source']} only while the character's animation "
+          f"category is a{plan['clip'][1:4]}: for an enemy, an animIdOffset in NpcParam or SpEffectParam. Whether the game "
+          'plays it is not yet tested.', flush=True)
+    return animation_slots.report(slot, checks) | files
 
 
 def donor_request(request):
@@ -568,6 +636,7 @@ def convert(request):
             blend = existing(request.get('inputBlend'), 'Edited Blender scene')
         output = output_file(request.get('outputHKX'), '.hkx', force)
         into = binder_request(request)
+        slot_source = slot_request(request)
         part_id, parts_mod = part_request(request)
         sidecar = output.with_suffix('.motion.json')
         if sidecar.exists() and not force:
@@ -588,6 +657,7 @@ def convert(request):
         doc = json.loads(motion.read_text(encoding='utf-8'))
         refuse_import_only(doc)
         member, base = binder_member(into, doc) if into else ('', '')
+        slot = prepare_slot(slot_source, into, member, base, doc, writer, temp) if slot_source is not None else None
         from binder_members import CLIP
         body = Path(member or str(doc.get('clip') or '')).name
         parts = part_outputs(blender, blend, motion, output, force, temp, body[:11].lower() if CLIP.fullmatch(body) else '',
@@ -615,7 +685,7 @@ def convert(request):
             print(f"Part clip {entry['clip']} of {entry['name']}" + (f", new over {entry['member']}" if entry.get('new') else '')
                   + f": {target}", flush=True)
         part_binders = write_part_binders(parts, parts_mod, request, temp) if parts_mod and parts else None
-        binder = add_to_binder(into, member, base, doc, staged_hkx, temp) if into else None
+        binder = add_to_binder(into, member, base, doc, staged_hkx, temp, slot) if into else None
         stats = json.loads(stats_path.read_text(encoding='utf-8'))
         sampled = doc.get('export', {})
         done = f"HKX animation added to {into[0].name}" if binder else 'HKX animation ready for WitchyBND'

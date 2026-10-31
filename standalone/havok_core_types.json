@@ -1,0 +1,388 @@
+{
+  "version": 1,
+  "source": "HkxConverter XML of Sekiro's vanilla c0000 and c9997 behaviors (github.com/Ionian-SR/SDT-behbnd-hkx-xml-archive), checked 2026-10-27",
+  "note": "Havok core types as the game's reflection defines them. Binary tagfiles keep only the members of types that have instances, so these definitions cannot be read from the binaries. They change only the XML's type section: with them, the XML of all 62 vanilla c0000 and c9997 behaviors matches HkxConverter's apart from enum value comments.",
+  "types": {
+    "T*< hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any > >": {
+      "name": "T*",
+      "parent": null,
+      "format": 6,
+      "has_subtype": true,
+      "subtype": "hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >",
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >"
+        ]
+      ],
+      "flags": null,
+      "fields": null
+    },
+    "T*< hkReflect::Type >": {
+      "name": "T*",
+      "parent": null,
+      "format": 6,
+      "has_subtype": true,
+      "subtype": "hkReflect::Type",
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkReflect::Type"
+        ]
+      ],
+      "flags": null,
+      "fields": null
+    },
+    "T[N]< hkUintReal, 4 >": {
+      "name": "T[N]",
+      "parent": null,
+      "format": 1064,
+      "has_subtype": true,
+      "subtype": "hkUintReal",
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkUintReal"
+        ],
+        [
+          "v",
+          4
+        ]
+      ],
+      "flags": null,
+      "fields": null
+    },
+    "hkArray< hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >, hkContainerHeapAllocator >": {
+      "name": "hkArray",
+      "parent": null,
+      "format": 8,
+      "has_subtype": true,
+      "subtype": "hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >",
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >"
+        ],
+        [
+          "t",
+          "hkContainerHeapAllocator"
+        ]
+      ],
+      "flags": null,
+      "fields": [
+        [
+          "m_data",
+          "T*< hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any > >",
+          34
+        ],
+        [
+          "m_size",
+          "int",
+          34
+        ],
+        [
+          "m_capacityAndFlags",
+          "int",
+          34
+        ]
+      ]
+    },
+    "hkBaseObject": {
+      "name": "hkBaseObject",
+      "parent": null,
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": 144,
+      "fields": []
+    },
+    "hkDefaultPropertyBag": {
+      "name": "hkDefaultPropertyBag",
+      "parent": null,
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": 1,
+      "params": [],
+      "flags": null,
+      "fields": [
+        [
+          "propertyMap",
+          "hkHashMap< hkPropertyId, hkReflect::Any >",
+          34
+        ]
+      ]
+    },
+    "hkHashBase< hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any > >": {
+      "name": "hkHashBase",
+      "parent": null,
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >"
+        ]
+      ],
+      "flags": null,
+      "fields": [
+        [
+          "items",
+          "hkArray< hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >, hkContainerHeapAllocator >",
+          34
+        ]
+      ]
+    },
+    "hkHashMap< hkPropertyId, hkReflect::Any >": {
+      "name": "hkHashMap",
+      "parent": "hkHashBase< hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any > >",
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkPropertyId"
+        ],
+        [
+          "t",
+          "hkReflect::Any"
+        ]
+      ],
+      "flags": 16,
+      "fields": []
+    },
+    "hkHashMapDetail::MapTuple< hkPropertyId, hkReflect::Any >": {
+      "name": "hkHashMapDetail::MapTuple",
+      "parent": "hkTuple< hkPropertyId, hkReflect::Any, void, void, void, void, void, void >",
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkPropertyId"
+        ],
+        [
+          "t",
+          "hkReflect::Any"
+        ]
+      ],
+      "flags": 16,
+      "fields": []
+    },
+    "hkPropertyBag": {
+      "name": "hkPropertyBag",
+      "parent": null,
+      "format": 8,
+      "has_subtype": true,
+      "subtype": "hkDefaultPropertyBag",
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": []
+    },
+    "hkPropertyFlags::Enum": {
+      "name": "hkPropertyFlags::Enum",
+      "parent": null,
+      "format": 33284,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": null
+    },
+    "hkPropertyId": {
+      "name": "hkPropertyId",
+      "parent": null,
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": [
+        [
+          "type",
+          "T*< hkReflect::Type >",
+          32
+        ],
+        [
+          "name",
+          "const char*",
+          32
+        ],
+        [
+          "flags",
+          "hkPropertyFlags::Enum",
+          32
+        ]
+      ]
+    },
+    "hkReflect::Any": {
+      "name": "hkReflect::Any",
+      "parent": null,
+      "format": 8,
+      "has_subtype": true,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": [
+        [
+          "type",
+          "hkReflect::QualifiedType< hkReflect::Type >",
+          36
+        ],
+        [
+          "status",
+          "unsigned char",
+          36
+        ],
+        [
+          "buf",
+          "T[N]< hkUintReal, 4 >",
+          36
+        ]
+      ]
+    },
+    "hkReflect::QualifiedType< hkReflect::Type >": {
+      "name": "hkReflect::QualifiedType",
+      "parent": null,
+      "format": 6,
+      "has_subtype": true,
+      "subtype": "hkReflect::Type",
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkReflect::Type"
+        ]
+      ],
+      "flags": null,
+      "fields": [
+        [
+          "type",
+          "T*< hkReflect::Type >",
+          36
+        ]
+      ]
+    },
+    "hkReflect::Type": {
+      "name": "hkReflect::Type",
+      "parent": null,
+      "format": 1,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": null
+    },
+    "hkRootLevelContainer": {
+      "name": "hkRootLevelContainer",
+      "parent": null,
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": [
+        [
+          "namedVariants",
+          "hkArray< hkRootLevelContainer::NamedVariant, hkContainerHeapAllocator >",
+          32
+        ]
+      ]
+    },
+    "hkTuple< hkPropertyId, hkReflect::Any, void, void, void, void, void, void >": {
+      "name": "hkTuple",
+      "parent": null,
+      "format": 7,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [
+        [
+          "t",
+          "hkPropertyId"
+        ],
+        [
+          "t",
+          "hkReflect::Any"
+        ],
+        [
+          "t",
+          "void"
+        ],
+        [
+          "t",
+          "void"
+        ],
+        [
+          "t",
+          "void"
+        ],
+        [
+          "t",
+          "void"
+        ],
+        [
+          "t",
+          "void"
+        ],
+        [
+          "t",
+          "void"
+        ]
+      ],
+      "flags": null,
+      "fields": [
+        [
+          "0",
+          "hkPropertyId",
+          32
+        ],
+        [
+          "1",
+          "hkReflect::Any",
+          32
+        ]
+      ]
+    },
+    "hkUintReal": {
+      "name": "hkUintReal",
+      "parent": "unsigned int",
+      "format": null,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": null,
+      "fields": null
+    },
+    "void": {
+      "name": "void",
+      "parent": null,
+      "format": 0,
+      "has_subtype": false,
+      "subtype": null,
+      "version": null,
+      "params": [],
+      "flags": 1,
+      "fields": null
+    }
+  }
+}

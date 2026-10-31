@@ -55,7 +55,7 @@ Today the bridge can edit a part clip that a Sekiro weapon already has and write
 - **Tracks.** A clip that existed keeps its track list. A new clip gets one track for each bone of the part skeleton that the rig has, as the rest clip lists them.
 - **Write.** New request option `writeParts` with an output folder. The export reads each weapon's part binder from the game folder, adds or replaces the clip in its animation binder, and writes the part binder into `<mod>\parts\`, together with its `_l` copy when the game has one. `_m` files stay as they are. A me3 profile goes beside the folder. Nothing is written into the game folder (`dcx_codec.protect_output`). Binder code: `character_export.read_binder()` and `write_binder()`, with the animation binder opened as a member.
 - **Check.** New `part-verify`: each written part binder reads back, each clip decodes on its part skeleton, member names match the model's suffix, and both copies hold the same clips.
-- **Notices.** A new ID that the character's TAE does not have plays only after a body clip of that ID is added with its TAE entry, as **Add to an animation binder** already says.
+- **Notices.** A new ID that the character's TAE does not have plays only after a body clip of that ID is added with its TAE entry, as **Add to an animation binder** already says. **Register a new ID in the TAE and the behavior** now writes that entry, and a clip generator in the behavior, for another category of an existing move.
 
 ### 4.2 An animation binder for a weapon that has none
 

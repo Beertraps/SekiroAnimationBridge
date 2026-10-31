@@ -6,7 +6,7 @@ using System.Text.Json.Nodes;
 // Each command takes a JSON job and writes a JSON report: SekiroCharacterWriter <command> <job.json> <report.json>.
 // The bridge unpacks and packs the binders and their DCX; this tool reads and writes the members inside them.
 
-const string Version = "SekiroCharacterWriter 0.2.0 (inspect, flver, tpf, msb)";
+const string Version = "SekiroCharacterWriter 0.3.0 (inspect, flver, tpf, msb, tae)";
 if (args.Length == 1 && args[0] == "--version")
 {
     Console.WriteLine(Version);
@@ -14,7 +14,7 @@ if (args.Length == 1 && args[0] == "--version")
 }
 if (args.Length != 3)
 {
-    Console.Error.WriteLine("Usage: SekiroCharacterWriter <inspect|flver|tpf|msb> <job.json> <report.json>");
+    Console.Error.WriteLine("Usage: SekiroCharacterWriter <inspect|flver|tpf|msb|tae> <job.json> <report.json>");
     return 2;
 }
 
@@ -27,6 +27,7 @@ try
         "flver" => FlverWriter.Run(job),
         "tpf" => TextureWriter.Run(job),
         "msb" => MapWriter.Run(job),
+        "tae" => TaeWriter.Run(job),
         _ => throw new ArgumentException($"Unknown command {args[0]}."),
     };
     File.WriteAllText(args[2], JsonSerializer.Serialize(report, Json.Options));

@@ -286,8 +286,46 @@ Export creates a raw `.hkx` and adjacent `.motion.json` sidecar. To put it into 
 **Also add it to an animation binder**, under **Output HKX**, writes the HKX into an animation binder (`.anibnd.dcx`) too:
 
 - **Animation binder** starts as the archive the clip came from, such as `chr\c0000_a05x.anibnd.dcx`. Scenes record it when they are imported from a source (bridge 0.13 and later); for other scenes, choose the binder. The game's own files are protected: when the archive is in the game folder, the field names a copy of it beside the output HKX instead. The first export makes that copy from the game's archive, which stays unchanged; later exports change the copy. Put it into your mod's `chr` folder.
-- **Name in the binder** starts empty, which uses the clip's own name, such as `a050_002000.hkx`, and replaces that clip. Another `aXXX_YYYYYY.hkx` name adds a new clip, with the member ID and folder that the binder's clips follow (`a050_002000.hkx` is ID 1050002000). The game plays a new clip only once a TAE entry of that animation ID points at it; the log says so.
+- **Name in the binder** starts empty, which uses the clip's own name, such as `a050_002000.hkx`, and replaces that clip. Another `aXXX_YYYYYY.hkx` name adds a new clip, with the member ID and folder that the binder's clips follow (`a050_002000.hkx` is ID 1050002000). The game plays a new clip only once a TAE entry of that animation ID points at it and the behavior has a clip that plays it. **Register a new ID in the TAE and the behavior** writes both for another category of a move; see [Register a new animation ID](#register-a-new-animation-id).
 - Before its first change the binder is kept as `.bak` beside it. Its other members stay byte for byte as they were, and the result is read back before it is written.
+
+### Register a new animation ID
+
+A clip under a new name, such as `a100_003008.hkx` in `c1010.anibnd.dcx`, does nothing in the game on its own. Two more files must know its ID:
+
+- the character's **TAE**, which holds the events of each animation: hit boxes, sounds, cancel windows;
+- the character's **behavior**, `c1010.behbnd.dcx`, which decides when a clip plays.
+
+**Register a new ID in the TAE and the behavior** writes both, for a *variation*: another category of a move that the character has. In the behavior each move has a selector, such as `Attack3008_CMSG`, with one clip per category of the same number: `a000_003008`, `a100_003008` and so on. It plays the clip of the character's current category, and the `a000` clip when there is none. So the new name keeps the source clip's number, `003008`, and changes its category, the three digits after `a`. A new number would need a new state in the behavior and AI that asks for it. The bridge does not write those and refuses such a name.
+
+Set up once:
+
+1. Run `tools\setup_hkb_duplicator.cmd`. It downloads the SDT HKB Duplicator by Ionian, which adds the clip to the behavior, into `%LOCALAPPDATA%\SekiroAnimationBridge\tools\SDT-HKB-Duplicator`.
+2. Run `tools\setup_writer.cmd` again. It installs lxml, which the Duplicator needs.
+3. From a source checkout, also run `tools\SekiroMotionDecoder\build_decoder.cmd` again: SekiroCharacterWriter 0.3.0 writes the TAE entry. Release ZIPs include it.
+4. The **Setup** page shows **SDT HKB Duplicator** as ready.
+
+Then, for `c1010`'s attack `a000_003008`:
+
+1. Import `a000_003008` of `c1010` from your Sekiro source, edit it in Blender and save the scene.
+2. On the **Export** page, under **Output HKX**, tick **Also add it to an animation binder**.
+3. **Animation binder** names `c1010.anibnd.dcx`. Keep the copy it suggests, or choose the one in your mod's `chr` folder.
+4. Write `a100_003008.hkx` in **Name in the binder**.
+5. Tick **Register a new ID in the TAE and the behavior**.
+6. Leave **Source clip** empty: the new ID copies the scene's clip, `a000_003008`. Write a name there only when the scene came from another clip; it must have the number `003008` too.
+7. Click **Export HKX animation**.
+
+The export then writes:
+
+- the new clip into the binder, as member ID 1100003008;
+- the TAE entry 100003008 into `c1010.tae` in the same binder, with the 82 events of `a000_003008`, playing its own HKX. Wolf's TAE is in `c0000.anibnd.dcx`, a file per category such as `a100.tae`; for a binder such as `c0000_a10x.anibnd.dcx` the bridge reads `c0000.anibnd.dcx` beside it, or else beside the archive the clip came from, and writes it beside the binder;
+- `c1010.behbnd.dcx` beside the binder, read from the game folder the first time. Each selector that plays `a000_003008` gets a copy of its clip generator for `a100_003008`, here `a100_003008_hkx_AutoSet_01` in `Attack3008_CMSG`, and the behavior's animation list gets `..\..\..\..\..\Model\chr\c9997\hkx\a100\a100_003008.hkx`.
+
+The TAE entry and the behavior are made and read back before anything is written, and each file is kept as `.bak` before its first change. The bridge reads every file back: the TAE entry plays its own HKX with the copied events, and every other entry is unchanged; the rebuilt behavior has the same objects as the edited one, and its selectors hold the new clip generator. The log ends with *New animation ID checks: 2 of 2 pass* and a line per check. Exporting the same name again replaces the clip and leaves the TAE and the behavior as they are.
+
+The character plays the clip only while its animation category is `a100`. For an enemy, an `animIdOffset` in its NpcParam row or in a SpEffect sets it; the bridge does not change params. Whether the game plays a registered clip is not yet tested.
+
+On the command line: `bridge_cli export SCENE --output HKX --binder c1010.anibnd.dcx --binder-member a100_003008.hkx --register-slot`, and `--slot-source a000_003008` to name the source clip.
 
 Weapon part clips from **Also export part animations** go beside the HKX, and with **Also write them into a mod folder** into their part binders; see [Part clips on export](#part-clips-on-export). A new part clip takes the name in the binder.
 
@@ -524,7 +562,7 @@ standalone\bridge_cli.cmd export "D:\SekiroWork\c5060.blend" --output "D:\Sekiro
 | `import CATALOG CLIP --output SCENE` | The Blender scene and the import report. `--models`, `--rig-only` and the `--donor-...` options as in the PowerShell CLI |
 | `inspect SCENE` | The scene's actions and frame ranges |
 | `verify SCENE` | Checks of the scene, without saving it: see below |
-| `export SCENE --output HKX` | The HKX, with the export options of the PowerShell CLI in lower case, such as `--frame-range` and `--binder`. `--write-parts FOLDER` also puts the part clips into their part binders in that mod folder, and `--part-id` names them: see [Part clips on export](#part-clips-on-export) |
+| `export SCENE --output HKX` | The HKX, with the export options of the PowerShell CLI in lower case, such as `--frame-range` and `--binder`. `--write-parts FOLDER` also puts the part clips into their part binders in that mod folder, and `--part-id` names them: see [Part clips on export](#part-clips-on-export). `--register-slot` with `--binder` registers a new ID in the TAE and the behavior, and `--slot-source CLIP` names the clip it copies: see [Register a new animation ID](#register-a-new-animation-id) |
 | `part-verify FOLDER` | The checks of the part binders in a mod folder |
 | `character-parts GAME --map MAP` | The template's enemies in a map, for `--part` |
 | `character-export SCENE --game-folder GAME --id ID --output FOLDER` | A new Sekiro character in a mod folder, with the report and its checks: see [New Sekiro character](#new-sekiro-character) |

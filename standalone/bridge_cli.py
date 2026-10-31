@@ -282,6 +282,10 @@ def command_export(args, settings, saved):
                    rootYaw=args.root_yaw, quantization=args.quantization, tolerance=args.tolerance, verify=not args.no_verify,
                    exportParts=args.parts or bool(args.write_parts), addToBinder=bool(args.binder), binder=path(args.binder), binderMember=args.binder_member or '',
                    writeParts=bool(args.write_parts), partsFolder=path(args.write_parts), partId=args.part_id or '', force=args.force)
+    if args.register_slot or args.slot_source:
+        if not args.binder:
+            raise Failure('--register-slot needs --binder: the new animation ID is registered for the clip that export adds there.')
+        request.update(registerSlot=True, slotSource=args.slot_source or '')
     for key, value in (('frameStart', args.frame_start), ('frameEnd', args.frame_end), ('frameRate', args.frame_rate)):
         if value is not None:
             request[key] = value
@@ -448,6 +452,12 @@ def parser():
                         help='also put the part clips into their part binders in this mod folder, with a me3 profile beside it')
     export.add_argument('--binder', default='', help='also add the HKX to this .anibnd.dcx; a copy beside the HKX for a game file')
     export.add_argument('--binder-member', default='', help="the member name in the binder; the clip's own by default")
+    export.add_argument('--register-slot', action='store_true',
+                        help='for a clip new to the binder, also write its TAE entry and add it to the behavior as a variation '
+                             'of the source clip (same number, other category); needs tools\\setup_hkb_duplicator.cmd')
+    export.add_argument('--slot-source', default='', metavar='CLIP',
+                        help="the clip whose TAE entry and behavior place the new ID copies, such as a000_003008; the scene's "
+                             'clip by default. Implies --register-slot')
     export.add_argument('--force', action='store_true')
     def character(name, help, first, first_help):
         found = command(name, help)

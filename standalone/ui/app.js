@@ -66,9 +66,11 @@ const help={
  outputHKX:['HKX output','Export writes a raw HKX and an adjacent .motion.json sidecar. Use WitchyBND to replace the animation member in a copy of your binder. Model geometry, TAE events and unrelated HKX metadata are not exported.\n\nRead the HKX back decodes the written file again and reports the largest rotation and translation differences from the sampled pose.'],
  partAnimations:['Animate weapon parts','Some weapons animate their own bones: the Loaded Umbrella opens, the Loaded Axe and Loaded Spear move, the Mortal Blade’s sheath turns. Their part binder holds an animation binder for the model, such as WP_A_0760_1.anibnd, with clips named after the character’s animation IDs.\n\nThe import keys each chosen weapon with the clip of the same ID. Where the character’s TAE gives several IDs one body clip, such as a076_412000 playing a070_412000, the part plays the clip of the ID in its own category. A part without a clip for the animation keeps its rest pose. The preview lists which clip each part plays.\n\nTAE events that hide a weapon or move it to another dummy are not applied.'],
  partView:['Part animations','Starts from a Sekiro weapon part: choose one on the left to list its clips, then one of its clips to list the player animations it plays in, each with the reason. The reason is the same animation ID, an ID that the part’s own TAE gives that clip, or an ID that the player’s TAE gives the same body clip, such as a076_412000 playing a070_412000. This is the import’s own pairing, read the other way round.\n\nChoosing an animation selects it and the weapon part for import, and turns on Animate weapon parts, so the scene keys the part with that clip. A part holds its rest pose, a999_000000, in every animation without a clip of its own; the rest pose is not listed.\n\nA game folder reads the player’s archives the first time. This view is shown for Sekiro sources only.'],
- addToBinder:['Add to an animation binder','Also puts the written HKX into an animation binder (ANIBND), so you need no WitchyBND step. The HKX and its .motion.json are still written under Save HKX as.\n\nWhen the binder holds a clip of the same name, that clip is replaced. Otherwise the HKX is added as a new clip, with the ID and folder that the binder’s other clips follow. A new animation ID needs a TAE entry and something that plays it before the game uses it.\n\nBefore its first change, the binder is copied to a .bak file beside it. Weapon part clips are not added; they are written beside the HKX.'],
+ addToBinder:['Add to an animation binder','Also puts the written HKX into an animation binder (ANIBND), so you need no WitchyBND step. The HKX and its .motion.json are still written under Save HKX as.\n\nWhen the binder holds a clip of the same name, that clip is replaced. Otherwise the HKX is added as a new clip, with the ID and folder that the binder’s other clips follow. A new animation ID needs a TAE entry and something that plays it before the game uses it: Register a new ID adds both for another category of an existing move.\n\nBefore its first change, the binder is copied to a .bak file beside it. Weapon part clips are not added; they are written beside the HKX.'],
  binder:['Animation binder','The .anibnd.dcx to add the HKX to. Read actions fills in the archive that the clip was imported from. Files in the game installation are protected, so for a clip from the game folder it suggests a copy of that archive in the HKX’s folder, made from the game’s archive the first time. Point it at the same file in your mod folder to change your mod directly.\n\nScenes imported before bridge 0.13 do not record their archive; choose it yourself.'],
  binderMember:['Name in the binder','The clip’s member name, such as a050_002000.hkx. Empty: the clip’s own name, which replaces the original clip. A name the binder does not hold yet adds a new animation.'],
+ registerSlot:['Register a new ID','The game plays a new animation ID only when its TAE has an entry for it and its behavior has a clip that plays it. With this on, a clip that is new to the binder gets both:\n\n1. The TAE entry of the source clip is copied to the new ID: its hit boxes, sounds and cancel windows.\n2. The new clip is added to the behavior (cXXXX.behbnd.dcx, beside the binder) next to the source clip, as another category of the same move. The SDT HKB Duplicator by Ionian does this; run tools\\setup_hkb_duplicator.cmd once.\n\nSo the new name keeps the source clip’s number and changes the category: a000_003008 becomes a100_003008. The game plays it while the character’s animation category is a100 (for an enemy, animIdOffset in NpcParam or SpEffectParam). A new number needs a new state and AI and is refused.\n\nThe behavior binder is kept as a .bak before its first change. Every write is read back. Not yet tested in game.'],
+ slotSource:['Source clip','The clip whose TAE entry and place in the behavior the new ID copies, such as a000_003008. It must have the same number as the new name. Empty: the clip this scene was imported from.'],
  exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. A part that came with a clip keeps the clip’s member name, such as a076_405010_1.hkx, and its own frame rate. A part that holds its rest pose gets a new clip when you key its weapon rig: it is named after the character clip’s ID and the model’s number, such as a000_003000_1.hkx, at 30 fps. The format and settings follow the character’s HKX.\n\nWrite them into a mod folder, or replace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. Part clips are not yet tested in game.'],
  partId:['Part clip ID','The animation ID that every part clip is named after, such as a000_003000. A part clip plays while the character plays the TAE ID of the same number. Empty: a clip that came with the part keeps its name, and a new clip takes the character clip’s ID, or the name in the binder when you add the HKX to one.'],
  writeParts:['Write into a mod folder','Also puts each part clip into its weapon’s part binder: parts\\wp_a_0760.partsbnd.dcx in the mod folder, read from the game folder the first time and from the mod folder after that, so clips add up. A weapon with a far-away copy, such as wp_a_0300_l.partsbnd.dcx, gets the clip in both. A .me3 profile beside the folder loads the mod. The game folder is never written. The bridge then reads the binders back and decodes every clip in them.'],
@@ -191,7 +193,8 @@ function binderNote(){
  const binder=$('binder').value.trim(),name=$('binderMember').value.trim()||sceneInfo?.clip||'the clip’s own name',archive=sceneInfo?.archive||'';
  if(!binder)return sceneInfo&&!archive?'This scene does not record the archive its clip came from. Choose the binder.':'Choose the binder to add the HKX to.';
  const copy=archive&&!sceneInfo.archiveWritable&&!samePath(binder,archive)&&basename(binder).toLowerCase()===basename(archive).toLowerCase();
- return `${name} replaces the clip of that name in ${basename(binder)}, or is added with a new ID.`+(copy?` The first export makes ${basename(binder)} as a copy of the game’s archive, which stays unchanged.`:'')+' The binder is kept as a .bak before its first change.';
+ const slot=$('registerSlot').checked?` A new ID also gets a TAE entry and a place in the behavior, copied from ${$('slotSource').value.trim()||sceneInfo?.clip||'the scene’s clip'}.`:'';
+ return `${name} replaces the clip of that name in ${basename(binder)}, or is added with a new ID.`+(copy?` The first export makes ${basename(binder)} as a copy of the game’s archive, which stays unchanged.`:'')+' The binder is kept as a .bak before its first change.'+slot;
 }
 function rangeNote(){
  const info=sceneInfo,mode=$('frameRange').value;
@@ -205,7 +208,7 @@ function rangeNote(){
 function updateExportOptions(){
  const root=$('rootMotion').value,tracks=$('trackSet').value,range=$('frameRange').value;
  $('part-fields').hidden=!$('exportParts').checked;$('parts-folder-field').hidden=!$('writeParts').checked;
- $('binder-fields').hidden=!$('addToBinder').checked;$('binder-note').textContent=binderNote();
+ $('binder-fields').hidden=!$('addToBinder').checked;$('slot-fields').hidden=!$('registerSlot').checked;$('binder-note').textContent=binderNote();
  document.querySelectorAll('#range-buttons [data-range]').forEach(b=>{const on=b.dataset.range===range;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on));});
  $('custom-range').hidden=range!=='custom';$('root-bone-fields').hidden=root!=='bone';
  $('spline-options').hidden=document.querySelector('[name="format"]:checked')?.value!=='spline';
@@ -1077,6 +1080,8 @@ async function start(mode){
     requireFields(['binder']);
     const name=$('binderMember').value.trim();
     if(name&&!/^a\d{3}_\d{6}\.hkx$/i.test(name))throw Error('Name the HKX in the binder like the game’s clips, aXXX_YYYYYY.hkx, such as a050_002000.hkx.');
+    const source=$('slotSource').value.trim();
+    if($('registerSlot').checked&&source&&!/^a\d{3}_\d{6}(\.hkx)?$/i.test(source))throw Error('Write the source clip like the game’s, aXXX_YYYYYY, such as a000_003008.');
    }
    if($('exportParts').checked){
     const id=$('partId').value.trim();
@@ -1163,6 +1168,7 @@ function renderResult(value){
  }
  details+=partSummary(value.mode,r);
  if(r.binder)details+=` · ${r.binder.replaced?'replaced':'added as new clip'} ${basename(r.binder.member)} in ${basename(r.binder.binder)}`;
+ if(r.binder?.slot)details+=` · TAE entry and behavior copied from ${r.binder.slot.source}, ${r.binder.slot.checks.filter(c=>c.passed).length} of ${r.binder.slot.checks.length} checks pass`;
  const warnings=r.warnings?.length?` · ${r.warnings.length} ${value.mode==='import'?'material':'export'} notice${r.warnings.length===1?'':'s'} (see Activity)`:'';
  box.innerHTML=`<div class="result-info"><b title="${escape(value.output)}">${escape(basename(value.output))}</b><p>${escape(details+warnings)}</p></div>${value.mode==='import'?`<button type="button" class="secondary" data-open="blender">${icon('play')}Open Blender</button>`:''}<button type="button" class="secondary" data-open="reveal">${icon('folder')}Show file</button>`;
  box.querySelectorAll('[data-open]').forEach(el=>el.addEventListener('click',()=>openOutput(el.dataset.open,value.output)));
@@ -1466,7 +1472,7 @@ document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('chan
  }
  if(id==='game'&&folder)$('game').value=activeSource()?.game||'auto';
  if(id==='inputBlend')forgetScene();
- if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts','writeParts','addToBinder','binder','binderMember','outputHKX'].includes(id))updateExportOptions();
+ if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts','writeParts','addToBinder','binder','binderMember','registerSlot','slotSource','outputHKX'].includes(id))updateExportOptions();
  if(['blender','writer','decoder','oodle'].includes(id))checkEnvironment();
  renderSceneHead();saveSoon();
 }));
