@@ -145,6 +145,8 @@ def read_geometry(model, data, lod=0):
 
 TEXTURE = re.compile(r'(\w+)\s*=\s*\{\s*filePath\s*=\s*"([^"]*)"', re.IGNORECASE)
 INHERIT = re.compile(r'inherit\s*=\s*"([^"]+)"', re.IGNORECASE)
+# The parms of a material's images. The game keeps a specular colour (_s) and a smoothness (_g) where other games
+# keep metalness and roughness; neither is a channel of those, so the manifest names no metalness or roughness.
 ALBEDO = ('albedo', 'decalalbedo', 'eyealbedomap', 'glassalbedomap', 'hairalbedomap')
 NORMAL = ('normal', 'decalnormal', 'eyenormalmap', 'glassnormalmap', 'hairnormalmap')
 EMISSIVE = ('bloommaskmap', 'eyeemissivemap')
@@ -158,6 +160,10 @@ class Material:
         self.name, self.textures, self.templates = name, textures, templates
         self.alpha = 'alphatest' in text or any('hair' in t for t in templates)
         self.overlay = any(word in name for word in ('eye_occ', 'eyes_occ', 'eyeocc', 'eyewet'))
+        # A glow card: a flat quad the game adds as light around an energy blade (marauder_axe_blade_effect).
+        # Drawn as a surface it would be a grey square.
+        self.card = (any(t.startswith('template/emissive') for t in templates)
+                     and bool(re.search(r'_(effect|card)(_|$)', name.rsplit('/', 1)[-1])))
 
 
 def read_material(read_decl, name):
@@ -190,6 +196,65 @@ def image_name(images, path, kind):
     """The image resource of a texture path: names add options such as $streamed$mtlkind=albedo."""
     candidates = images.get(path if '.' in path.rsplit('/', 1)[-1] else path + '.tga', [])
     return next((c for c in candidates if f'mtlkind={kind}' in c), candidates[0] if candidates else None)
+
+
+# Model definitions: md6def decls say which meshes of a model make each look, which are gore pieces, and which
+# other models (props) hang on the character's tags.
+
+MD6DEFS = 'generated/decls/md6def/'
+# Props from these folders are separate models: weapons, demons' weapons and shields, equipment.
+WEAPON_PROPS = ('md6def/objects/weapons/', 'md6def/objects/ai_props/', 'md6def/objects/equipment/')
+# Empty models that only carry tags for synced kills and effects.
+PROXY = re.compile(r'(^|/)(syncentity\d*|default)\.md6mesh$')
+MESH = re.compile(r'\bmesh\s+"([^"]+)"')
+KIT = re.compile(r'\n\t\t(\w+) \d+ \{(.*?)\n\t\t\}', re.S)
+PAIR = re.compile(r'"([^"]+)"\s*=\s*"([^"]*)"')
+PROP = re.compile(r'\n\t\tprop "([^"]+)" \{(.*?)\n\t\t\}', re.S)
+TAG = re.compile(r'tag "([^"]+)" \{\s*trans \(([^)]*)\)\s*rot \(([^)]*)\)\s*parent "([^"]+)"', re.S)
+
+
+def section(text, name):
+    """One top-level block of a decl, such as props { ... }."""
+    found = re.search(rf'\n\t{name}\s*\{{', text)
+    if not found:
+        return ''
+    end = text.find('\n\t}', found.end())
+    return text[found.start():end if end >= 0 else len(text)]
+
+
+def read_md6def(text):
+    """An md6def decl: its model, looks (the Body mesh kits: name and mesh names), gore meshes and props.
+
+    A prop is another model shown at the tags of the character: each tag has a parent joint and an offset from it
+    (translation in metres, rotation as a quaternion x, y, z, w)."""
+    text = text.replace('\r', '')
+    mesh = MESH.search(text)
+    looks, gore = [], []
+    for kind, body in KIT.findall(section(text, 'meshKits')):
+        pairs = PAIR.findall(body)
+        if kind == 'Body':
+            looks += [[name, value.split()] for name, value in pairs]
+        elif kind == 'Gore':
+            gore += [mesh_name for _, value in pairs for mesh_name in value.split()]
+    props = []
+    for name, body in PROP.findall(section(text, 'props')):
+        if name == '_info':
+            continue
+        tags = [dict(id=tag, bone=parent, translation=[float(v) for v in trans.split()],
+                     rotation=[float(v) for v in rot.split()]) for tag, trans, rot, parent in TAG.findall(body)]
+        props.append(dict(prop=name, visible='visibleByDefault true' in body, tags=tags))
+    return dict(mesh=mesh[1] if mesh else '', looks=looks, gore=gore, props=props)
+
+
+def prop_decls(prop):
+    """Where the md6def decl of a prop can be: props name it with or without its .md6 extension."""
+    stem = prop[:-4] if prop.endswith('.md6') else prop
+    return MD6DEFS + stem + '.md6.decl', MD6DEFS + stem + '.decl'
+
+
+def mesh_group(name):
+    """body_low_base for body_low_base$1: a model splits a mesh per material, and kits name the mesh before the split."""
+    return name.split('$', 1)[0]
 
 
 # Images
@@ -282,6 +347,27 @@ def to_rgba(image):
     result = Image()
     result.kind, result.format, result.width, result.height, result.data = image.kind, RGBA8, image.width, image.height, rgba.tobytes()
     return result
+
+
+def normal_convention(image, margin=1.1):
+    """'opengl' or 'directx': which way the green of a decoded (RGBA) normal map points.
+
+    A normal map holds the slopes of a height field, and slopes of a height field have no curl. Read with green
+    the wrong way, they gain curl, so the reading with less curl is the right one. Most of the game's maps read
+    OpenGL style (marauder_body_n 1.51 times less curl that way); some read DirectX style (cacodemon_e_local 1.49
+    times), although the game marks them alike. Within margin of each other, or for an image not decoded here,
+    the answer is 'opengl'."""
+    if image.format != RGBA8:
+        return 'opengl'
+    rgba = np.frombuffer(image.data, np.uint8).reshape(image.height, image.width, 4).astype(np.float32)
+    x, y = rgba[..., 0] / 127.5 - 1.0, rgba[..., 1] / 127.5 - 1.0
+    z = np.sqrt(np.clip(1.0 - x * x - y * y, .04, 1.0))
+    across, green = -x / z, y / z
+
+    def curl(rows):
+        return float(np.mean(np.abs((rows[:-1, 1:] - rows[:-1, :-1]) - (across[1:, :-1] - across[:-1, :-1]))))
+    opengl, directx = curl(green), curl(-green)
+    return 'directx' if directx * margin < opengl else 'opengl'
 
 
 def dds(image):

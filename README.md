@@ -47,7 +47,7 @@ Other engines import only. Their animations can be edited in Blender, or used as
 | --- | --- | --- |
 | Devil May Cry 5 | RE Engine, motlist 85 | Import checked with the game's files ([guide](docs/games/dmc5.md)) |
 | Resident Evil 2 (DX11) | RE Engine, motlist 85 | Untested ([notes](docs/games/re2.md)) |
-| DOOM Eternal | id Tech 7, md6 | Import checked with the game's files; experimental, not in releases (see [Build from source](#build-from-source)) |
+| DOOM Eternal | id Tech 7, md6 | Import checked with the game's files; experimental, not in releases ([guide](docs/games/doom_eternal.md)) |
 | Unreal Engine 4 and 5 games | Unreal Engine, PAK and IoStore | Import checked with Deep Rock Galactic; other games untested; experimental, not in releases ([guide](docs/games/unreal.md)) |
 
 ## Install
@@ -79,6 +79,7 @@ To import Devil May Cry 5, also download **`AnimationBridge-package-re_engine-<v
 - [User guide](docs/USER_GUIDE.md): sources and layouts, import, textures, weapons, export options and the command line
 - [Other FromSoftware games](docs/OTHER_GAMES.md): the files each game needs, materials and weapon placement
 - [Devil May Cry 5](docs/games/dmc5.md): importing from the game's PAK archives, and retargeting onto a Sekiro character
+- [DOOM Eternal](docs/games/doom_eternal.md): characters with their looks and weapons, and a DOOM character as a new Sekiro character
 - [Game packages](docs/PACKAGES.md): add the games of another engine, with the [interchange formats](docs/INTERCHANGE.md) they write
 - [Retarget add-on](blender_addon/sekiro_retarget/README.md): bone matching, bake options, control rig, mirror, joining two animations and export
 - [Changelog](CHANGELOG.md), [verification log](docs/VERIFICATION.md) and [credits](CREDITS.md)
