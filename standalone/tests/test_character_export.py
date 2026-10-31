@@ -72,6 +72,15 @@ def behavior():
     return tagfile(t,data,[(root,0,1),(char,48,11),(int16,64,3),(real,80,4)],{text:[0],shorts:[16],reals:[32]})
 
 
+def mask_behavior(weights):
+    """An hkbBoneWeightArray whose list may stop before the last bone, as the player's upper-body layers do."""
+    t=Types()
+    real=t.add('hkReal',FLOAT,4,4);reals=t.add('hkArray<hkReal>',ARRAY,16,8,subtype=real)
+    root=t.add('hkbBoneWeightArray',CLASS,16,8,fields=(('boneWeights',0,reals),))
+    data=bytearray(16);struct.pack_into('<I',data,0,2);data+=struct.pack(f'<{len(weights)}f',*weights)
+    return tagfile(t,data,[(root,0,1),(real,16,len(weights))],{reals:[0]})
+
+
 def skeleton_file(names=('Master','Root'),partitions=0):
     t=Types()
     char=t.add('char',int_format(8),1,1);int16=t.add('hkInt16',int_format(16),2,2)
@@ -134,6 +143,22 @@ class Tagfiles(unittest.TestCase):
         self.assertEqual(differ,[8,10,50,51,66,68])
     def test_renames_keep_the_length(self):
         with self.assertRaisesRegex(ValueError,'as many characters'):hk.edit_behavior(behavior(),None,[0,1,2,3],[0,1,2,3],None,4,[('c1010','c18000')])
+    def test_a_short_bone_mask_follows_the_new_bones(self):
+        # Two zeros for a four-bone template: bones 2 and 3 count as 1.
+        old=mask_behavior([0,0])
+        self.assertEqual([f['values'] for f in hk.short_bone_weights(hk.Tagfile(old),4)],[[0,0]])
+        self.assertEqual(hk.short_bone_weights(hk.Tagfile(old),2),[],'a list as long as the skeleton is not short')
+        new,changes=hk.edit_behavior(old,None,bone_map=[0,3,1,2],weight_source=[0,2,3,1,-1],mirror=None,bone_count=5)
+        tag=hk.Tagfile(new);found={f['field']:f for f in hk.bone_fields(tag,5)}
+        self.assertEqual(found['boneWeights']['values'],[0,1,1,0,0])
+        self.assertEqual([(c['kind'],c['from'],c['to']) for c in changes],[('weights',2,5)])
+        self.assertEqual(tag.unpatched(),([],[]))
+    def test_a_short_bone_mask_stays_when_its_bones_keep_their_weights(self):
+        old=mask_behavior([0,0])
+        for source in ([0,1,2,3],[0,1,2,3,3]):  # the same bones, or a new bone with the weights of bone 3, past the end
+            self.assertEqual(hk.edit_behavior(old,None,[0,1,2,3],source,None,len(source)),(old,[]))
+        new,_=hk.edit_behavior(old,None,[0,1,2,3],[0,1,2,3,1],None,5)  # a new bone below a masked bone
+        self.assertEqual({f['field']:f for f in hk.bone_fields(hk.Tagfile(new),5)}['boneWeights']['values'],[0,0,1,1,0])
     def test_a_skeleton_gets_new_bones_with_their_names_in_the_patch_table(self):
         bones=[dict(name=n,parent=p,translation=[0,i,0],rotation=[0,0,0,1],scale=[1,1,1])
                for i,(n,p) in enumerate((('Master',-1),('Root',0),('Spine',1)))]

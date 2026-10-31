@@ -562,6 +562,23 @@ def bone_fields(tag, bone_count=0):
     return fields
 
 
+def short_bone_weights(tag, bone_count):
+    """The bone weight lists of hkbBoneWeightArray objects that stop before the last bone, as 'weights' entries.
+
+    Sekiro counts the bones past the end of such a list as 1, which the player's upper-body layers use: 39 zeros mask
+    the legs (tested in the game, docs/LAYERED_ANIMATIONS.md).
+    """
+    fields = []
+    for value in tag.walk():
+        if value.owner == 'hkbBoneWeightArray' and value.field == 'boneWeights' and value.type.format == ARRAY \
+                and not value.type.fixed and value.element < 0:
+            target, offsets = tag.array(value)
+            if target is not None and target.type.format == FLOAT and 0 < target.count < bone_count:
+                fields.append(dict(kind='weights', path=value.path, field=value.field, owner=value.owner, item=target,
+                                   values=[tag.float(target.type, a) for a in offsets]))
+    return fields
+
+
 def properties(tag):
     """Character properties and behavior variables whose whole-number value names a bone."""
     found = []
@@ -669,6 +686,17 @@ def edit_behavior(data, compendium, bone_map, weight_source, mirror, bone_count,
                 payload = b''.join(int(v).to_bytes(size, 'little', signed=element.signed) for v in mirror)
                 tag.replace_items(entry['item'], payload, len(mirror))
                 changes.append(dict(kind=kind, field=entry['field'], path=entry['path'], **{'from': old_count, 'to': len(mirror)}))
+    # A short list is filled with the 1.0 its missing bones count as, then follows the new bones like a full list. It
+    # stays as it is when the new bones give the same weights.
+    for entry in short_bone_weights(tag, old_count):
+        short = entry['values']
+        values = short + [1.0] * (old_count - len(short))
+        new = [values[s] if 0 <= s < old_count else 0.0 for s in weight_source]
+        if new != short + [1.0] * (len(new) - len(short)):
+            element = entry['item'].type
+            payload = b''.join(struct.pack('<e' if element.is_half else '<f', v) for v in new)
+            tag.replace_items(entry['item'], payload, len(new))
+            changes.append(dict(kind='weights', field=entry['field'], path=entry['path'], **{'from': len(short), 'to': len(new)}))
     for old, new in renames:
         changes.extend(rename(tag, old, new))
     return tag.write(), changes
