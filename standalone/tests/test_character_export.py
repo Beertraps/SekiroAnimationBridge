@@ -297,6 +297,39 @@ class Meshes(unittest.TestCase):
             self.assertTrue(np.all(facing<0),material)
 
 
+class Materials(unittest.TestCase):
+    AMSN=character_export.SAMPLERS
+    STENCIL=('SimpleBlend_Stencil_NonMetal_snp_Texture2D_7_AlbedoMap','SimpleBlend_Stencil_NonMetal_snp_Texture2D_0_NormalMap')
+    FUR=('Fur_NTC_snp_Texture2D_0_MetallicMap_0','Fur_NTC_snp_Texture2D_1_AlbedoMap_0')
+
+    @staticmethod
+    def material(mtd,slots,name='m'):
+        return dict(name=name,mtd='N:\\NTC\\data\\Material\\mtd\\character\\'+mtd,textures=[dict(type=s,path='') for s in slots])
+
+    def test_new_materials_copy_a_template_material_with_their_shaders_slots(self):
+        # c5400's order: a stencil helmet first, then fur, an eye overlay, a cloth cutout and the plain Decal ones.
+        m=self.material
+        materials=[m('c5409_helmet.mtd',self.STENCIL),m('c5409_hair_e_Decal.mtd',self.FUR),m('c5409_eyeshadow.mtd',self.AMSN),
+                   m('c5409_hoture_e_Cloth_Decal.mtd',self.AMSN),m('c5409_helmetfur_e.mtd',self.AMSN),m('c5409_weapon00_Decal.mtd',self.AMSN)]
+        self.assertEqual(character_export.template_materials(materials),(5,4))
+
+    def test_c1010_keeps_its_first_opaque_and_cutout_materials(self):
+        m=self.material
+        materials=[m('c1010_katana_rope_Decal.mtd',self.AMSN),m('c1010_katana_rope_e_Decal.mtd',self.AMSN),
+                   m('c1010_yoroi_merge_Decal.mtd',('Character_AMSN__DetailBlend__snp_Texture2D_7_AlbedoMap',))]
+        self.assertEqual(character_export.template_materials(materials),(0,1))
+
+    def test_without_a_fitting_material_the_first_opaque_and_cutout_ones_stay(self):
+        m=self.material
+        self.assertEqual(character_export.template_materials([m('c5409_hair_e_Decal.mtd',self.FUR),m('c5409_helmet.mtd',self.STENCIL)]),(1,0))
+        self.assertEqual(character_export.template_materials([]),(0,0))
+
+    def test_verify_names_bridge_materials_with_slots_their_shader_does_not_read(self):
+        m=self.material
+        materials=[m('C[AMSN]_Decal.mtd',self.STENCIL,'gun'),m('C[AMSN]_e_Decal.mtd',self.AMSN,'hair'),m('c5409_helmet.mtd',self.STENCIL,'helmet')]
+        self.assertEqual(character_export.foreign_slots(materials),['gun'])
+
+
 class Textures(unittest.TestCase):
     def test_a_cutouts_mips_keep_the_texels_that_pass_the_alpha_test(self):
         # Alpha mostly below the test: averaging alone leaves almost no texel above it a few mips down.

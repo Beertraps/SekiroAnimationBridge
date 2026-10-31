@@ -39,6 +39,10 @@ LEGS = {'L_Foot_Target2': 'L_Thigh', 'L_Foot_Target1': 'L_Calf', 'L_Foot_Target'
         'R_Foot_Target2': 'R_Thigh', 'R_Foot_Target1': 'R_Calf', 'R_Foot_Target': 'R_Foot'}
 MTD = 'N:\\NTC\\data\\Material\\mtd\\character\\C[AMSN]_Decal.mtd'
 MTD_CUTOUT = 'N:\\NTC\\data\\Material\\mtd\\character\\C[AMSN]_e_Decal.mtd'
+# The samplers of both MTDs (shader character_AMSN.spx in mtd/allmaterialbnd.mtdbnd.dcx). A texture in a slot of
+# another name is not read: the material renders white.
+SAMPLERS = ('Character_AMSN_snp_Texture2D_2_AlbedoMap_0', 'Character_AMSN_snp_Texture2D_0_ReflectanceMap_0',
+            'Character_AMSN_snp_Texture2D_7_NormalMap_4')
 # TPF format numbers of c1010's textures: BC7 sRGB color, BC7 normal, BC4 metalness.
 FORMATS = dict(a=(102, 'BC7_UNORM_SRGB'), n=(106, 'BC7_UNORM'), m=(103, 'BC4_UNORM'))
 MAX_VERTICES = 65535
@@ -989,6 +993,31 @@ def add_dummies(info, nodes):
     return dummy_bones
 
 
+def template_materials(materials):
+    """The template materials whose texture slots and GX list the new opaque and cutout materials copy. They need the
+    slots of MTD's shader: the first of c5400's materials is a stencil helmet whose slots it does not read. Of those, a
+    Decal one as MTD is, not one for cloth, opaque or with alpha test ('_e_', or '_e' at the end as in
+    c5409_helmetfur_e) as the new material is. Without such a material, the first opaque one and the first with alpha
+    test, and character-verify fails its texture check."""
+    fitting = [i for i, m in enumerate(materials) if {t['type'] for t in m['textures']} == set(SAMPLERS)]
+    pool = fitting or list(range(len(materials)))
+    stems = [PureWindowsPath(m['mtd']).stem.lower() for m in materials]
+
+    def first(cut, fallback):
+        kind = [i for i in pool if bool(re.search(r'_e(_|$)', stems[i])) == cut]
+        if fitting:
+            kind.sort(key=lambda i: ('cloth' in stems[i], 'decal' not in stems[i]))
+        return (kind or [fallback])[0]
+    plain = first(False, pool[0] if pool else 0)
+    return plain, first(True, plain)
+
+
+def foreign_slots(materials):
+    """The names of materials with MTD or MTD_CUTOUT and a texture slot their shader does not read."""
+    bridge = {MTD.lower(), MTD_CUTOUT.lower()}
+    return [m['name'] for m in materials if m['mtd'].lower() in bridge and any(t['type'] not in SAMPLERS for t in m['textures'])]
+
+
 def write_model(manifest, info, nodes, node_of_source, dummy_bones, new_id, work, texture_size, report):
     """The manifest's materials, textures and meshes as work/<new_id>.tpf and work/<new_id>.flver, the meshes skinned to
     nodes (node_of_source: the node of each manifest bone). One node per mesh part is added to nodes."""
@@ -996,9 +1025,8 @@ def write_model(manifest, info, nodes, node_of_source, dummy_bones, new_id, work
     # overlay; its triangles are left out, since the game would draw them opaque.
     hidden = {i for i, m in enumerate(manifest['materials']) if m.get('alpha') == 0}
     report['hiddenMaterials'] = [manifest['materials'][i]['name'] for i in sorted(hidden)]
-    template_materials = info['flver']['materials']
-    plain = next((i for i, m in enumerate(template_materials) if '_e_' not in m['mtd'].lower()), 0)
-    cutout = next((i for i, m in enumerate(template_materials) if '_e_' in m['mtd'].lower()), plain)
+    plain, cutout = template_materials(info['flver']['materials'])
+    report['templateMaterials'] = [info['flver']['materials'][i]['mtd'] for i in (plain, cutout)] if info['flver']['materials'] else []
     folder = work / 'textures'
     normal_fill = template_normal_fill(info, folder / 'template')
     textures, flver_materials, cache, by_roles = [], [], {}, {}
@@ -1498,8 +1526,11 @@ def verify(output, new_id, game_root='', template='', work=None):
     stems = {t['name'].lower() for t in info['tpf']['textures']}
     unresolved = sorted({PureWindowsPath(t['path']).stem for m in flver['materials'] for t in m['textures']
                          if t['path'] and PureWindowsPath(t['path']).stem.lower() not in stems})
-    check('textures', not unresolved, f"{len(stems)} textures; every material path resolves" if not unresolved
-          else 'not in the TPF: ' + ', '.join(unresolved[:6]))
+    foreign = foreign_slots(flver['materials'])
+    check('textures', not unresolved and not foreign,
+          'not in the TPF: ' + ', '.join(unresolved[:6]) if unresolved else
+          'slots their shader does not read: ' + ', '.join(foreign[:6]) if foreign else
+          f"{len(stems)} textures; every material path resolves, in a slot its shader reads")
     clips = [m for m in binders['anibnd'].members if CLIP.fullmatch(PureWindowsPath(m[1]).name)]
     expected = None
     if game_root and template:
