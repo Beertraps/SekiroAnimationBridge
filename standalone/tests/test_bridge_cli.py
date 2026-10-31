@@ -146,6 +146,16 @@ class Commands(unittest.TestCase):
                   '--binder-member','a100_003008.hkx','--slot-source','a000_003008')
         request=self.jobs[-1]
         self.assertEqual((request['registerSlot'],request['slotSource'],request['binderMember']),(True,'a000_003008','a100_003008.hkx'))
+    def test_additive_options_reach_the_request(self):
+        self.inventory('c5060')
+        self.call('import',self.path,'c5060:0','--output',self.base/'owl.blend','--additive-base','a000_003011')
+        self.assertEqual(self.jobs[-1]['additiveBase'],'a000_003011')
+        self.call('import',self.path,'c5060:0','--output',self.base/'owl.blend')
+        self.assertNotIn('additiveBase',self.jobs[-1])
+        self.call('export',self.base/'owl.blend','--output',self.base/'owl.hkx','--additive','first-frame')
+        self.assertEqual(self.jobs[-1]['additive'],'first-frame')
+        self.call('export',self.base/'owl.blend','--output',self.base/'owl.hkx')
+        self.assertNotIn('additive',self.jobs[-1])
     def test_verify_never_needs_an_output_but_takes_a_picture(self):
         self.call('verify',self.base/'owl.blend','--render',self.base/'owl.png','--frames','5')
         request=self.jobs[-1]

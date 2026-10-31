@@ -93,6 +93,8 @@ def sampling_arguments(request):
         args += ['--root-axes', 'xyz' if request.get('rootVertical') else 'xy']
         if request.get('rootYaw'):
             args.append('--root-yaw')
+    if request.get('additive'):
+        args += ['--additive', choice(request, 'additive', ('rest', 'first-frame'), 'Additive base')]
     return args
 
 
@@ -129,6 +131,42 @@ def character_clips(catalog, character):
     if not character:
         return catalog
     return dict(catalog, clips=[c for c in catalog['clips'] if character in (c['characterKey'], c['character'])])
+
+
+def additive_base(document, request, catalog, decoder, work, notify=event):
+    """The motion's additive object with the base clip that Blender shows it on, decoded from the same catalog.
+
+    The base is a normal clip of the same skeleton; request['additiveBase'] names it by ID or file name.
+    """
+    wanted = str(request['additiveBase']).strip()
+    if not document.get('additive'):
+        raise ValueError(f"{document['clip']} is not an additive clip, so it takes no base clip. Leave the base clip empty.")
+    if catalog is None:
+        raise ValueError('Choose the base clip from the catalog of the additive clip: import it from a scanned source.')
+    from asset_discovery import selection
+    from dcx_codec import unwrap
+    from games.additive import base_clip
+    own = character_clips(catalog, request.get('assetCharacter', ''))
+    names = (wanted.lower(), wanted.lower() + '.hkx')
+    chosen = next((c for c in own['clips'] if c['id'] == wanted), None) or next(
+        (c for c in own['clips'] if c['name'].lower() in names), None)
+    if chosen is None:
+        raise ValueError(f'The catalog has no clip {wanted} for this character to use as the base.')
+    resolved = selection(own, chosen['id'], request.get('preset', 'auto'))
+    notify('decode', f"Decoding the base clip {chosen['name']}", 20)
+    work.mkdir(parents=True, exist_ok=True)
+    files = []
+    for key, name in (('animation', chosen['name']), ('skeleton', 'skeleton.hkx')):
+        target = work / name
+        target.write_bytes(unwrap(Path(resolved[key]).read_bytes())[0])
+        files.append(target)
+    output = work / 'base.motion.json'
+    compendium = resolved.get('compendium') or '-'
+    run([decoder, files[0], compendium, files[1], output, *([resolved['skeletonCompendium']] if resolved.get('skeletonCompendium') else [])])
+    base = json.loads(output.read_text(encoding='utf-8-sig'))
+    if [b['name'] for b in base['skeleton']['bones']] != [b['name'] for b in document['skeleton']['bones']]:
+        raise ValueError(f"The base clip {chosen['name']} plays on another skeleton. Choose a clip of the same character.")
+    return dict(document['additive'], base=base_clip(base))
 
 
 def part_clips(models, manifest, animation, game, decoder, work, tae_binder=None, character='', notify=event):
@@ -500,7 +538,7 @@ def convert(request):
         def prepare(request, temp, event=event):
             """Decode one clip into temp and prepare its character. A retarget donor passes an event that names it."""
             refreshed = False
-            tae_binder, tae_character, origin = None, '', {}
+            tae_binder, tae_character, origin, catalog = None, '', {}, None
             if request.get('inputMethod') == 'folder':
                 from asset_discovery import load_catalog, selection, inventory_character, refresh_clip
                 cache, character, clip = HOME/'work/asset-cache', request.get('assetCharacter', ''), request.get('assetClip')
@@ -576,13 +614,26 @@ def convert(request):
                 if 'separate-compendiums' not in version.stdout:
                     raise ValueError('Folder import requires the 0.4 decoder. Rebuild with tools/SekiroMotionDecoder/build_decoder.cmd.')
                 decoder_args.append(existing(skeleton_compendium, 'Skeleton compendium'))
-            run(decoder_args)
+            try:
+                run(decoder_args)
+            except RuntimeError as error:
+                if 'additive' in version.stdout:
+                    raise
+                # Decoders before 0.7.0 refuse additive clips; the log above shows their message.
+                raise RuntimeError(f'{error} If the log says the animation uses additive blending, run '
+                                   'tools/SekiroMotionDecoder/build_decoder.cmd: decoder 0.7.0 imports additive clips.') from None
             document = json.loads(motion.read_text(encoding='utf-8-sig'))
             document.update(game=source_game, sourceHavok=source_info, clip=Path(animation).name, **origin)
+            if str(request.get('additiveBase') or '').strip():
+                document['additive'] = additive_base(document, request, catalog, decoder, temp / 'base', event)
             motion.write_text(json.dumps(document), encoding='utf-8')
             report = dict(clip=Path(animation).name, frames=document['frameCount'], tracks=document['trackCount'],
                           game=GAMES[source_game], compression=document.get('compression', 'spline'), parts=0, textures=0, warnings=[],
                           catalogRefreshed=refreshed)
+            if document.get('additive'):
+                # Blender shows the changes on the base, and export takes the same base off again.
+                report['additive'] = dict(blendHint=document['additive']['blendHint'],
+                                          base=(document['additive'].get('base') or {}).get('clip', 'rest pose'))
             character_args = []
             if request.get('includeCharacter', bool(request.get('characterSource') or request.get('models'))):
                 from character_assets import scan_character, prepare_character

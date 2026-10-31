@@ -452,13 +452,17 @@ class PackageEngine:
         if not isinstance(result, dict) or not result.get('motion'):
             raise ValueError(f'{self.package.name}: prepare returned no motion.')
         if result.get('catalog') is not None:
-            api.write_json(catalog_path, self.finish(result['catalog'], 'the catalog after the import'))
+            catalog = self.finish(result['catalog'], 'the catalog after the import')
+            api.write_json(catalog_path, catalog)
         updates = result.get('request') or {}
         if updates.get('game', request.get('game')) not in (*self.games(), 'auto', '', None):
             raise ValueError(f'{self.package.name}: prepare named a game it does not declare.')
         request.update(updates)
         motion_path = Path(result['motion'])
-        check_motion(json.loads(motion_path.read_text(encoding='utf-8')), f'{self.package.name}: the motion JSON')
+        document = check_motion(json.loads(motion_path.read_text(encoding='utf-8')), f'{self.package.name}: the motion JSON')
+        if str(request.get('additiveBase') or '').strip():
+            document['additive'] = self.additive_base(document, request, catalog, event)
+            api.write_json(motion_path, document)
         manifests = [Path(p) for p in result.get('characters') or []]
         if len(manifests) > 1:
             raise ValueError(f'{self.package.name}: package API version 1 imports one character manifest per clip.')
@@ -468,8 +472,33 @@ class PackageEngine:
         report = dict(parts=0, textures=0, warnings=[], catalogRefreshed=False, compression='',
                       game=next((p.name for p in self.package.profiles if p.id == game), game))
         report.update(result.get('report') or {})
+        if document.get('additive'):
+            # Blender shows the changes on the base, and export takes the same base off again.
+            from games.additive import space_of
+            report['additive'] = dict(space=space_of(document),
+                                      base=(document['additive'].get('base') or {}).get('clip', 'rest pose'))
         character_args = [arg for manifest in manifests for arg in ('--character-manifest', manifest)]
         return motion_path, character_args, report
+
+    def additive_base(self, document, request, catalog, event):
+        """The motion's additive object with the base clip that Blender shows it on: a normal clip of the same
+        character, by ID or name, decoded by the package's preview, which returns the clip's whole motion JSON."""
+        from games.additive import base_clip
+        wanted = str(request['additiveBase']).strip()
+        if not document.get('additive'):
+            raise ValueError(f"{document['clip']} is not an additive clip, so it takes no base clip. Leave the base clip empty.")
+        clip = next((c for c in catalog['clips'] if c['id'] == request.get('assetClip')), None)
+        own = [c for c in catalog['clips'] if clip is None or c.get('characterKey') == clip.get('characterKey')]
+        chosen = next((c for c in own if c['id'] == wanted), None) or next(
+            (c for c in own if c['name'].lower() == wanted.lower()), None)
+        if chosen is None:
+            raise ValueError(f'The catalog has no clip {wanted} for this character to use as the base.')
+        event('decode', f"Decoding the base clip {chosen['name']}", 20)
+        base = check_motion(self.module.preview(self.selection(catalog, chosen['id']), self.context(CACHE, event)),
+                            f'{self.package.name}: the base clip')
+        if [b['name'] for b in base['skeleton']['bones']] != [b['name'] for b in document['skeleton']['bones']]:
+            raise ValueError(f"The base clip {chosen['name']} plays on another skeleton. Choose a clip of the same character.")
+        return dict(document['additive'], base=base_clip(base))
 
 
 # Installing and removing

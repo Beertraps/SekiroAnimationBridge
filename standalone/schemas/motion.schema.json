@@ -50,7 +50,30 @@
       }
     },
     "basis": {"$ref": "#/$defs/basis"},
-    "unitScale": {"type": "number", "exclusiveMinimum": 0}
+    "unitScale": {"type": "number", "exclusiveMinimum": 0},
+    "additive": {
+      "type": "object",
+      "required": ["space"],
+      "properties": {
+        "blendHint": {"enum": [1, 2]},
+        "space": {"enum": ["parent", "child", "separate"]},
+        "base": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["clip", "frameRate", "trackBoneIndices", "frames"],
+              "properties": {
+                "clip": {"type": "string"},
+                "frameRate": {"type": "number", "exclusiveMinimum": 0},
+                "trackBoneIndices": {"type": "array", "items": {"type": "integer", "minimum": -1}},
+                "frames": {"type": "array", "minItems": 1, "items": {"type": "array", "items": {"$ref": "#/$defs/transform"}}}
+              }
+            }
+          ]
+        }
+      }
+    }
   },
   "if": {"properties": {"formatVersion": {"const": 2}}},
   "then": {"required": ["source", "basis", "unitScale"]},

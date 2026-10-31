@@ -18,6 +18,7 @@ from mathutils import Matrix, Quaternion, Vector
 # The games package (source spaces) sits beside this script.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from games.space import FROMSOFT, Space  # noqa: E402
+from games import additive as additive_clips  # noqa: E402
 
 
 def game_to_bl_trs(sample, space=FROMSOFT):
@@ -200,12 +201,27 @@ def import_motion(motion):
         rig["sekiro_root_motion_data"] = root_object
 
     bone_to_track = {bone_index: track_index for track_index, bone_index in enumerate(track_to_bone)}
+    # An additive clip holds changes, which the scene shows on their base: the rest pose, or the base clip that the
+    # import chose. The embedded motion keeps the changes and the base, so export takes the same base off again.
+    additive = additive_clips.space_of(motion)
+    base_only = sorted(additive_clips.base_tracks(motion) - set(bone_to_track))
+    keyed = set(bone_to_track) | set(base_only)
+    if additive:
+        base = (motion["additive"].get("base") or {}).get("clip", "")
+        rig["sekiro_additive"] = additive
+        rig["sekiro_additive_base"] = base
+        print("Additive clip ({} space): its changes show on {}".format(additive, base or "the rest pose"), flush=True)
     channels = {}
     previous_rotations = {}
-    for frame_index, frame in enumerate(motion["frames"]):
+    for frame_index, frame in enumerate(additive_clips.posed_frames(motion)):
         if len(frame) != len(track_to_bone):
             raise ValueError("Frame {} has the wrong number of tracks.".format(frame_index))
         local_matrices = [matrix.copy() for matrix in rest_local]
+        if base_only:
+            # Bones that only the base clip moves follow it.
+            pose = additive_clips.base_pose(motion, frame_index / float(motion["frameRate"]))
+            for bone_index in base_only:
+                local_matrices[bone_index] = trs_matrix(pose[bone_index], space)
         for track_index, bone_index in enumerate(track_to_bone):
             local_matrices[bone_index] = trs_matrix(frame[track_index], space)
         world_matrices = []
@@ -217,7 +233,7 @@ def import_motion(motion):
             )
 
         for index, bone in enumerate(bones):
-            if index not in bone_to_track and frame_index > 0:
+            if index not in keyed and frame_index > 0:
                 continue
             pose_bone = rig.pose.bones[bone["name"]]
             parent_index = int(bone["parent"])
@@ -235,7 +251,7 @@ def import_motion(motion):
                 )
             if frame_index == 0:
                 pose_bone.matrix_basis = basis
-            if index in bone_to_track:
+            if index in keyed:
                 location, rotation, scale = basis.decompose()
                 previous = previous_rotations.get(index)
                 if previous is not None and rotation.dot(previous) < 0:
@@ -483,7 +499,10 @@ def import_preview_model(preview_data_path: Path, rig, texture_path: Path | None
 
 
 EXPORT_OPTIONS = dict(action="", frame_range="scene", frame_start=None, frame_end=None, frame_rate=None,
-                      tracks="original", root_motion="auto", root_bone="", root_axes="xy", root_yaw=False, skeleton=None)
+                      tracks="original", root_motion="auto", root_bone="", root_axes="xy", root_yaw=False, skeleton=None,
+                      additive="")
+# Bases that export can take off a scene of a normal clip to write it as an additive clip.
+ADDITIVE_BASES = ("rest", "first-frame")
 BONE_CURVE = re.compile(r'^pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 
 
@@ -751,12 +770,27 @@ def export_motion(output_json: Path, **overrides):
     stand upright on the exported feet, as in the game's clips, whatever
     Blender shows for them. Bones that the skeleton option adds after the
     clip's own (appended_bones) get tracks of their own.
+
+    An additive clip's scene shows its changes on a base (import_motion). Export takes the same base off again, so
+    the tracks are changes once more. The additive option writes a normal clip's scene as an additive clip, with the
+    rest pose or the first exported frame as its base. Additive clips have no root motion and no foot target
+    placement: the game adds them on top of the clip that moves the character.
     """
     options = {**EXPORT_OPTIONS, **{key: value for key, value in overrides.items() if value is not None}}
     scene = bpy.context.scene
     rig = export_rig(scene)
     motion = embedded_motion(rig)
     space = motion_space(motion)
+    additive = additive_clips.space_of(motion)
+    # Havok knows the parent and the child space. Another engine's changes, such as DOOM Eternal's, are written in the
+    # parent space: on the same base they give the same pose.
+    written = additive_clips.havok_space(additive) if additive else None
+    made_additive = options["additive"] or ""
+    if made_additive and made_additive not in ADDITIVE_BASES:
+        raise RuntimeError("The additive base must be one of: {}.".format(", ".join(ADDITIVE_BASES)))
+    if made_additive and additive:
+        raise RuntimeError("This scene is an additive clip already, and export takes its own base off. Export it without "
+                           "the additive option.")
     bones = motion["skeleton"]["bones"]
     names = [bone["name"] for bone in bones]
     parents = [int(bone["parent"]) for bone in bones]
@@ -782,6 +816,11 @@ def export_motion(output_json: Path, **overrides):
 
     root = root_motion_object(rig)
     root_mode = options["root_motion"]
+    if additive or made_additive:
+        if root_mode in ("object", "bone"):
+            raise RuntimeError("An additive clip cannot carry root motion: the game adds it on top of the clip that moves "
+                               "the character. Export it with root motion set to auto or none.")
+        root_mode = "none"
     if root_mode == "auto":
         root_mode = "object" if root is not None else "none"
     if root_mode == "object" and root is None:
@@ -796,8 +835,12 @@ def export_motion(output_json: Path, **overrides):
     warnings = []
     if options["root_motion"] == "auto" and root is None and motion.get("rootMotion") is not None:
         warnings.append("The source clip has root motion, but its HKX_RootMotion object is missing. Exported without root motion.")
+    if made_additive and (root is not None or motion.get("rootMotion") is not None):
+        warnings.append("An additive clip has no root motion, so the scene's root motion is left out.")
     tracked = set(source_tracks)
     keyed = keyed_bones(action, rig)
+    # The bones that the import keyed only to follow an additive clip's base clip are the base's, not the clip's.
+    keyed -= {names[index] for index in additive_clips.base_tracks(motion) - tracked}
     untracked = [index for index, name in enumerate(names) if index not in tracked and name in keyed]
     if options["tracks"] == "all":
         added = [index for index in range(len(names)) if index not in tracked]
@@ -894,18 +937,23 @@ def export_motion(output_json: Path, **overrides):
                 if parent >= 0 and pose_bone.parent is not None and pose_bone.parent.name == names[parent] else None
                 for pose_bone, parent in zip(pose_bones, parents)] + [None] * len(appended)
     exported = set(track_bones)
+    # An additive clip's base at each sample: scene frame 1 is the clip's start, as the import placed it.
+    rest_samples = [additive_clips.sample(bone["translation"], bone["rotation"], bone["scale"]) for bone in bones]
+    additive_bases = [additive_clips.base_pose(motion, (time - 1.0) / scene_rate, rest_samples) for time in times] if additive else []
+    base_moved = additive_clips.base_tracks(motion)
     # Foot target chains stand on the feet as exported, after root motion left them: each keeps its rest pose and moves
     # as one, without turning, so that its target sits on the foot, and the target turns with the foot. They and the
-    # bones below them are placed once every other bone is, since the feet come later in the skeleton.
-    targets = foot_targets(bones)
+    # bones below them are placed once every other bone is, since the feet come later in the skeleton. An additive
+    # clip's targets keep their own changes, which the game adds to the targets of the clip below.
+    targets = {} if additive or made_additive else foot_targets(bones)
     placed = {index for target, (foot, chain) in targets.items() for index in (*chain, target)} & exported
     rest_world = []
     for index, parent in enumerate(parents):
         rest_world.append(rest_world[parent] @ rest_local[index] if parent >= 0 else rest_local[index])
     offsets = {target: rest_world[foot].inverted_safe() @ rest_world[target] for target, (foot, chain) in targets.items()}
     after = [index for index in range(len(names)) if placed & set(ancestry(bones, index))]
-    frames, previous = [], {}
-    for world, basis, own in zip(worlds, bases, rotations):
+    frames, previous, first_pose = [], {}, {}
+    for sample_index, (world, basis, own) in enumerate(zip(worlds, bases, rotations)):
         game_world, local = [], {}
         for index, parent in enumerate(parents):
             if index in exported and parent >= 0 and own_rest[index] is not None and min(game_world[parent].to_scale()) < 1e-6:
@@ -914,6 +962,9 @@ def export_motion(output_json: Path, **overrides):
                 matrix = local[index] = own_rest[index] @ basis[index]
             elif index in exported:
                 matrix = local[index] = game_world[parent].inverted_safe() @ world[index] if parent >= 0 else world[index]
+            elif index in base_moved:
+                # Without a track, an additive clip leaves the bone where its base clip has it.
+                matrix = trs_matrix(additive_bases[sample_index][index], space)
             else:
                 matrix = rest_local[index]
             game_world.append(game_world[parent] @ matrix if parent >= 0 else matrix)
@@ -943,6 +994,14 @@ def export_motion(output_json: Path, **overrides):
                 # A matrix scaled to nothing has lost its rotation: the bone keeps the one it is keyed with.
                 rotation = own_rest[index].to_quaternion() @ own[index]
             sample = bl_to_game_trs(location, rotation, scale, space)
+            if additive:
+                sample = additive_clips.difference(sample, additive_bases[sample_index][index], written)
+            elif made_additive:
+                # The base of a normal clip written as additive: its rest pose, or its first exported frame.
+                if sample_index == 0:
+                    first_pose[index] = sample
+                base = rest_samples[index] if made_additive == "rest" else first_pose[index]
+                sample = additive_clips.difference(sample, base, "parent")
             # Keep each track's quaternions in one hemisphere for the spline compressor.
             if index in previous and sum(a * b for a, b in zip(sample["rotation"], previous[index])) < 0:
                 sample["rotation"] = [-value for value in sample["rotation"]]
@@ -956,6 +1015,13 @@ def export_motion(output_json: Path, **overrides):
                   trackBoneIndices=track_bones, trackNames=track_names, frames=frames)
     if appended:
         edited["skeleton"] = dict(motion["skeleton"], bones=bones, boneCount=len(bones))
+    if written and written != additive:
+        edited["additive"] = dict(motion["additive"], blendHint=additive_clips.BLEND_HINTS[written], space=written)
+    if made_additive:
+        edited["additive"] = dict(blendHint=1, space="parent")
+        if made_additive == "first-frame":
+            edited["additive"]["base"] = dict(clip="{} frame {:g}".format(action.name, start), frameRate=rate,
+                                              trackBoneIndices=track_bones, frames=[[first_pose[index] for index in track_bones]])
     if root_mode == "none":
         edited.update(rootMotion=None, rootUp=None, rootForward=None)
     else:
@@ -968,6 +1034,10 @@ def export_motion(output_json: Path, **overrides):
                    rootBone=names[root_index] if root_index is not None else "",
                    footTargets={names[target]: names[foot] for target, (foot, chain) in sorted(targets.items()) if target in exported},
                    warnings=warnings)
+    if additive or made_additive:
+        summary["additive"] = dict(space=written or "parent", base=(edited["additive"].get("base") or {}).get("clip", "rest pose"))
+        if written != additive and additive:
+            summary["additive"]["from"] = additive
     edited["export"] = dict(summary, blender=bpy.app.version_string)
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(edited, separators=(",", ":")), encoding="utf-8")
@@ -978,6 +1048,11 @@ def export_motion(output_json: Path, **overrides):
         " from " + summary["rootBone"] if root_index is not None else ""), flush=True)
     if summary["footTargets"]:
         print("Foot targets follow the feet: " + ", ".join(summary["footTargets"]), flush=True)
+    if "additive" in summary:
+        print("Additive clip: the tracks are changes to {}".format(summary["additive"]["base"]), flush=True)
+        if "from" in summary["additive"]:
+            print("The {} changes are written in Havok's parent space (blendHint 1)".format(summary["additive"]["from"]),
+                  flush=True)
     if weapon_tracks:
         print("Weapon bones of the animation binder's skeleton get tracks: " + ", ".join(summary["weaponTracks"]), flush=True)
     for warning in warnings:
@@ -1062,6 +1137,8 @@ def main():
     export_parser.add_argument("--root-yaw", action="store_true", help="also extract the bone's heading")
     export_parser.add_argument("--skeleton-json", type=Path,
                                help="the animation binder's skeleton; bones it adds after the clip's get tracks")
+    export_parser.add_argument("--additive", choices=ADDITIVE_BASES,
+                               help="write a normal clip's scene as an additive clip: its changes to this base")
     inspect_parser = modes.add_parser("inspect", help="Describe the bridge rig, its actions and frame ranges as JSON.")
     inspect_parser.add_argument("--output-json", required=True, type=Path)
     verify_parser = modes.add_parser("verify", help="Measure the scene's rigs, skin and textures as JSON, with pass or fail checks.")
@@ -1098,7 +1175,7 @@ def main():
         export_motion(args.output_json.resolve(), action=args.action, frame_range=args.frame_range,
                       frame_start=args.frame_start, frame_end=args.frame_end, frame_rate=args.frame_rate,
                       tracks=args.tracks, root_motion=args.root_motion, root_bone=args.root_bone,
-                      root_axes=args.root_axes, root_yaw=args.root_yaw,
+                      root_axes=args.root_axes, root_yaw=args.root_yaw, additive=args.additive,
                       skeleton=json.loads(args.skeleton_json.read_text(encoding="utf-8"))["bones"] if args.skeleton_json else None)
     elif args.mode == "verify":
         from blender_verify import verify_scene

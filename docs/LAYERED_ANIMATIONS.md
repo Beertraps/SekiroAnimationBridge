@@ -197,8 +197,29 @@ Test notes:
   end count as 1. The bone numbers follow the character's own skeleton; Isshin's bone order was not compared with the
   player's, so check it before reusing the player's 39-bone mask.
 - A layer cannot move the character. Movement stays with the clip that `Master_Script` plays.
-- The bridge imports and exports neither additive clips nor bone-masked layers yet. Its decoder rejects `blendHint` 1
-  and 2 (`tools/SekiroMotionDecoder/Program.cs`).
+- The bridge imports and exports additive clips since decoder 0.7.0 (see Additive clips in the bridge). It does not
+  write bone weights or new layers yet.
+
+## Additive clips in the bridge
+
+- **The convention**, read from the game's clips: a change *D* goes on the pose *B* below as Havok's product *D* · *B*,
+  per bone in its parent's space: translation `D.t + D.r · B.t`, rotation `D.r · B.r`, scale `D.s · B.s`. The test: on
+  every bone whose length the clip keeps (its pose translation equals its rest translation), the clip's translation
+  must be `B.t − D.r · B.t`. That holds on 27 to 46 bones in each of 18 clips; a delta of translation 0 fits 0 or 1.
+  The bones that fail move their translation on purpose: `SpineArmor1`, `SpineArmor2`, `Root`, `world_Yari`.
+- *Inferred*: the order *D* · *B* of the rotations follows Havok's `hkQsTransform::setMul` and the 6.6 manual's
+  `P' = (1-t)·P + t·Q·P`. A test on hinge joints could not tell the two orders apart.
+- Every additive clip starts and ends at no change and has no root motion. `a000_219000`, `a000_299000`,
+  `a070_412010`, `a000_009999` and `a000_040000` hold no change on any frame.
+- `import` shows an additive clip on the rest pose, or on a normal clip of the same character with `--additive-base`.
+  `export` takes the same base off again and writes `blendHint` 1. `export --additive rest` or `first-frame` writes a
+  normal clip's scene as an additive clip. Interchange: [INTERCHANGE.md](INTERCHANGE.md), Additive clips.
+- DOOM Eternal's additive md6 clips use another form: translation `B.t + D.t`, rotation `D.r · B.r`, scale `D.s · B.s`.
+  The rotation does not turn the translation. Export to HKX writes such changes in Havok's parent space. See
+  [games/doom_eternal.md](games/doom_eternal.md#additive-clips).
+- Player flinch states in `AddDamage_SM`: `AddDamageStart` picks `AddDamageStart_L_CMSG` (`a000_100000`), `_R_`
+  (`a000_100001`), `_F_` (`a000_100002`) or `_B_` (`a000_100003`) by `AddDamageDirection`. `StandDeflectEasyMinimum`
+  plays `a050_120000`, `AddSwimDamageMinimum` plays `a000_103000`.
 
 ## How it was read
 

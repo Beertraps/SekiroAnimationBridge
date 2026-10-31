@@ -36,11 +36,27 @@ The game folder is only read. The package reads the `.resources` and `.streamdb`
 
 ## Import an animation
 
-1. On the **Import animation** page, choose the character, for example **Marauder**. It has 352 clips; 316 of them can be imported. The other 36 are additive: the game adds them on top of another clip, so they have no pose of their own.
+1. On the **Import animation** page, choose the character, for example **Marauder**. It has 352 clips. 36 of them are additive; see [Additive clips](#additive-clips).
 2. Choose an animation, for example `combat/quickdraw`, where the Marauder draws his shotgun and fires. The skeleton preview plays it.
 3. Under the model parts, `marauder` is ticked. Tick other parts if you want them. See [Model parts](#model-parts).
 4. Click **Create Blender scene**.
 5. Open the `.blend` in Blender. The rig plays the clip at 30 fps on the timeline. Press **Space** with the mouse over the 3D view to play it.
+
+## Additive clips
+
+1,216 of the game's 16,888 animations are additive: changes that the game adds on top of the clip that plays, not a pose of their own. Most are hit reactions, such as the Marauder's `pain/twitch/hit_front/additive/chest_01`. Others are layers of the first-person demons, such as `core/additive/idle` of `marauder_1p`, and of the Demonic Troops, such as `combat/additive/runforward_gun_down_additive`.
+
+- **On the rest pose.** Choose the clip on the **Import animation** page and click **Create Blender scene**, as for any clip. Blender shows the changes on the character's rest pose. The activity log says *An additive clip*.
+- **On a base clip.** The page has no field for it yet. On the command line, name a normal clip of the same character with `--additive-base`, as the clip list shows it (`combat/idle_01`) or by its full path:
+
+  ```bat
+  standalone\bridge_cli.cmd scan "C:\Program Files (x86)\Steam\steamapps\common\DOOMEternal"
+  standalone\bridge_cli.cmd import <catalog> md6/characters/monsters/marauder/base/motion/pain/twitch/hit_front/additive/chest_01.md6anim --additive-base combat/idle_01 --output work\scenes\marauder_chest_01.blend
+  ```
+
+  `scan` prints the catalog path. In Blender, the Marauder stands in `combat/idle_01` with the twitch on top. When the additive clip runs longer than the base, the base repeats from its start.
+- **How the game adds them**, read from the game's clips: the change's translation is added to the pose below, its rotation turns the pose's rotation in the parent's space, and its scale multiplies the pose's scale. Each part on its own: unlike Sekiro's additive clips, the rotation does not turn the translation. See [INTERCHANGE.md](../INTERCHANGE.md#additive-clips), space `separate`.
+- **Into Sekiro.** To make a Sekiro layer from a DOOM additive clip, import it on the rest pose, retarget it onto the Sekiro character, and export that scene with `--additive rest` ([Additive clips](../USER_GUIDE.md#additive-clips)). Not tested yet.
 
 ## Model parts
 
@@ -92,7 +108,7 @@ Textures: each material gets an `_a` from its base color and an `_n` from its no
 - **Materials** are a preview: base color, normal map, glow, and the cut-out of hair and other alpha-tested surfaces. The specular color (`_s`) and smoothness (`_g`) images are left out. They are not metalness and roughness: the Marauder's skin reflects as brightly as metal would (median 0.51 in `marauder_head_s`, 0.47 in `marauder_body_s`), so no rule can tell metal from skin in them.
 - **Normal maps** are of two kinds. Of the 981 normal maps of the character models, 935 point green up the image, as OpenGL does, such as `marauder_body_n`, `imp_torso_n` and `doomslayer_helmet_local`. 33 point it down, as DirectX does, such as `cacodemon_e_local`, `imp_wounds_local` and `doomslayer_hair_n`. The game files mark both kinds alike, so the package measures each image when it converts it, and the Blender material and the Sekiro export read it the right way. Where the measure cannot tell (9 maps), and for the one map in another format (`samur_maykr_ball_n`, BC7), the package uses OpenGL.
 - **Energy surfaces** such as the Marauder's axe blade and the Khan Maykr's wings have no base color image. They show as flat gray, and Blender's `verify` reports them under *base colors*.
-- **Units.** Some clips store their positions in game units (0.01905 m); the bridge converts them to metres and says so in the activity log.
+- **Units.** Some clips store their positions in game units (0.01905 m); the bridge converts them to metres and says so in the activity log. An additive clip's changes are too small to tell its unit, so they are read as metres.
 - **Updates.** When the game updates, scan the source again with the refresh button beside the source menu; the bridge also asks for this when an import finds changed archives.
 - **Space.** DOOM Eternal stores positions in metres with Z up and the character facing +X. The bridge turns the scene so that the character faces Blender's front view, as for every other game; see [INTERCHANGE.md](../INTERCHANGE.md).
 - File formats: `.resources` version 12, `md6skl` skeletons, `md6anim` clips, `md6mesh` models, `material2` and `md6def` decls, BIM images. The formats are ported from [Valen](https://github.com/jandk/valen) by Jan De Kock.

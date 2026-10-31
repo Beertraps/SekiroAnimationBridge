@@ -26,17 +26,19 @@ from games.api import check_motion, read_json, signature, with_source, write_jso
 from . import md6, models
 from .formats import Game
 
-# 2: readable character names, shorter clip names, and ready counts.
-CATALOG_SCHEMA = 2
+# 2: readable character names, shorter clip names, and ready counts. 3: additive clips are ready.
+CATALOG_SCHEMA = 3
 GAME = 'doom_eternal'
 EXECUTABLE = 'doometernalx64vk.exe'
 SPEC = Path('base') / 'packagemapspec.json'
 KINDS = ('anim', 'skeleton', 'baseModel', 'image', 'rs_streamfile')
 # Skeletons in these folders are characters; objects, cameras and level kit are left out.
 CHARACTER_FOLDERS = ('md6/characters/', 'md6/player/')
-ADDITIVE_ISSUE = ('An additive clip: the game adds it on top of another animation, so it has no pose of its own. '
-                  'Choose the clip it is added to instead.')
 UNIT_NOTE = 'The clip stores its positions in game units (0.01905 m); they were converted to metres.'
+ADDITIVE_NOTE = ('An additive clip: the game adds its changes on top of the clip that plays. Blender shows them on the '
+                 'rest pose, or on the base clip chosen for the import.')
+# What an additive clip's channel without keys holds: no change.
+NO_CHANGE = dict(t=np.zeros(3), r=np.array([0.0, 0.0, 0.0, 1.0]), s=np.ones(3))
 # Folders that clip names leave out, since so many clips share them.
 SHARED_FOLDERS = {'md6', 'characters', 'humans', 'monsters', 'ambient', 'base', 'motion', 'mechanics', 'dlc_01', 'dlc_02'}
 _GAMES = {}
@@ -362,7 +364,7 @@ def scan(detection, options, ctx, previous=None):
     # The list shows the character field; the skeleton's path stays its id.
     characters = [dict(id=skeleton, character=names[skeleton], name=names[skeleton],
                        archives=sorted({str(entries[('anim', a)].path) for a in anims}), inventoried=False, count=len(anims),
-                       ready=sum(1 for a in anims if not found[a][1] & md6.ADDITIVE),
+                       ready=len(anims),
                        bytes=sum(entries[('anim', a)].size for a in anims), skeleton=skeleton)
                   for skeleton, anims in sorted(clips.items(), key=lambda item: names[item[0]].lower())]
     ctx.notify('inventory', f'Found {len(characters)} characters with animations', 95)
@@ -380,9 +382,8 @@ def inventory(catalog, character, ctx):
     owned = [anim for anim, (skeleton, _) in found.items() if skeleton == entry['id'] and ('anim', anim) in entries]
     names = clip_names(owned, entry['id'])
     for anim in owned:
-        issues = [ADDITIVE_ISSUE] if found[anim][1] & md6.ADDITIVE else []
         clips.append(dict(id=anim, name=names[anim], character=entry['name'], characterKey=entry['id'],
-                          game=GAME, ready=not issues, issues=issues, archive=str(entries[('anim', anim)].path),
+                          game=GAME, ready=True, issues=[], archive=str(entries[('anim', anim)].path),
                           member=anim, path=anim))
     clips.sort(key=lambda c: c['name'])
     catalog['clips'] = [c for c in catalog['clips'] if c['characterKey'] != entry['id']] + clips
@@ -419,7 +420,9 @@ def validate(catalog, folder, check_sources, ctx):
 def motion(selection, ctx, notes=None):
     """Motion JSON version 2 of the selected clip, sampled at every frame, in id Tech space.
 
-    Notes for the user, such as a clip converted from game units, are added to notes."""
+    An additive clip holds changes, each part on its own: the game adds the translation to the pose below, turns its
+    rotation in the parent's space and multiplies its scale (games.additive, 'separate'). Notes for the user, such as a
+    clip converted from game units, are added to notes."""
     game = game_of(selection['root'])
     entries = entries_of(game)
     anim_entry = entries.get(('anim', selection['animation']))
@@ -427,7 +430,9 @@ def motion(selection, ctx, notes=None):
     if anim_entry is None or skeleton_entry is None:
         raise ValueError(f"{selection['clipName']} is no longer in the game's archives. Scan the source again.")
     skeleton = md6.read_skeleton(game.read(skeleton_entry))
-    _, anim = md6.read_animation(game.read(anim_entry), skeleton)
+    data = game.read(anim_entry)
+    _, anim = md6.read_animation(data, skeleton)
+    additive = bool(md6.read_info(data)[1] & md6.ADDITIVE)
     if anim.frame_count < 1:
         raise ValueError(f"{selection['clipName']} has no frames.")
     scale = anim.unit_scale()
@@ -435,20 +440,26 @@ def motion(selection, ctx, notes=None):
         anim.scale_translations(scale)
         if notes is not None:
             notes.append(UNIT_NOTE)
+    if additive and notes is not None:
+        notes.append(ADDITIVE_NOTE)
     names = unique_bone_names(skeleton.names)
     tracks = anim.bones()
     samples = np.empty((anim.frame_count, len(tracks), 10))
     for column, bone in enumerate(tracks):
-        rotations = anim.sample('r', bone, skeleton.rotations[bone])
+        rest = NO_CHANGE if additive else dict(t=skeleton.translations[bone], r=skeleton.rotations[bone],
+                                                  s=skeleton.scales[bone])
+        rotations = anim.sample('r', bone, rest['r'])
         # Keep each rotation in the hemisphere of the frame before, so Blender interpolates the short way.
         signs = np.sign(np.cumprod(np.where((rotations[1:] * rotations[:-1]).sum(1) < 0, -1.0, 1.0)))
         rotations[1:] *= signs[:, None]
-        samples[:, column, 0:3] = anim.sample('t', bone, skeleton.translations[bone])
+        samples[:, column, 0:3] = anim.sample('t', bone, rest['t'])
         samples[:, column, 3:7] = rotations
-        samples[:, column, 7:10] = anim.sample('s', bone, skeleton.scales[bone])
+        samples[:, column, 7:10] = anim.sample('s', bone, rest['s'])
     skeleton, move, size = md6.without_bind_scale(skeleton)
     samples[:, :, 0:3] *= move[tracks][None, :, None]
-    samples[:, :, 7:10] *= size[tracks][None, :, None]
+    if not additive:
+        # A change of scale is the ratio of two poses, so the bind scale that both of them lose cancels out.
+        samples[:, :, 7:10] *= size[tracks][None, :, None]
     samples = np.round(samples, 6).tolist()
     frames = [[dict(translation=s[0:3], rotation=s[3:7], scale=s[7:10]) for s in frame] for frame in samples]
     bones = [dict(index=i, name=names[i], parent=skeleton.parents[i], translation=_list(skeleton.translations[i]),
@@ -460,6 +471,8 @@ def motion(selection, ctx, notes=None):
                     duration=(anim.frame_count - 1) / anim.frame_rate if anim.frame_rate else 0.0,
                     trackCount=len(tracks), trackBoneIndices=tracks, trackNames=[names[b] for b in tracks],
                     frames=frames, compression='md6anim', blockCount=0, rootMotion=None, rootUp=None, rootForward=None)
+    if additive:
+        document['additive'] = dict(space='separate')
     document = with_source(document, ctx.profile(GAME).space(), GAME, GAME, 'resources', version=anim_entry.version,
                            archive=str(anim_entry.path), member=selection['animation'])
     return check_motion(dict(document, game=GAME), f"{selection['clipName']}")

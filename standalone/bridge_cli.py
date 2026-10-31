@@ -255,6 +255,8 @@ def command_import(args, settings, saved):
                    outputBlend=path(args.output), force=args.force)
     if args.game != 'auto':
         request['game'] = args.game
+    if args.additive_base:
+        request['additiveBase'] = args.additive_base
     if args.donor_clip:
         found = clip_catalog(args.donor_catalog or args.catalog, args.donor_clip, args.donor_character, settings)
         request['donor'] = clip_request(*found, args.donor_preset, args.donor_models, args.donor_rig_only, args.donor_file_list)
@@ -282,6 +284,8 @@ def command_export(args, settings, saved):
                    rootYaw=args.root_yaw, quantization=args.quantization, tolerance=args.tolerance, verify=not args.no_verify,
                    exportParts=args.parts or bool(args.write_parts), addToBinder=bool(args.binder), binder=path(args.binder), binderMember=args.binder_member or '',
                    writeParts=bool(args.write_parts), partsFolder=path(args.write_parts), partId=args.part_id or '', force=args.force)
+    if args.additive:
+        request['additive'] = args.additive
     if args.register_slot or args.slot_source:
         if not args.binder:
             raise Failure('--register-slot needs --binder: the new animation ID is registered for the clip that export adds there.')
@@ -419,6 +423,9 @@ def parser():
     scene.add_argument('--donor-models', nargs='+', default=[])
     scene.add_argument('--donor-rig-only', action='store_true')
     scene.add_argument('--donor-file-list', default='')
+    scene.add_argument('--additive-base', default='', metavar='CLIP',
+                       help="for an additive clip: a normal clip of the same character, by ID or name, that the scene "
+                            "shows its changes on; the rest pose by default")
     scene.add_argument('--force', action='store_true', help='replace an existing output')
     inspect = command('inspect', "the scene's rig, actions and frame ranges")
     inspect.add_argument('scene')
@@ -458,6 +465,9 @@ def parser():
     export.add_argument('--slot-source', default='', metavar='CLIP',
                         help="the clip whose TAE entry and behavior place the new ID copies, such as a000_003008; the scene's "
                              'clip by default. Implies --register-slot')
+    export.add_argument('--additive', choices=('rest', 'first-frame'), default='',
+                        help="write a normal clip's scene as an additive clip (blendHint 1): its changes to the rest pose "
+                             "or to its first exported frame. An additive clip's scene is written as additive anyway")
     export.add_argument('--force', action='store_true')
     def character(name, help, first, first_help):
         found = command(name, help)
