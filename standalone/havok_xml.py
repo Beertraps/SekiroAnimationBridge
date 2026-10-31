@@ -5,8 +5,11 @@ tagfile v3 layout that HkxConverter writes, which modders edit and some mods shi
 directions were checked on 2026-10-27 against HkxConverter output for the vanilla c0000 and
 c9997 behaviors (62 files whose binaries match the game's): the XML written here is the same
 apart from whitespace and enum value comments, and every one of them rebuilt from its XML
-reads back as the same object graph. That is file-level (L1) evidence: whether the game loads
-a rebuilt binary is not established.
+reads back as the same object graph. That is file-level (L1) evidence only: on 2026-10-31
+Sekiro crashed on load with a c0000.hkx rebuilt by to_hkx from its own XML. The rebuilt file
+numbers types and items in another order, hashes other types (THSH), aligns every object to
+16 bytes and leaves out the 0x20 flag of array and string items (docs/VERIFICATION.md). To
+change a game behavior, patch it in place with havok_tagfile, as animation_slots does.
 
 A binary tagfile is nested sections, each a big-endian u32 (0x40000000 marks a leaf; the low
 30 bits are the size with the 8-byte header) and a four-character tag:

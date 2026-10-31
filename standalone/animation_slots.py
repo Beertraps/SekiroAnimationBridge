@@ -5,7 +5,8 @@ The game ignores a clip under a new ID until two more files know the ID:
   SekiroCharacterWriter's tae command copies the entry of a source clip (tools/SekiroCharacterWriter/Tae.cs).
 - the character's behavior (chr/cXXXX.behbnd.dcx) needs a clip generator that plays it. The SDT HKB Duplicator by
   Ionian adds one with its variation operation (tools/setup_hkb_duplicator.cmd downloads it), on the behavior's XML
-  from havok_xml.
+  from havok_xml. The bridge then writes what it added into the game's binary in place (patch_variations), since
+  Sekiro crashes on a behavior that havok_xml.to_hkx rebuilds from XML.
 
 A variation is another category of a move that the behavior already has. Each move's selector (a CMSG, such as
 Attack3008_CMSG) holds one clip per category of the same number, such as a000_003008 and a100_003008, and plays the
@@ -14,8 +15,8 @@ NpcParam or SpEffectParam. So the new ID keeps the source clip's number and chan
 a new state and AI that requests it, which this module does not write.
 
 Every write is read back: the TAE entry plays its own HKX with the events it copied, and every other entry keeps its
-events; the behavior rebuilds into the same object graph as the edited XML, and its selector lists the new clip
-generator. Whether the game plays the clip is for a playtest to show.
+events; the patched behavior keeps the game's bytes, reads back as the same object graph as the Duplicator's XML, and
+its selector lists the new clip generator. Whether the game plays the clip is for a playtest to show.
 
 Run as a script, `animation_slots.py variation JOB REPORT` drives the Duplicator in the Python that has lxml.
 """
@@ -176,7 +177,7 @@ def behavior_index(text):
             return None
         return field[0].get('id') if field[0].tag == 'pointer' else field[0].get('value')
 
-    clips = {oid: dict(name=value(o, 'name'), animation=value(o, 'animationName'))
+    clips = {oid: dict(name=value(o, 'name'), animation=value(o, 'animationName'), internalId=value(o, 'animationInternalId'))
              for oid, o in objects.items() if types.get(o.get('typeid')) == CLIP_GENERATOR}
     selectors = {}
     for oid, o in objects.items():
@@ -363,7 +364,7 @@ def prepare_behavior(plan, folder, python):
     behbnd = Binder(raw)
     tagfiles = [(index, path, data) for index, (_, path, data) in enumerate(behbnd.members)
                 if path.lower().endswith('.hkx') and havok_xml.is_tagfile(data)]
-    files, layouts = [], None
+    files = []
     for index, path, data in tagfiles:
         text = havok_xml.to_xml(data)
         found = behavior_index(text)
@@ -387,17 +388,10 @@ def prepare_behavior(plan, folder, python):
             raise RuntimeError(f'The SDT HKB Duplicator could not add {plan["clip"]}: {detail}')
         entry['log'] = json.loads(answer.read_text(encoding='utf-8'))['log']
         edited = xml.read_text(encoding='utf-8')
-        if layouts is None:
-            # The binder's own tagfiles give the binary layouts of every type that the edit uses.
-            layouts = havok_xml.Layouts.merged([havok_xml.TagFile(data) for _, _, data in tagfiles])
-        rebuilt, report = havok_xml.to_hkx(edited, layouts)
-        reread = havok_xml.to_xml(rebuilt)
-        difference = havok_xml.graph_difference(havok_xml.object_graph(edited), havok_xml.object_graph(reread))
-        if difference or report['unreachable_objects']:
-            raise RuntimeError(f'The rebuilt behavior {PureWindowsPath(path).name} does not read back as the edited XML: '
-                               f"{difference or str(report['unreachable_objects']) + ' objects are not reachable'}.")
+        patched = patch_variations(data, text, edited, jobs)
+        reread = check_patched(data, patched, edited, PureWindowsPath(path).name)
         entry['added'] = check_variations(behavior_index(reread), plan, jobs)
-        behbnd.members[index][2] = rebuilt
+        behbnd.members[index][2] = patched
     if not files:
         raise ValueError(f"No selector in {Path(plan['behavior']['read']).name} plays {plan['source']}, so {plan['clip']} "
                          'cannot be a variation of it. Choose a source clip that the behavior plays.')
@@ -412,16 +406,108 @@ def prepare_behavior(plan, folder, python):
     return dict(binder=plan['behavior']['write'], read=plan['behavior']['read'], files=files, data=data)
 
 
+def patch_variations(data, original, edited, jobs):
+    """The behavior tagfile with what the Duplicator added to its XML, written into the game's binary in place.
+
+    Sekiro crashed on a behavior that havok_xml.to_hkx rebuilt from its XML with nothing changed, while files patched
+    in place load (the character export). So every byte of the game's file stays: each new clip generator is a copy of
+    its source clip generator's data with the name, animation and animation index of the edited XML, its selector's
+    generators move to new data with the new clip generator at the end, and new animation paths go at the end of the
+    behavior's animationNames. The new data goes after the game's (havok_tagfile)."""
+    import struct
+    import havok_tagfile as hk
+    before, after = behavior_index(original), behavior_index(edited)
+    if after['paths'][:len(before['paths'])] != before['paths']:
+        raise RuntimeError("The Duplicator changed the behavior's animation paths; the bridge can only add paths.")
+    tag = hk.Tagfile(data)
+    clips, selectors, names = {}, {}, []
+    for value in tag.walk():
+        if value.type.format != hk.CLASS or value.item < 1:
+            continue
+        if value.type.name == CLIP_GENERATOR:
+            fields = tag.class_fields(value)
+            clips.setdefault(tag.text(fields['name'].at), []).append((tag.item_at(value.item), fields))
+        elif value.type.name == SELECTOR:
+            fields = tag.class_fields(value)
+            selectors.setdefault(tag.text(fields['name'].at), []).append(fields['generators'])
+        elif {'eventNames', 'animationNames'} <= {f.name for f in value.type.fields}:
+            names.append(tag.class_fields(value)['animationNames'])
+    if len(names) != 1:
+        raise RuntimeError(f'The behavior has {len(names)} string data objects with animationNames, not one.')
+    paths, path_slots = tag.array(names[0])
+    if paths is None or not path_slots or len(path_slots) != len(before['paths']):
+        raise RuntimeError("The behavior's animationNames do not match its XML.")
+
+    def slot(index, size):
+        return struct.pack('<I', index) + bytes(size - 4)
+
+    like = tag.reference(path_slots[0])
+    tag.append_elements(paths, [slot(tag.add_string(like, path), paths.type.size)
+                                for path in after['paths'][len(before['paths']):]])
+    for job in jobs:
+        found = clips.get(job['sourceClip'], [])
+        new = [clip for clip in after['clips'].values() if clip['name'] == job['clipName']]
+        held = selectors.get(job['selector'], [])
+        if len(found) != 1 or len(new) != 1 or len(held) != 1:
+            raise RuntimeError(f"The behavior needs one clip generator {job['sourceClip']} and one selector "
+                               f"{job['selector']}, and the Duplicator's XML one clip generator {job['clipName']}.")
+        source, fields = found[0]
+        start = tag.base + source.offset
+        payload = bytearray(tag.item_bytes(source))
+        for name, text in (('name', job['clipName']), ('animationName', new[0]['animation'])):
+            struct.pack_into('<I', payload, fields[name].at - start, tag.add_string(tag.reference(fields[name].at), text))
+        number = fields['animationInternalId']
+        size = number.type.bits // 8
+        payload[number.at - start:number.at - start + size] = int(new[0]['internalId']).to_bytes(
+            size, 'little', signed=number.type.signed)
+        clip = tag.copy_item(source, payload)
+        generators, _ = tag.array(held[0])
+        tag.append_elements(generators, [slot(clip, generators.type.size)])
+    return tag.write()
+
+
+def check_patched(data, patched, edited, name):
+    """Readback of a behavior patched in place: the game's types and data are unchanged and its items keep their type,
+    every slot that names an item is in the PTCH table, and the file reads back as the Duplicator's XML. Returns the
+    XML of the patched file; raises when it differs."""
+    import havok_tagfile as hk
+    import havok_xml
+    old, new = hk.Tagfile(data), hk.Tagfile(patched)
+    kept = [s.tag for s in old.root.children if s.tag not in ('DATA', 'INDX')]
+    if [data[s.start:s.end] for s in old.root.children if s.tag in kept] != \
+            [patched[s.start:s.end] for s in new.root.children if s.tag in kept]:
+        raise RuntimeError(f"The patched behavior {name} does not keep the game's {', '.join(kept)} sections.")
+    size = old.data_section.end - old.base
+    if patched[new.base:new.base + size] != data[old.base:old.data_section.end]:
+        raise RuntimeError(f"The patched behavior {name} does not keep the game's data.")
+
+    def kind(item):
+        return item.type.index if item.type else 0, item.flags
+
+    if any(kind(a) != kind(b) or ((a.offset, a.count) != (b.offset, b.count) and b.offset < size)
+           for a, b in zip(old.items, new.items)):
+        raise RuntimeError(f"The patched behavior {name} changed items of the game's file.")
+    missing, extra = new.unpatched()
+    if missing or extra:
+        raise RuntimeError(f'The patched behavior {name} has {len(missing)} slots without a patch and {len(extra)} '
+                           'patches that are not slots.')
+    reread = havok_xml.to_xml(patched)
+    difference = havok_xml.graph_difference(havok_xml.object_graph(edited), havok_xml.object_graph(reread))
+    if difference:
+        raise RuntimeError(f"The patched behavior {name} does not read back as the Duplicator's XML: {difference}.")
+    return reread
+
+
 def check_variations(index, plan, jobs):
     """Each new clip generator plays the new clip in its selector, and the animation list holds the clip's path."""
     if not any(PureWindowsPath(path).name.lower() == plan['clip'].lower() + '.hkx' for path in index['paths']):
-        raise RuntimeError(f"The rebuilt behavior does not list the animation {plan['clip']}.")
+        raise RuntimeError(f"The patched behavior does not list the animation {plan['clip']}.")
     added = []
     for job in jobs:
         selector = next((s for s in index['selectors'].values() if s['name'] == job['selector']), None)
         held = [index['clips'][g] for g in (selector or {}).get('generators', []) if g in index['clips']]
         if not any(clip['name'] == job['clipName'] and clip['animation'] == plan['clip'] for clip in held):
-            raise RuntimeError(f"The rebuilt behavior's {job['selector']} does not hold {job['clipName']}.")
+            raise RuntimeError(f"The patched behavior's {job['selector']} does not hold {job['clipName']}.")
         added.append(dict(selector=job['selector'], clipGenerator=job['clipName'], copiedFrom=job['sourceClip']))
     return added
 
