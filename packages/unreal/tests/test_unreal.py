@@ -2,6 +2,7 @@
 
 Run from the bridge folder: python -m unittest discover -s packages/unreal/tests
 """
+import importlib
 import json
 import struct
 import sys
@@ -24,6 +25,22 @@ RUN, IDLE = '/Game/Characters/Hero/Anims/Run.Run', '/Game/Characters/Hero/Anims/
 BODY, HEAD = '/Game/Characters/Hero/SK_Hero.SK_Hero', '/Game/Characters/Hero/SK_Hero_Head.SK_Hero_Head'
 UNREAL = [[1, 0, 0], [0, -1, 0], [0, 0, 1]]
 TOC_MAGIC = b'-==--==--==--==-'
+# A made-up dwarf in Deep Rock Galactic's folders, so the game's own part rules in package.json apply to it.
+DWARF = '/Game/CharacterStructure/Rig/3P_Dwarf_Rig_Skeleton.3P_Dwarf_Rig_Skeleton'
+DWARF_RUN = '/Game/Character/Animations/Run.Run'
+RIG = '/Game/CharacterStructure/Rig/SK_3P_Dwarf_Rig.SK_3P_Dwarf_Rig'
+STUBBLE = '/Game/CharacterStructure/Rig/Facial_Hair_Rig/SK_Stubble_Test.SK_Stubble_Test'
+ARMOR = '/Game/Character/Vanity2/Armor/SK_Vanity_ArmorDriller001new.SK_Vanity_ArmorDriller001new'
+ARMOR_BEARD = '/Game/Character/Vanity2/Armor/SK_Vanity_ArmorDriller001new_Beard.SK_Vanity_ArmorDriller001new_Beard'
+DWARF_HEAD = '/Game/Character/Vanity2/Heads/SK_Vanity_Head001.SK_Vanity_Head001'
+BROWS = '/Game/Character/Vanity2/Eyebrows/SK_Vanity_Eyebrows001_FuzzySlugs.SK_Vanity_Eyebrows001_FuzzySlugs'
+RIFLE = '/Game/WeaponsNTools/AssaultRifle/SK_AssaultRifle_B.SK_AssaultRifle_B'
+DRILL = '/Game/WeaponsNTools/Drills/SK_Drill_Left_B.SK_Drill_Left_B'
+SKIN = '/Game/WeaponsNTools/AssaultRifle/Skins/SK_AssaultRifle_Skin_Test.SK_AssaultRifle_Skin_Test'
+SENTRY = '/Game/WeaponsNTools/SentryGun/SK_SentryGun.SK_SentryGun'
+SUIT_MATERIAL = '/Game/Character/Vanity2/Armor/Paintjobs_ArmorDefaults/M_Test_Suit.M_Test_Suit'
+ITEMS = '/Game/Character/Vanity2/Armor/InUse/VAN_Armor_Test'
+DWARF_BONES = ['Dwarf_RootBone', 'Dwarf_Pelvis', 'Dwarf_ArmRHand', 'Dwarf_HandR_Attach', 'Dwarf_ArmLHand', 'Dwarf_HandL_Attach']
 
 
 def pak(path, version=11, encrypted=False, methods=('Zlib',)):
@@ -70,7 +87,28 @@ def unreal_motion(member):
                 basis=UNREAL, unitScale=0.01, clip=member.rsplit('.', 1)[-1] + '.uasset', rootMotion=None, rootUp=None, rootForward=None)
 
 
-def write_mesh(stem, name, textures):
+def drg_document():
+    """A scan of the made-up dwarf: its rig, armor, head and eyebrows, and weapons on skeletons of their own."""
+    def mesh(path, skeleton=DWARF):
+        return dict(path=path, name=path.rsplit('.', 1)[-1], skeleton=skeleton, archive='FSD-WinGDK.pak')
+    return dict(scan_document(), project='FSD', engine='GAME_UE4_27',
+                skeletons=[dict(path=DWARF, name='3P_Dwarf_Rig_Skeleton', archive='FSD-WinGDK.pak')],
+                animations=[dict(path=DWARF_RUN, name='Run', skeleton=DWARF, archive='FSD-WinGDK.pak', frames=31, length=1.0)],
+                meshes=[mesh(m) for m in (RIG, STUBBLE, ARMOR, ARMOR_BEARD, DWARF_HEAD, BROWS)]
+                       + [mesh(m, m.rsplit('/', 1)[0] + '/SK_Weapon_Skeleton.SK_Weapon_Skeleton') for m in (RIFLE, DRILL, SKIN, SENTRY)])
+
+
+def drg_item(path):
+    """An item as the decoder dumps it: an armor has its name, a mesh for each armor kind and the material for empty slots."""
+    if path.startswith(ITEMS):
+        meshes = [dict(Key='EArmorMeshType::Default', Value=dict(AssetPathName=ARMOR, SubPathString='')),
+                  dict(Key='EArmorMeshType::DefaultBeardCompatible', Value=dict(AssetPathName=ARMOR_BEARD, SubPathString=''))]
+        return dict(Type='ArmorVanityItem', Properties=dict(TPArmorMesh=meshes, ItemName=dict(SourceString='Test Suit'),
+                                                            MaterialOverride=dict(AssetPathName=SUIT_MATERIAL, SubPathString='')))
+    return dict(Type='HeadVanityItem', Properties=dict(Mesh=dict(AssetPathName=DWARF_HEAD), ItemName=dict(SourceString='Test Head')))
+
+
+def write_mesh(stem, name, textures, bone_names=('root', 'pelvis')):
     """A one-triangle mesh in the decoder's layout: typed arrays in a .bin and a .json that describes them."""
     arrays = dict(positions=np.array([[0, 0, 0], [10, 0, 0], [0, 0, 10]], np.float32), normals=np.tile(np.float32([0, -1, 0]), (3, 1)),
                   uv_0=np.array([[0, 0], [1, 0], [0, 1]], np.float32), bone_indices=np.array([[0, 0, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0]], np.int32),
@@ -82,8 +120,8 @@ def write_mesh(stem, name, textures):
                               length=values.nbytes)
         data += values.tobytes()
     Path(f'{stem}.bin').write_bytes(data)
-    bones = [dict(index=0, name='root', parent=-1, translation=[0, 0, 0], rotation=[0, 0, 0, 1], scale=[1, 1, 1]),
-             dict(index=1, name='pelvis', parent=0, translation=[0, 0, 95], rotation=[0, 0, 0, 1], scale=[1, 1, 1])]
+    bones = [dict(index=index, name=bone, parent=index - 1, translation=[0, 0, 95 if index else 0], rotation=[0, 0, 0, 1],
+                  scale=[1, 1, 1]) for index, bone in enumerate(bone_names)]
     albedo = textures / 'T_Hero_D.png'
     albedo.write_bytes(b'png')
     material = dict(slot='M_Hero', name='MI_Hero', path='/Game/Characters/Hero/MI_Hero.MI_Hero', blendMode='BLEND_Masked',
@@ -105,8 +143,13 @@ def fake_decoder(ctx, tool, *args, timeout=900):
     command = args[0]
     CALLS.append((command, json.loads(Path(args[1]).read_text(encoding='utf-8')), [str(a) for a in args[2:]]))
     if command == 'scan':
-        Path(args[2]).write_text(json.dumps(scan_document()), encoding='utf-8')
+        Path(args[2]).write_text(json.dumps(drg_document() if 'FSD' in CALLS[-1][1]['root'] else scan_document()), encoding='utf-8')
         return SCAN_PRINTED
+    if command == 'list':
+        return f'{ITEMS}\n/Game/Character/Vanity2/Heads/InUse/VAN_Head_Test\n/Game/Character/Vanity2/Heads/T_Head_Test\n'
+    if command == 'dump':
+        objects = [dict(path=str(a), object=drg_item(str(a)), error='') for a in args[2:]]
+        return json.dumps(objects if len(objects) > 1 else objects[0]['object'])
     if command == 'decode':
         Path(args[3]).write_text(json.dumps(unreal_motion(str(args[2]))), encoding='utf-8')
         return 'NOTE 2 animated bones are not in the mesh: ik_foot_l, ik_foot_r\n'
@@ -115,10 +158,12 @@ def fake_decoder(ctx, tool, *args, timeout=900):
         textures = out / 'textures'
         textures.mkdir(parents=True, exist_ok=True)
         meshes = []
-        for index, path in enumerate(args[3:]):
+        for index, argument in enumerate(args[3:]):
+            # MESH|MATERIAL names the material for the mesh's empty slots.
+            path = str(argument).split('|')[0]
             name = path.rsplit('.', 1)[-1]
             stem = out / f'{index:02d}_{name}'
-            write_mesh(stem, name, textures)
+            write_mesh(stem, name, textures, DWARF_BONES if '/Game/Character' in path and '/Characters/' not in path else ('root', 'pelvis'))
             meshes.append(dict(path=path, json=f'{stem}.json', error=''))
         Path(out / 'meshes.json').write_text(json.dumps(dict(format='unreal-meshes', formatVersion=1, meshes=meshes,
                                                              textures={'/Game/Characters/Hero/T_Hero_D.T_Hero_D': str(textures / 'T_Hero_D.png')})),
@@ -340,6 +385,111 @@ class Scan(Package):
         for path, label in ((SKELETON, 'Hero'), ('/Game/M/UE4_Mannequin_Skeleton.UE4_Mannequin_Skeleton', 'UE4_Mannequin'),
                             ('/Game/M/SK_Mannequin.SK_Mannequin', 'Mannequin'), ('/Game/M/Skeleton.Skeleton', 'Skeleton')):
             self.assertEqual(self.module.short_name(path), label, path)
+
+
+
+class DeepRockGalactic(Package):
+    """Deep Rock Galactic's dwarves: parts from the game's items, weapons on joints, and the materials of its items."""
+
+    def setUp(self):
+        super().setUp()
+        self.drg = Path(self.temp.name).resolve() / 'Deep Rock Galactic'
+        pak(self.drg / 'Content' / 'FSD' / 'Content' / 'Paks' / 'FSD-WinGDK.pak')
+        (self.drg / 'Content' / 'Engine').mkdir(parents=True)
+        self.characters = importlib.import_module(self.module.__name__ + '.characters')
+
+    def prepare(self, models, attachments=None):
+        temp = Path(tempfile.mkdtemp(dir=self.temp.name))
+        request = dict(assetClip=DWARF_RUN, includeCharacter=True, models=models, game='auto', weaponAttachments=attachments or {})
+        _, character_args, report = self.engine.prepare(request, self.path, self.catalog, temp, self.notify)
+        return json.loads(Path(character_args[1]).read_text(encoding='utf-8')), report
+
+    def test_parts_come_with_item_names_notes_and_weapons(self):
+        from asset_discovery import load_catalog, selection
+        path, catalog = self.discover(self.drg)
+        self.assertEqual(catalog['game'], 'deep_rock_galactic')
+        self.assertEqual([(c[0], c[2]) for c in CALLS[1:]], [('list', ['/Game/Character/Vanity2']),
+                                                             ('dump', [f'{ITEMS}.VAN_Armor_Test',
+                                                                       '/Game/Character/Vanity2/Heads/InUse/VAN_Head_Test.VAN_Head_Test'])])
+        items = json.loads((Path(catalog['work']) / 'items.json').read_text(encoding='utf-8'))['items']
+        self.assertEqual(items[ARMOR_BEARD], dict(item='Test Suit', material=SUIT_MATERIAL, kind='EArmorMeshType::DefaultBeardCompatible',
+                                                  asset=f'{ITEMS}.VAN_Armor_Test'))
+        self.assertEqual(items[DWARF_HEAD]['item'], 'Test Head')
+        parts = selection(load_catalog(path, self.drg, True), DWARF_RUN)['parts']
+        self.assertEqual([(p['name'], p['role'], p.get('note', ''), p['selected']) for p in parts], [
+            ('SK_Stubble_Test', 'Hair', 'stubble', False),
+            ('SK_3P_Dwarf_Rig', 'Body', 'with head, no armor', False),
+            ('SK_Vanity_ArmorDriller001new · Test Suit', 'Body', 'without head', True),
+            ('SK_Vanity_ArmorDriller001new_Beard · Test Suit', 'Body', 'without head, cut out for a beard', False),
+            ('SK_Vanity_Head001 · Test Head', 'Head', '', True),
+            ('SK_Vanity_Eyebrows001_FuzzySlugs', 'Hair', 'eyebrows', True),
+            ('SK_AssaultRifle_B · Assault Rifle', 'Weapon', '', False),
+            ('SK_Drill_Left_B · Drills', 'Weapon', '', False)])
+        # An item's material, else the folder's: Deep Rock Galactic colors hair with the hair color the player picks.
+        self.assertEqual((parts[2]['material'], parts[5]['material'].rsplit('.', 1)[-1]), (SUIT_MATERIAL, 'M_HairColor_Brown03'))
+        rifle, drill = parts[-2:]
+        self.assertEqual([j['id'] for j in rifle['joints']][:3], ['Dwarf_HandR_Attach', 'Dwarf_HandL_Attach', 'Dwarf_BackHigh_Attach'])
+        self.assertEqual((rifle['joint'], drill['joint']), ('Dwarf_HandR_Attach', 'Dwarf_HandL_Attach'))
+        # A single item comes from the decoder without the list around it.
+        ctx = self.engine.context(self.cache)
+        index = json.loads((Path(catalog['work']) / 'index.json').read_text(encoding='utf-8'))
+        single = self.module.read_items(catalog, index, dict(folders=['/Game/Character/Vanity2'], prefix='VAN_'), ctx, batch=1)
+        self.assertEqual(single['items'], items)
+
+    def test_weapons_hang_on_joints_and_armor_gets_its_item_material(self):
+        self.path, self.catalog = self.discover(self.drg)
+        # The clip plays on the first chosen model that is not a weapon.
+        manifest, report = self.prepare([RIFLE, ARMOR, DWARF_HEAD, DRILL], {DRILL: 'Dwarf_BackHigh_Attach'})
+        decode = next(c for c in reversed(CALLS) if c[0] == 'decode')
+        self.assertEqual(decode[2][-2:], ['--mesh', ARMOR])
+        mesh = next(c for c in reversed(CALLS) if c[0] == 'mesh')
+        self.assertEqual(mesh[2][1:], [RIFLE, f'{ARMOR}|{SUIT_MATERIAL}', DWARF_HEAD, DRILL])
+        self.assertEqual([(m['name'], m['role'], m['attachment']) for m in manifest['models']], [
+            ('SK_AssaultRifle_B', 'Weapon', dict(kind='joint', bone='Dwarf_HandR_Attach')),
+            ('SK_Vanity_ArmorDriller001new', 'Body', None), ('SK_Vanity_Head001', 'Head', None)])
+        with np.load(manifest['models'][0]['data'], allow_pickle=False) as arrays:
+            self.assertEqual(list(arrays['bone_names']), ['SK_AssaultRifle_B_root', 'SK_AssaultRifle_B_pelvis'])
+        self.assertIn('SK_Drill_Left_B: the character has no joint Dwarf_BackHigh_Attach; the weapon is left out.', report['warnings'])
+        self.assertEqual(report['parts'], 3)
+        self.assertFalse(any('has a head' in w for w in report['warnings']))
+
+    def test_a_character_without_a_head_says_so(self):
+        self.path, self.catalog = self.discover(self.drg)
+        _, report = self.prepare([ARMOR, BROWS])
+        self.assertIn('None of the chosen parts has a head. Tick a Head part, or a body marked "with head".', report['warnings'])
+        _, report = self.prepare([RIG])
+        self.assertFalse(any('has a head' in w for w in report['warnings']))
+
+    def test_masks_whose_names_spell_a_layout_give_metalness_and_roughness(self):
+        layout = self.characters.mask_layout
+        self.assertEqual(layout('ORM'), dict(G='roughness', B='metalness'))
+        self.assertEqual(layout('', 'T_Hero_MRA'), dict(R='metalness', G='roughness'))
+        self.assertEqual(layout('SpecularMasks', 'T_Hero_SpecularMasks'), {})
+        self.assertEqual(layout('PM_SpecularMasks', 'T_Hero_D'), {})
+        textures = Path(self.temp.name)
+        for name in ('T_Base_Tiger01', 'T_Hero_MRA'):
+            (textures / f'{name}.png').write_bytes(b'png')
+        material = dict(slot='M_Armor', path='/Game/M_Armor.M_Armor', color=[0.5, 0.25, 0.125, 1], blendMode='BLEND_Opaque',
+                        albedo=dict(texture='/Game/T_Base_Tiger01.T_Base_Tiger01', file=str(textures / 'T_Base_Tiger01.png'),
+                                    parameter='Texture'),
+                        mask=dict(texture='/Game/T_Hero_MRA.T_Hero_MRA', file=str(textures / 'T_Hero_MRA.png'), srgb=False,
+                                  parameter='Masks'))
+        spec = self.characters.material_spec(material, games.profile('deep_rock_galactic'))
+        # Deep Rock Galactic lays tiling patterns over a tint: the tint is the color, the pattern no base color.
+        self.assertEqual((spec['albedo'], spec['color']), (None, [0.5, 0.25, 0.125]))
+        self.assertEqual((spec['metalness']['channel'], spec['roughness']['channel'], spec['roughness']['linear']), ('R', 'G', True))
+        self.assertEqual(spec['metalness']['stem'], 'T_Hero_MRA')
+        spec = self.characters.material_spec(material, games.profile('unreal'))
+        self.assertEqual(spec['albedo']['stem'], 'T_Base_Tiger01')
+
+    def test_dwarf_bones_have_names_the_matcher_knows(self):
+        spec = importlib.util.spec_from_file_location('retarget_mapping', BRIDGE / 'blender_addon/sekiro_retarget/mapping.py')
+        mapping = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mapping)
+        alias = mapping.alias_rule(games.profile('deep_rock_galactic').bones)
+        self.assertEqual([alias(n) for n in ('Dwarf_Pelvis', 'Dwarf_ArmLShoulder', 'Dwarf_ArmR21', 'Dwarf_ArmLDigit02', 'Dwarf_ArmRDigit010',
+                                             'Dwarf_ArmLDigit019', 'Dwarf_LegRHeel', 'Dwarf_HandR_Attach', 'Dwarf_BackHigh_Attach')],
+                         ['Pelvis', 'L_Clavicle', 'R_Forearm', 'L_Thumb2', 'R_Middle3', 'L_Pinky4', 'R_Foot', 'R_Weapon', ''])
 
 
 if __name__ == '__main__':
