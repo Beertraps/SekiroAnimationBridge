@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import havok_xml as havok
+import havok_xml_writer as writer
 from havok_xml import ModdingError
 
 INT8, INT32, UINT16, BOOL8 = 8708, 33284, 16388, 8194
@@ -41,7 +42,7 @@ def layout_builder():
 
 
 def layouts_of(types):
-    layouts = havok.Layouts()
+    layouts = writer.Layouts()
     layouts.types = types
     return layouts
 
@@ -143,7 +144,7 @@ def sections(data, at=0, end=None, prefix=''):
 class Tagfile(unittest.TestCase):
     def setUp(self):
         self.layouts = synthetic_layouts()
-        self.binary, self.report = havok.to_hkx(synthetic_xml(), self.layouts)
+        self.binary, self.report = writer.to_hkx(synthetic_xml(), self.layouts)
 
     def test_values_go_where_the_layouts_put_them(self):
         self.assertEqual(sections(self.binary),
@@ -178,11 +179,11 @@ class Tagfile(unittest.TestCase):
     def test_a_rebuild_reads_back_the_same_and_is_byte_identical(self):
         text = havok.to_xml(self.binary, {})
         self.assertIsNone(havok.graph_difference(havok.object_graph(synthetic_xml()), havok.object_graph(text)))
-        self.assertEqual(havok.to_hkx(text, self.layouts)[0], self.binary)
-        stored = havok.Layouts.from_json(json.loads(json.dumps(self.layouts.to_json())))
-        self.assertEqual(havok.to_hkx(text, stored)[0], self.binary)
-        learned = havok.Layouts.merged([havok.TagFile(self.binary)])
-        self.assertEqual(havok.to_hkx(text, learned)[0], self.binary)
+        self.assertEqual(writer.to_hkx(text, self.layouts)[0], self.binary)
+        stored = writer.Layouts.from_json(json.loads(json.dumps(self.layouts.to_json())))
+        self.assertEqual(writer.to_hkx(text, stored)[0], self.binary)
+        learned = writer.Layouts.merged([havok.TagFile(self.binary)])
+        self.assertEqual(writer.to_hkx(text, learned)[0], self.binary)
         self.assertEqual(learned.conflicts, set())
 
     def test_core_types_replace_stripped_definitions(self):
@@ -194,28 +195,28 @@ class Tagfile(unittest.TestCase):
 
     def test_a_negative_value_in_an_unsigned_field_reads_back_as_the_same_bits(self):
         text = synthetic_xml().replace('<integer value="65535"/>', '<integer value="-1"/>')
-        binary, _ = havok.to_hkx(text, self.layouts)
+        binary, _ = writer.to_hkx(text, self.layouts)
         self.assertEqual(binary, self.binary)
         self.assertIsNone(havok.graph_difference(havok.object_graph(text), havok.object_graph(havok.to_xml(binary, {}))))
 
     def test_hex_is_used_while_it_agrees_with_dec_and_an_edited_dec_wins(self):
         # 0.1 is not exact in float32: dec rounds it, and hex keeps the exact bits.
         text = synthetic_xml().replace('dec="0.1" hex="#3fb99999a0000000"', 'dec="0.100000001" hex="#3fb99999a0000000"')
-        self.assertEqual(havok.to_hkx(text, self.layouts), (self.binary, self.report))
+        self.assertEqual(writer.to_hkx(text, self.layouts), (self.binary, self.report))
         text = synthetic_xml().replace('dec="1.5"', 'dec="9"')
-        binary, report = havok.to_hkx(text, self.layouts)
+        binary, report = writer.to_hkx(text, self.layouts)
         self.assertEqual(struct.unpack_from('<f', havok.TagFile(binary).data, 16), (9.0,))
         self.assertEqual(report['real_dec_hex_mismatches'], 1)
         self.assertEqual(report['mismatch_examples'][0]['object'], 'object1')
         self.assertIsNone(havok.graph_difference(havok.object_graph(text), havok.object_graph(havok.to_xml(binary, {}))))
-        binary, report = havok.to_hkx(text.replace(' hex="#3ff8000000000000"', ''), self.layouts)
+        binary, report = writer.to_hkx(text.replace(' hex="#3ff8000000000000"', ''), self.layouts)
         self.assertEqual(struct.unpack_from('<f', havok.TagFile(binary).data, 16), (9.0,))
         self.assertEqual(report['real_dec_hex_mismatches'], 0)
 
     def test_the_elements_win_over_a_stale_array_count_and_it_is_reported(self):
         # A real mod's XML removed an element and left the count, so this is reported, not refused.
         text = synthetic_xml().replace('<array count="2" elementtypeid="type4">', '<array count="3">')
-        binary, report = havok.to_hkx(text, self.layouts)
+        binary, report = writer.to_hkx(text, self.layouts)
         self.assertEqual(binary, self.binary)
         self.assertEqual(report['array_count_mismatches'], 1)
         self.assertEqual(report['mismatch_examples'], [{'kind': 'array count', 'object': 'object2', 'count': '3', 'elements': 2}])
@@ -233,7 +234,7 @@ class Tagfile(unittest.TestCase):
         for message, (old, new) in cases.items():
             with self.subTest(message), self.assertRaisesRegex(ModdingError, message):
                 self.assertIn(old, synthetic_xml())
-                havok.to_hkx(synthetic_xml().replace(old, new, 1), self.layouts)
+                writer.to_hkx(synthetic_xml().replace(old, new, 1), self.layouts)
 
     def test_damaged_binaries_are_refused(self):
         with self.assertRaisesRegex(ModdingError, 'A Havok packfile'):

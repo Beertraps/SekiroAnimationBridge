@@ -118,7 +118,7 @@ tools\check_package.cmd packages\<id> [--source <game folder>] [--option <id>=<v
 | Blender side | `standalone/blender_bridge.py`, `blender_character.py`, `blender_parts.py`, `blender_verify.py` |
 | HKX writing | `standalone/build_animation.py`, `havok_compat.py`, `binder_members.py` |
 | Weapon part clips | `standalone/part_animations.py` (pairing, import), `blender_parts.py`, `part_export.py` (part binders) |
-| New animation IDs | `standalone/animation_slots.py`, `havok_xml.py` (behavior tagfile to XML and back), `tools/SekiroCharacterWriter/Tae.cs` |
+| New animation IDs | `standalone/animation_slots.py`, `havok_xml.py` (behavior tagfile to XML, read only), `havok_tagfile.py` (patches in place), `tools/SekiroCharacterWriter/Tae.cs` |
 | New Sekiro characters | `standalone/character_export.py`, `havok_tagfile.py` (TAG0 patching), `blender_character_export.py`, `tools/SekiroCharacterWriter/` |
 | Retarget add-on | `blender_addon/sekiro_retarget/` |
 | Other engines | `packages/re_engine`, `packages/doom_eternal`, `packages/unreal`, template `standalone/tests/fixtures/packages/example` |

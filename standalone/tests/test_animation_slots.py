@@ -18,6 +18,7 @@ import bridge_runtime
 import character_export
 import havok_tagfile
 import havok_xml
+import havok_xml_writer
 from binder_members import Binder, add_member
 from test_binder_members import anibnd
 from test_havok_xml import INT8, INT32, layout_builder, layouts_of
@@ -202,7 +203,7 @@ CLIPS = {'a000_003008_hkx_AutoSet_01': 'a000_003008', 'a000_000000_hkx_AutoSet_0
 
 
 def behavior_tagfile(moves=(ATTACK, *IDLES), clips=None):
-    return havok_xml.to_hkx(behavior_xml(list(moves), clips or CLIPS), behavior_layouts())[0]
+    return havok_xml_writer.to_hkx(behavior_xml(list(moves), clips or CLIPS), behavior_layouts())[0]
 
 
 def duplicator_ready():
