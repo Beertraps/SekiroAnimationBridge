@@ -33,7 +33,7 @@ KEYS = {'blender','writer','decoder','animation','compendium','skeleton','charac
         'assetFolder','assetCharacter','assetClip','assetCatalog','inputMethod','skeletonCompendium','oodle','referenceModel','weaponAttachments','game','exportGame',
         'exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','rootVertical','rootYaw',
         'quantization','tolerance','verify','sources','activeSource','sourceLayout','sourceFolders','sourceRecursive','sourceFileList','sourceOptions','theme','donor',
-        'partAnimations','exportParts','modelMasks','addToBinder','binder','binderMember','previewCache',
+        'partAnimations','exportParts','writeParts','partsFolder','partId','modelMasks','addToBinder','binder','binderMember','previewCache',
         'characterBlend','characterAction','characterFrameStart','characterFrameEnd','characterGameFolder','characterTemplate',
         'characterId','characterMap','characterParts','characterPartsFound','characterOutput','characterTextureSize'}
 # The New character page keeps its own fields, so the export page's scene and frames stay apart; a job gets the
@@ -78,7 +78,8 @@ def defaults():
         exportAction='', frameRange='scene', frameStart='', frameEnd='', frameRate='', trackSet='original', rootMotion='auto',
         rootBone='', rootVertical=False, rootYaw=False, quantization='threecomp40', tolerance='0.001', verify=True,
         sources=[], activeSource='', sourceLayout='folder', sourceFolders={}, sourceRecursive=True, sourceFileList='', sourceOptions={}, theme='auto',
-        partAnimations=True, exportParts=False, addToBinder=False, binder='', binderMember='', previewCache='standard')
+        partAnimations=True, exportParts=False, writeParts=False, partsFolder='', partId='', addToBinder=False, binder='',
+        binderMember='', previewCache='standard')
     for key, name in [('animation','a000_000100.hkx'), ('compendium','a000_lo.compendium'), ('skeleton','c0000_skeleton.hkx')]:
         if (inputs/name).is_file(): result[key]=str(inputs/name)
     if SETTINGS.is_file():

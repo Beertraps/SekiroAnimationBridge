@@ -25,6 +25,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_bridge import bl_to_game_trs, export_rig, motion_space, sample_times, script_arguments, set_time, trs_matrix, write_action  # noqa: E402
 
 TEXT_PREFIX = "SEKIRO_BRIDGE_ZLIB_V1\n"
+# A new clip keyed over a rest clip runs at 30 fps, as Sekiro's part clips do; a rest clip's own rate (3, 30 or
+# 0.33 fps for its two frames) says nothing.
+PART_RATE = 30.0
+# A rest rig whose samples stay this close to its rest clip has no new clip to write.
+HELD = 1e-4
 
 
 def part_motion(model):
@@ -54,8 +59,12 @@ def animate_part(rig, motion, model=""):
 
     A part clip can run at another frame rate than the character clip (30 against
     60 fps), and both last equally long, so its keys fall on the scene frames of the
-    same seconds.
+    same seconds. A rest clip (a999_000000, marked rest) holds one pose, which is not
+    always the model's bind pose: its first frame is keyed on scene frame 1, and a
+    new clip can be keyed over it.
     """
+    rest_clip = bool(motion.get("part", {}).get("rest"))
+    stored, motion = motion, dict(motion, frames=motion["frames"][:1], frameCount=1) if rest_clip else motion
     bones = motion["skeleton"]["bones"]
     names = [bone["name"] for bone in bones]
     parents = [int(bone["parent"]) for bone in bones]
@@ -119,15 +128,19 @@ def animate_part(rig, motion, model=""):
     name = (model or rig.name.split(" | ")[0]).upper()
     action = write_action(rig, "{} | {}".format(name, clip), channels, frames)
     text = bpy.data.texts.new("Sekiro Part Source - {} - {}.json".format(name, clip))
-    encoded = base64.b64encode(zlib.compress(json.dumps(motion, separators=(",", ":")).encode("utf-8"))).decode("ascii")
+    encoded = base64.b64encode(zlib.compress(json.dumps(stored, separators=(",", ":")).encode("utf-8"))).decode("ascii")
     text.from_string(TEXT_PREFIX + "\n".join(textwrap.wrap(encoded, 120)))
     rig["sekiro_part_source_text_data"] = text
     rig["sekiro_part_clip"] = motion["clip"]
     rig["sekiro_part_model"] = name
-    rig["sekiro_part_frame_count"] = int(motion["frameCount"])
+    rig["sekiro_part_frame_count"] = int(stored["frameCount"])
     rig["sekiro_part_frame_rate"] = rate
-    print("{}: plays {} ({} frames at {:g} fps, keyed on scene frames 1-{:g})".format(
-        name, motion["clip"], len(frames), rate, frames[-1]), flush=True)
+    if rest_clip:
+        rig["sekiro_part_rest"] = True
+        print("{}: holds its rest pose {}; key its weapon rig to give it a new clip".format(name, motion["clip"]), flush=True)
+    else:
+        print("{}: plays {} ({} frames at {:g} fps, keyed on scene frames 1-{:g})".format(
+            name, motion["clip"], len(frames), rate, frames[-1]), flush=True)
     return action
 
 
@@ -159,14 +172,17 @@ def sample_part(scene, rig, motion, start, end):
     """Sample one weapon rig into part motion JSON over the scene frames start..end, at its clip's frame rate.
 
     As for the character, each track is written relative to its parent in the
-    part's skeleton, and bones without a track keep their reference pose.
+    part's skeleton, and bones without a track keep their reference pose. A new
+    clip over a rest clip keeps the rest clip's tracks at PART_RATE, and its tracks
+    whose bone the rig lacks hold the rest clip's pose.
     """
     bones = motion["skeleton"]["bones"]
     names = [bone["name"] for bone in bones]
     parents = [int(bone["parent"]) for bone in bones]
     tracks = [int(index) for index in motion["trackBoneIndices"]]
     present = [index for index in range(len(bones)) if names[index] in rig.pose.bones]
-    rate = float(motion["frameRate"])
+    rest_clip = bool(motion.get("part", {}).get("rest"))
+    rate = PART_RATE if rest_clip else float(motion["frameRate"])
     times = sample_times(start, end, scene.render.fps / scene.render.fps_base, rate)
     worlds, bases = [], []
     for time in times:
@@ -176,6 +192,9 @@ def sample_part(scene, rig, motion, start, end):
 
     space = motion_space(motion)
     rest = [trs_matrix(bone, space) for bone in bones]
+    if rest_clip:
+        for track, index in enumerate(tracks):
+            rest[index] = trs_matrix(motion["frames"][0][track], space)
     own_rest = {}
     for index in present:
         pose_bone = rig.pose.bones[names[index]]
@@ -217,8 +236,23 @@ def sample_part(scene, rig, motion, start, end):
     return edited
 
 
+def keyed_rest(edited, motion):
+    """Whether a rest rig's samples leave its rest clip's pose, so that it has a new clip to write."""
+    for frame in edited["frames"]:
+        for got, want in zip(frame, motion["frames"][0]):
+            sign = 1 if sum(a * b for a, b in zip(got["rotation"], want["rotation"])) >= 0 else -1
+            if max([abs(a - b) for key in ("translation", "scale") for a, b in zip(got[key], want[key])]
+                   + [abs(sign * a - b) for a, b in zip(got["rotation"], want["rotation"])]) > HELD:
+                return True
+    return False
+
+
 def export_parts(output_dir: Path, start, end):
-    """Write the motion JSON of every animated weapon rig and an index, parts.json, of what was written."""
+    """Write the motion JSON of every animated weapon rig and an index, parts.json, of what was written.
+
+    A rig that holds its rest clip is written only when its pose leaves the rest clip somewhere in the range: then it
+    is a new clip (new: true), which the export names after an animation ID.
+    """
     scene = bpy.context.scene
     rigs = part_rigs(scene)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -233,20 +267,27 @@ def export_parts(output_dir: Path, start, end):
             motion = embedded_part(rig)
             edited = sample_part(scene, rig, motion, float(start), float(end))
             name = str(rig.get("sekiro_part_model") or rig.name.split(" | ")[0])
+            part = motion.get("part", {})
+            new = bool(part.get("rest"))
+            if new and not keyed_rest(edited, motion):
+                print("{} holds its rest pose {}, so no clip is written for it".format(name, motion["clip"]), flush=True)
+                continue
             path = output_dir / "{}.motion.json".format(name.lower())
             path.write_text(json.dumps(edited, separators=(",", ":")), encoding="utf-8")
             index.append(dict(model=name.lower(), name=name, clip=Path(motion["clip"]).name, motion=str(path),
                               frames=edited["frameCount"], frameRate=edited["frameRate"], action=edited["export"]["action"],
-                              missingBones=edited["export"]["missingBones"]))
-            print("Sampled {}: {} frames of {} at {:g} fps".format(name, edited["frameCount"], motion["clip"], edited["frameRate"]),
-                  flush=True)
+                              missingBones=edited["export"]["missingBones"], new=new, source=part.get("source", ""),
+                              binder=part.get("binder", "")))
+            print("Sampled {}: {} frames {} at {:g} fps".format(
+                name, edited["frameCount"], "of a new clip over " + motion["clip"] if new else "of " + motion["clip"],
+                edited["frameRate"]), flush=True)
     finally:
         for rig, state in hidden:
             rig.hide_set(state)
         scene.frame_set(original)
     (output_dir / "parts.json").write_text(json.dumps(index, indent=1), encoding="utf-8")
     if not index:
-        print("This scene has no animated weapon parts.", flush=True)
+        print("No weapon part of this scene has a clip to write.", flush=True)
     return index
 
 

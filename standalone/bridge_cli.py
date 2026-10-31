@@ -15,7 +15,8 @@ them. The exit code is 0 when the command ran and 1 otherwise; then the result i
   import CATALOG CLIP        create a Blender scene; --donor-clip adds a retarget donor beside it
   inspect SCENE              the scene's rig, actions and frame ranges
   verify SCENE               numbers to check an import by, with pass or fail checks; --render draws it
-  export SCENE               write the edited animation as HKX
+  export SCENE               write the edited animation as HKX; --write-parts puts part clips into a mod folder
+  part-verify FOLDER         read the part binders that export --write-parts wrote back
   character-parts GAME       the template's enemy parts in a map, which a new character can replace
   character-export SCENE     write the scene's rig, meshes and action as a new Sekiro character in a mod folder
   character-model SCENE      write a scene of a vanilla character as its model only; it keeps its clips and behavior
@@ -279,8 +280,8 @@ def command_export(args, settings, saved):
                    exportGame=args.game, format=args.format, exportAction=args.action or '', frameRange=args.frame_range,
                    trackSet=args.tracks, rootMotion=args.root_motion, rootBone=args.root_bone or '', rootVertical=args.root_vertical,
                    rootYaw=args.root_yaw, quantization=args.quantization, tolerance=args.tolerance, verify=not args.no_verify,
-                   exportParts=args.parts, addToBinder=bool(args.binder), binder=path(args.binder), binderMember=args.binder_member or '',
-                   force=args.force)
+                   exportParts=args.parts or bool(args.write_parts), addToBinder=bool(args.binder), binder=path(args.binder), binderMember=args.binder_member or '',
+                   writeParts=bool(args.write_parts), partsFolder=path(args.write_parts), partId=args.part_id or '', force=args.force)
     for key, value in (('frameStart', args.frame_start), ('frameEnd', args.frame_end), ('frameRate', args.frame_rate)):
         if value is not None:
             request[key] = value
@@ -335,6 +336,12 @@ def command_character_clone(args, settings, saved):
 def command_character_verify(args, settings, saved):
     args.output = args.folder
     return character_request(args, settings, 'character-verify')
+
+
+def command_part_verify(args, settings, saved):
+    done = run_job(dict(settings, mode='part-verify', partsFolder=path(args.folder)))
+    passed = sum(c['passed'] for c in done['report']['checks'])
+    return dict(folder=done['output'], passed=passed == len(done['report']['checks']), **done['report'], notices=done['notices'])
 
 
 def command_run(args, settings, saved):
@@ -435,6 +442,10 @@ def parser():
     export.add_argument('--tolerance', type=float, default=0.001)
     export.add_argument('--no-verify', action='store_true', help='skip reading the HKX back')
     export.add_argument('--parts', action='store_true', help="also write the weapon parts' clips")
+    export.add_argument('--part-id', default='', help="the animation ID of every part clip, such as a000_003000; by default a "
+                                                       "part clip keeps its name, and a new one takes the character clip's ID")
+    export.add_argument('--write-parts', default='', metavar='MOD_FOLDER',
+                        help='also put the part clips into their part binders in this mod folder, with a me3 profile beside it')
     export.add_argument('--binder', default='', help='also add the HKX to this .anibnd.dcx; a copy beside the HKX for a game file')
     export.add_argument('--binder-member', default='', help="the member name in the binder; the clip's own by default")
     export.add_argument('--force', action='store_true')
@@ -485,6 +496,8 @@ def parser():
                       'folder', 'the mod folder that character-export, character-model or character-clone wrote')
     check.add_argument('--id', required=True)
     check.add_argument('--game-folder', default='', help='the game folder, to compare the clip count with the template')
+    parts = command('part-verify', 'read the part binders of a mod folder back and check that their clips decode')
+    parts.add_argument('folder', help='the mod folder that export --write-parts wrote')
     run = command('run', 'any request as the UI and sekiro_animation_cli.ps1 send it to bridge_runtime.py')
     run.add_argument('request', help='the request as JSON or a JSON file')
     return main
@@ -495,7 +508,7 @@ COMMANDS = dict(env=command_env, games=command_games, detect=command_detect, sca
                 export=command_export, run=command_run, **{'import': command_import,
                 'character-parts': command_character_parts, 'character-export': command_character_export,
                 'character-model': command_character_model, 'character-clone': command_character_clone,
-                'character-verify': command_character_verify})
+                'character-verify': command_character_verify, 'part-verify': command_part_verify})
 
 
 def main(argv=None):

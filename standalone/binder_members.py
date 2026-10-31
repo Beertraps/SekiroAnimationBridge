@@ -21,6 +21,8 @@ from collections import Counter
 from pathlib import Path, PureWindowsPath
 
 CLIP = re.compile(r'a(\d{3})_(\d{6})\.hkx', re.I)
+# A part's clips end in their model's suffix: a076_405010_1.hkx animates WP_A_0760_1.flver. Its ID ignores the suffix.
+PART_CLIP = re.compile(r'a(\d{3})_(\d{6})(?:_\d+)?\.hkx', re.I)
 
 
 def reverse_bits(value):
@@ -144,31 +146,46 @@ class Binder:
         return bytes(out)
 
 
-def clip_id(name):
-    match = CLIP.fullmatch(name)
+def clip_id(name, pattern=CLIP):
+    match = pattern.fullmatch(name)
     return 1000000000 + int(match.group(1)) * 1000000 + int(match.group(2)) if match else None
 
 
-def plan_member(binder, name, near=''):
-    """(index of the member named name, or None for a new one; its path; its ID)."""
-    if not CLIP.fullmatch(name):
+def plan_member(binder, name, near='', pattern=CLIP):
+    """(index of the member named name, or None for a new one; its path; its ID). pattern is PART_CLIP in a part's
+    animation binder."""
+    if not pattern.fullmatch(name):
         raise ValueError(f'Name the member like the game\'s clips, aXXX_YYYYYY.hkx, such as a050_002000.hkx: {name}')
     for index, member in enumerate(binder.members):
         if PureWindowsPath(member[1]).name.lower() == name.lower():
             return index, member[1], binder.member_id(member)
-    clips = [member for member in binder.members if CLIP.fullmatch(PureWindowsPath(member[1]).name)]
+    clips = [member for member in binder.members if pattern.fullmatch(PureWindowsPath(member[1]).name)]
     if not clips:
         raise ValueError('This binder holds no aXXX_YYYYYY.hkx clips, so the folder and ID of a new one are not known.')
-    if any(binder.member_id(member) != clip_id(PureWindowsPath(member[1]).name) for member in clips):
+    if any(binder.member_id(member) != clip_id(PureWindowsPath(member[1]).name, pattern) for member in clips):
         raise ValueError('The clips in this binder do not follow the ID scheme 1000000000 + category * 1000000 + number, so '
                          'the ID of a new clip is not known. Replace an existing clip instead.')
     folders = Counter(str(PureWindowsPath(member[1]).parent) for member in clips)
     near_folder = str(PureWindowsPath(near).parent) if near else ''
     folder = near_folder if near_folder in folders else folders.most_common(1)[0][0]
-    ident = clip_id(name)
+    ident = clip_id(name, pattern)
     if any(binder.member_id(member) == ident for member in binder.members):
         raise ValueError(f'Another member of this binder has the ID {ident}.')
     return None, str(PureWindowsPath(folder) / name), ident
+
+
+def put_member(binder, name, data, near='', pattern=CLIP):
+    """Add data to a read binder as member name, or replace the member of that name. Returns (path, ID, replaced)."""
+    index, path, ident = plan_member(binder, name, near, pattern)
+    if index is not None:
+        binder.members[index][2] = data
+        return path, ident, True
+    template = next(member for member in binder.members if pattern.fullmatch(PureWindowsPath(member[1]).name))
+    entry = bytearray(template[0])
+    struct.pack_into('<i', entry, binder.id_at, ident)
+    place = next((i for i, other in enumerate(binder.members) if binder.member_id(other) > ident), len(binder.members))
+    binder.members.insert(place, [entry, path, data])
+    return path, ident, False
 
 
 def add_member(binder_path, name, data, base_path=None, near=''):
@@ -184,16 +201,7 @@ def add_member(binder_path, name, data, base_path=None, near=''):
         raise ValueError(f'The binder was not found, and no archive to start it from is known: {binder_path}')
     raw, kind = unwrap(source.read_bytes())
     binder = Binder(raw)
-    index, path, ident = plan_member(binder, name, near)
-    if index is None:
-        template = next(member for member in binder.members if CLIP.fullmatch(PureWindowsPath(member[1]).name))
-        entry = bytearray(template[0])
-        struct.pack_into('<i', entry, binder.id_at, ident)
-        member = [entry, path, data]
-        place = next((i for i, other in enumerate(binder.members) if binder.member_id(other) > ident), len(binder.members))
-        binder.members.insert(place, member)
-    else:
-        binder.members[index][2] = data
+    path, ident, replaced = put_member(binder, name, data, near)
     written = binder.to_bytes()
     check = Binder(written)
     if not any(m[1] == path and m[2] == data for m in check.members) or len(check.members) != len(binder.members):
@@ -203,7 +211,7 @@ def add_member(binder_path, name, data, base_path=None, near=''):
         if unwrap(packed)[0] != written:
             raise RuntimeError('The DCX readback of the rewritten binder differs.')
         written = packed
-    return written, dict(binder=str(binder_path), base=str(source), member=path, id=ident, replaced=index is not None,
+    return written, dict(binder=str(binder_path), base=str(source), member=path, id=ident, replaced=replaced,
                          members=len(binder.members), dcx=getattr(kind, 'name', str(kind)))
 
 

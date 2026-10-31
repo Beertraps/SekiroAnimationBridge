@@ -220,7 +220,12 @@
             <div class="field"><label for="binderMember">Name in the binder <button class="help" data-help="binderMember" aria-label="About the name in the binder">?</button></label><input id="binderMember" data-config class="text-input" placeholder="The clip’s own name" spellcheck="false"></div>
             <p id="binder-note" class="note"></p>
           </div>
-          <p id="parts-note" class="note" hidden>Each animated weapon part’s clip is written beside the HKX under its member name, such as a076_405010_1.hkx, at the part clip’s frame rate. Replace it in the part’s ANIBND with WitchyBND. Not yet tested in game.</p>
+          <div id="part-fields" hidden>
+            <div class="field"><label for="partId">Part clip ID <span class="optional">optional</span> <button class="help" data-help="partId" aria-label="About the part clip ID">?</button></label><input id="partId" data-config class="text-input" placeholder="A new clip takes the character clip’s ID" spellcheck="false"></div>
+            <div class="check-row"><span class="checkbox-help"><label class="checkbox"><input id="writeParts" type="checkbox" data-config>Also write them into a mod folder</label><button class="help" data-help="writeParts" aria-label="About writing part binders">?</button></span></div>
+            <div id="parts-folder-field" class="field" hidden><label for="partsFolder">Mod folder <button class="help" data-help="partsFolder" aria-label="About the mod folder">?</button></label><div class="path-row"><input id="partsFolder" data-config placeholder="D:\Mods\umbrella" spellcheck="false"><button class="browse" data-pick="partsFolder"><svg><use href="#i-folder"/></svg>Browse</button></div></div>
+            <p id="parts-note" class="note">Each weapon part with a clip, or keyed over its rest pose, gets a clip beside the HKX at 30 fps or the part clip’s own rate. Not yet tested in game.</p>
+          </div>
           <button id="run-export" class="primary wide"><svg><use href="#i-export"/></svg>Export HKX animation<svg class="end"><use href="#i-arrow"/></svg></button>
           <p class="note">You get a raw HKX and a .motion.json sidecar, and with a binder chosen, the HKX in that binder too. Export bakes the evaluated pose, including constraints, drivers and NLA strips.</p>
         </div>

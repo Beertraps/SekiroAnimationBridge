@@ -420,10 +420,11 @@ def import_character(manifest_path, rig):
                 ensure_model_bones(rig, preview, used, space, quaternions, under=joint)
                 skin_rig, place = rig, np.asarray(rig.data.bones[joint].matrix_local)
             elif attachment:
-                # An animated part's rig carries every bone of its HKX skeleton, not only the weighted ones.
+                # An animated part's rig carries every bone of its HKX skeleton, not only the weighted ones; one that
+                # holds its rest pose keeps its weighted bones, which a new clip's other tracks follow.
                 from blender_parts import part_motion, skeleton_bones, animate_part
                 motion = part_motion(model)
-                bones = used | skeleton_bones(motion, names) if motion else used
+                bones = used | skeleton_bones(motion, names) if motion and not motion.get('part', {}).get('rest') else used
                 skin_rig=weapon_rig(rig,preview,bones,collection,model['name'],model['attachment'])
                 if motion: animate_part(skin_rig, motion, model['name'])
             else:

@@ -161,12 +161,36 @@ def weapon_places(models, manifest, animation, game, tae_binder=None, character=
     return report, notices
 
 
-def part_outputs(blender, blend, motion, output, force, temp):
+def part_request(request):
+    """(the animation ID that every part clip gets, or ''; the mod folder that part binders go into, or None), checked
+    before anything is written. Part binders are written only with exportParts."""
+    if not request.get('exportParts'):
+        return '', None
+    from binder_members import CLIP
+    ident = str(request.get('partId') or '').strip()
+    if ident and not CLIP.fullmatch(ident if ident.lower().endswith('.hkx') else ident + '.hkx'):
+        raise ValueError(f'Write the part clips\' animation ID like the game\'s, aXXX_YYYYYY, such as a000_003000: {ident}')
+    ident = ident[:11].lower()
+    if not request.get('writeParts'):
+        return ident, None
+    folder = str(request.get('partsFolder') or '').strip()
+    if not folder:
+        raise ValueError('Choose the mod folder that the part binders go into.')
+    mod = Path(folder).resolve()
+    from dcx_codec import protect_output
+    protect_output(mod / 'parts')
+    return ident, mod
+
+
+def part_outputs(blender, blend, motion, output, force, temp, body_id='', part_id=''):
     """Sample every animated weapon part over the character's exported frames.
 
     Returns (index entry, final HKX path) pairs. A part clip keeps its member name,
     such as a076_405010_1.hkx, beside the character's HKX; two models that share a
-    clip name each get a folder named after the model.
+    clip name, or a clip with the character HKX's name, get a folder named after the
+    model. A new clip, keyed over a rest
+    pose, is named after body_id and the model's suffix (a000_003000_1.hkx); part_id
+    names every clip.
     """
     sampled = json.loads(Path(motion).read_text(encoding='utf-8')).get('export', {})
     folder = temp / 'parts'
@@ -177,15 +201,25 @@ def part_outputs(blender, blend, motion, output, force, temp):
         raise RuntimeError('Blender did not sample the part animations. See the activity log.')
     index = json.loads((folder / 'parts.json').read_text(encoding='utf-8'))
     if not index:
-        print('NOTICE: This scene has no animated weapon parts, so only the character HKX is written.', flush=True)
-    names = [entry['clip'].lower() for entry in index]
+        print('NOTICE: No weapon part of this scene has a clip, or keys over its rest pose, so only the character HKX is '
+              'written.', flush=True)
+    from part_animations import suffix
+    for entry in index:
+        entry['member'] = entry['clip']
+        ident = part_id or (body_id if entry.get('new') else '')
+        if entry.get('new') and not ident:
+            raise ValueError(f"{entry['name']} has a new clip, and the character's clip has no animation ID to name it "
+                             'after. Write the part clips\' animation ID, such as a000_003000.')
+        if ident:
+            entry['clip'] = f"{ident}{suffix(entry['member'])}.hkx"
+    # A name that two models share, or the character's HKX has (a new clip of WP_A_0760 for a000_003000), goes into a
+    # folder named after the model.
+    names = [entry['clip'].lower() for entry in index] + [output.name.lower()]
     pairs = []
     for entry in index:
-        if entry['missingBones']:
+        if entry['missingBones'] and not entry.get('new'):
             print(f"NOTICE: {entry['name']}'s rig lacks {', '.join(entry['missingBones'][:6])}; those tracks keep the reference pose.", flush=True)
         target = output.parent / entry['clip'] if names.count(entry['clip'].lower()) == 1 else output.parent / entry['name'] / entry['clip']
-        if target.resolve() == output.resolve():
-            raise ValueError(f"The HKX output has the name of {entry['name']}'s part clip. Choose another name for the character's HKX.")
         pairs.append((entry, output_file(str(target), '.hkx', force)))
     return pairs
 
@@ -327,6 +361,8 @@ def convert(request):
         return str(path)
     if mode.startswith('character-'):
         return character(request)
+    if mode == 'part-verify':
+        return part_verify(request)
     if mode not in ('import', 'export', 'inspect', 'verify', 'write'):
         raise ValueError('Choose import, export, inspect or verify.')
     event('validate', 'Checking files and output', 4)
@@ -532,6 +568,7 @@ def convert(request):
             blend = existing(request.get('inputBlend'), 'Edited Blender scene')
         output = output_file(request.get('outputHKX'), '.hkx', force)
         into = binder_request(request)
+        part_id, parts_mod = part_request(request)
         sidecar = output.with_suffix('.motion.json')
         if sidecar.exists() and not force:
             raise ValueError(f'Motion sidecar already exists. Choose another name or enable Replace existing output.\n{sidecar}')
@@ -550,8 +587,16 @@ def convert(request):
             run([blender, '--background', blend, '--python', HERE / 'blender_bridge.py', '--', 'export', '--output-json', motion, *sampling])
         doc = json.loads(motion.read_text(encoding='utf-8'))
         refuse_import_only(doc)
-        parts = part_outputs(blender, blend, motion, output, force, temp) if mode == 'export' and request.get('exportParts') else []
         member, base = binder_member(into, doc) if into else ('', '')
+        from binder_members import CLIP
+        body = Path(member or str(doc.get('clip') or '')).name
+        parts = part_outputs(blender, blend, motion, output, force, temp, body[:11].lower() if CLIP.fullmatch(body) else '',
+                             part_id) if mode == 'export' and request.get('exportParts') else []
+        if parts_mod:
+            missing = [entry['name'] for entry, _ in parts if not Path(entry.get('source') or '.').is_file()]
+            if missing:
+                raise ValueError(f"The scene does not say where the part binder of {', '.join(missing)} is, or it has "
+                                 'moved. Import the scene again to write part binders.')
         event('write', f'Writing {fmt} HKX' + (' and part clips' if parts else '') + (' and reading it back' if '--verify' in writing else ''), 70)
         run([writer, '-E', '-X', 'utf8', HERE / 'build_animation.py', motion, staged_hkx, *writing])
         for entry, target in parts:
@@ -565,18 +610,70 @@ def convert(request):
             atomic_copy(temp / 'parts' / (entry['model'] + '.hkx'), target)
             part_stats = json.loads((temp / 'parts' / (entry['model'] + '.stats.json')).read_text(encoding='utf-8'))
             written.append(dict(model=entry['name'], clip=entry['clip'], output=str(target), frames=entry['frames'],
-                                frameRate=entry['frameRate'], bytes=part_stats['bytes'], readback=part_stats.get('readback')))
-            print(f"Part clip {entry['clip']} of {entry['name']}: {target}", flush=True)
+                                frameRate=entry['frameRate'], bytes=part_stats['bytes'], readback=part_stats.get('readback'),
+                                new=bool(entry.get('new')), member=entry['member']))
+            print(f"Part clip {entry['clip']} of {entry['name']}" + (f", new over {entry['member']}" if entry.get('new') else '')
+                  + f": {target}", flush=True)
+        part_binders = write_part_binders(parts, parts_mod, request, temp) if parts_mod and parts else None
         binder = add_to_binder(into, member, base, doc, staged_hkx, temp) if into else None
         stats = json.loads(stats_path.read_text(encoding='utf-8'))
         sampled = doc.get('export', {})
-        event('done', f"HKX animation added to {into[0].name}" if binder else 'HKX animation ready for WitchyBND', 100, output=str(output),
+        done = f"HKX animation added to {into[0].name}" if binder else 'HKX animation ready for WitchyBND'
+        event('done', done + (f"; part clips written into {parts_mod.name}" if part_binders else ''), 100, output=str(output),
               report=dict(frames=doc['frameCount'], tracks=doc['trackCount'], frameRate=doc['frameRate'], compression=fmt,
                           sidecar=str(sidecar), bytes=stats['bytes'], quantization=stats['quantization'],
                           tolerance=stats['tolerance'], readback=stats.get('readback'), action=sampled.get('action', ''),
                           rootMotion=sampled.get('rootMotion', ''), addedTracks=len(sampled.get('addedTracks', [])),
-                          warnings=sampled.get('warnings', []), parts=written, binder=binder))
+                          warnings=sampled.get('warnings', []), parts=written, binder=binder, partBinders=part_binders))
         return str(output)
+
+
+def part_decoder(request):
+    """decode(clip, compendium, skeleton, output) for part_export.verify, with the request's HKX decoder."""
+    decoder = existing(request.get('decoder') or str(default_decoder()), 'Animation decoder')
+
+    def decode(clip, compendium, skeleton, output):
+        # A part's skeleton shares the clips' compendium.
+        run([decoder, clip, compendium, skeleton, output, *([compendium] if compendium != '-' else [])])
+    return decode
+
+
+def write_part_binders(parts, mod, request, temp):
+    """Put the written part clips into their part binders in the mod folder, then read the folder back."""
+    import part_export
+    event('write', f'Writing the part binders into {mod.name}', 94)
+    clips = [dict(source=entry['source'], binder=entry['binder'], member=entry['clip'], data=target.read_bytes())
+             for entry, target in parts]
+    written, notices, profile = part_export.write(clips, mod)
+    for notice in notices:
+        print('NOTICE: ' + notice, flush=True)
+    for report in written:
+        print(f"{Path(report['file']).name}: " + ', '.join(f"{'replaced' if row['replaced'] else 'added'} {row['member']} in "
+                                                        f"{row['binder']}" for row in report['clips']), flush=True)
+    if any(not row['replaced'] for report in written for row in report['clips']):
+        print('NOTICE: A new part clip plays while the character plays the TAE ID of its name. The character needs that ID '
+              'in its TAE, and whether the part also needs an entry in its own TAE is not yet tested in the game.', flush=True)
+    event('write', f'Reading {mod.name} back', 96)
+    check = part_export.verify(mod, part_decoder(request), temp / 'part-verify')
+    passed = sum(c['passed'] for c in check['checks'])
+    print(f"Part binders: {passed} of {len(check['checks'])} checks pass", flush=True)
+    for failed in (c for c in check['checks'] if not c['passed']):
+        print(f"NOTICE: {failed['name']}: {failed['detail']}", flush=True)
+    return dict(folder=str(mod), profile=profile, written=written, notices=notices, **check)
+
+
+def part_verify(request):
+    """Read the part binders of a mod folder back (part_export.verify)."""
+    import part_export
+    if not request.get('partsFolder'):
+        raise ValueError('Choose the mod folder whose part binders to check.')
+    mod = Path(request['partsFolder']).resolve()
+    event('write', f'Reading the part binders of {mod.name}', 30)
+    with tempfile.TemporaryDirectory(prefix='SekiroBridge-') as scratch:
+        report = part_export.verify(mod, part_decoder(request), Path(scratch))
+    passed = sum(c['passed'] for c in report['checks'])
+    event('done', f"{passed} of {len(report['checks'])} checks pass in {mod.name}", 100, output=str(mod), report=report)
+    return str(mod)
 
 
 CHARACTER_MODES = ('character-export', 'character-model', 'character-clone', 'character-verify', 'character-parts')

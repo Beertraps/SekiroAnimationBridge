@@ -69,7 +69,10 @@ const help={
  addToBinder:['Add to an animation binder','Also puts the written HKX into an animation binder (ANIBND), so you need no WitchyBND step. The HKX and its .motion.json are still written under Save HKX as.\n\nWhen the binder holds a clip of the same name, that clip is replaced. Otherwise the HKX is added as a new clip, with the ID and folder that the binder’s other clips follow. A new animation ID needs a TAE entry and something that plays it before the game uses it.\n\nBefore its first change, the binder is copied to a .bak file beside it. Weapon part clips are not added; they are written beside the HKX.'],
  binder:['Animation binder','The .anibnd.dcx to add the HKX to. Read actions fills in the archive that the clip was imported from. Files in the game installation are protected, so for a clip from the game folder it suggests a copy of that archive in the HKX’s folder, made from the game’s archive the first time. Point it at the same file in your mod folder to change your mod directly.\n\nScenes imported before bridge 0.13 do not record their archive; choose it yourself.'],
  binderMember:['Name in the binder','The clip’s member name, such as a050_002000.hkx. Empty: the clip’s own name, which replaces the original clip. A name the binder does not hold yet adds a new animation.'],
- exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. Each file keeps the part clip’s member name, such as a076_405010_1.hkx, and its own frame rate; the format and settings follow the character’s HKX.\n\nReplace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. The bridge does not repack archives. Part clips are not yet tested in game.'],
+ exportParts:['Export part animations','Also writes the clip of each animated weapon part in the scene, sampled from its weapon rig over the same frames as the character. A part that came with a clip keeps the clip’s member name, such as a076_405010_1.hkx, and its own frame rate. A part that holds its rest pose gets a new clip when you key its weapon rig: it is named after the character clip’s ID and the model’s number, such as a000_003000_1.hkx, at 30 fps. The format and settings follow the character’s HKX.\n\nWrite them into a mod folder, or replace the file in the part’s animation binder with WitchyBND: for example WP_A_0760_1.anibnd inside parts/wp_a_0760.partsbnd.dcx. Part clips are not yet tested in game.'],
+ partId:['Part clip ID','The animation ID that every part clip is named after, such as a000_003000. A part clip plays while the character plays the TAE ID of the same number. Empty: a clip that came with the part keeps its name, and a new clip takes the character clip’s ID, or the name in the binder when you add the HKX to one.'],
+ writeParts:['Write into a mod folder','Also puts each part clip into its weapon’s part binder: parts\\wp_a_0760.partsbnd.dcx in the mod folder, read from the game folder the first time and from the mod folder after that, so clips add up. A weapon with a far-away copy, such as wp_a_0300_l.partsbnd.dcx, gets the clip in both. A .me3 profile beside the folder loads the mod. The game folder is never written. The bridge then reads the binders back and decodes every clip in them.'],
+ partsFolder:['Mod folder','The folder of the mod. Part binders go into its parts folder. It can be the folder of a new character; a .me3 profile of the same name is written beside it.'],
  blender:['Blender executable','Choose blender.exe from your Blender installation. Version 4.5.14 is checked locally. The scripts use Blender’s built-in Python APIs and require no add-on. Compatibility with 5.2 still needs a run on that version.'],
  writer:['Conversion Python','Choose python.exe from the writer environment, normally %LOCALAPPDATA%\\SekiroAnimationBridge\\writer-env\\Scripts\\python.exe. The bridge creates it on the first start with Soulstruct, Soulstruct Havok and NumPy; tools/setup_writer.cmd repeats that setup. Blender’s bundled Python stays separate.'],
  packages:['Game packages','A game package teaches the bridge one more engine: how to find its games, list their animations and read clips and characters. Devil May Cry 5 is in the RE Engine package, a separate download beside each release.\n\nInstall package… reads the ZIP first and shows its name, games, tools and author. Nothing in it runs until you confirm, and nothing is downloaded. The package goes into %LOCALAPPDATA%\\SekiroAnimationBridge\\packages. A package runs its own code with your rights, like any program, so install packages only from people you trust.\n\nRemove deletes the package folder. Your sources stay; a source of a removed game cannot be scanned until you install the package again.'],
@@ -201,7 +204,7 @@ function rangeNote(){
 }
 function updateExportOptions(){
  const root=$('rootMotion').value,tracks=$('trackSet').value,range=$('frameRange').value;
- $('parts-note').hidden=!$('exportParts').checked;
+ $('part-fields').hidden=!$('exportParts').checked;$('parts-folder-field').hidden=!$('writeParts').checked;
  $('binder-fields').hidden=!$('addToBinder').checked;$('binder-note').textContent=binderNote();
  document.querySelectorAll('#range-buttons [data-range]').forEach(b=>{const on=b.dataset.range===range;b.classList.toggle('active',on);b.setAttribute('aria-checked',String(on));});
  $('custom-range').hidden=range!=='custom';$('root-bone-fields').hidden=root!=='bone';
@@ -1009,7 +1012,7 @@ async function pick(key,{multiple=false,apply}={}){
  layer($('picker-status'));$('picker-status').hidden=false;$('picker-message').textContent=`Choosing ${title.toLowerCase()}…`;$('cancel-picker').disabled=false;
  const timeout=setTimeout(()=>{picker.timedOut=true;picker.controller.abort();api('pick',{kind:'cancel',requestId:picker.id}).catch(()=>{});},310000);
  try{
-  const kind=['characterSource','textureDirectory','src-path','src-scenes','folder','characterGameFolder','characterOutput'].includes(key)?'folder':['outputBlend','outputHKX'].includes(key)?'save':'file';
+  const kind=['characterSource','textureDirectory','src-path','src-scenes','folder','characterGameFolder','characterOutput','partsFolder'].includes(key)?'folder':['outputBlend','outputHKX'].includes(key)?'save':'file';
   const current=(key==='folder'?$('src-path').value:$(key)?.value)||$('characterSource').value||'';
   const result=await api('pick',{kind,current,title,multiple,requestId:picker.id,filter:filters[key]||''},picker.controller.signal);
   if(!result.paths?.length)return;
@@ -1074,6 +1077,11 @@ async function start(mode){
     requireFields(['binder']);
     const name=$('binderMember').value.trim();
     if(name&&!/^a\d{3}_\d{6}\.hkx$/i.test(name))throw Error('Name the HKX in the binder like the game’s clips, aXXX_YYYYYY.hkx, such as a050_002000.hkx.');
+   }
+   if($('exportParts').checked){
+    const id=$('partId').value.trim();
+    if(id&&!/^a\d{3}_\d{6}(\.hkx)?$/i.test(id))throw Error('Write the part clip ID like the game’s, aXXX_YYYYYY, such as a000_003000.');
+    if($('writeParts').checked)requireFields(['partsFolder']);
    }
   }
   const extra={mode};if(mode!=='inspect')extra.force=$(mode+'-force').checked;
@@ -1458,7 +1466,7 @@ document.querySelectorAll('[data-config]').forEach(el=>el.addEventListener('chan
  }
  if(id==='game'&&folder)$('game').value=activeSource()?.game||'auto';
  if(id==='inputBlend')forgetScene();
- if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts','addToBinder','binder','binderMember','outputHKX'].includes(id))updateExportOptions();
+ if(['exportAction','frameRange','frameStart','frameEnd','frameRate','trackSet','rootMotion','rootBone','exportGame','exportParts','writeParts','addToBinder','binder','binderMember','outputHKX'].includes(id))updateExportOptions();
  if(['blender','writer','decoder','oodle'].includes(id))checkEnvironment();
  renderSceneHead();saveSoon();
 }));

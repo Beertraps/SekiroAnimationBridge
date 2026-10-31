@@ -5,7 +5,8 @@ bones differently from the FLVER, holds one bone the FLVER lacks and leaves one
 bone without a track; the FLVER has bones the skeleton lacks. Every bone must take
 the skeleton's pose, and the export must give back the clip's samples, also after
 the scene is saved and opened again. A second character with the same weapon stays
-out of the export.
+out of the export. A weapon that holds its rest pose takes its rest clip's pose, has
+nothing to write until a bone is keyed, and is then written as a new 30 fps clip.
 
 Run Blender --background --factory-startup --python THIS -- OUTPUT_DIRECTORY
 """
@@ -178,7 +179,68 @@ bpy.ops.wm.open_mainfile(filepath=str(blend))
 reopened = exported(out / 'parts-reopened', 1, 9)
 second = sample_error(reopened['frames'], motion['frames'])
 assert second < 2e-5, second
+
+# A weapon that holds its rest pose: its rest clip, unlike the bind pose, shrinks W_Root and moves W_Wing, as Sekiro's
+# umbrella on the forearm does. The rig keys that pose on frame 1, nothing is written until a bone is keyed by hand,
+# and then the export writes a new clip at 30 fps with the rest clip's tracks.
+scene = bpy.context.scene
+rest_pose = [reference[i] @ Matrix.Scale(.8, 4) if name == 'W_Root' else Matrix.Translation((0, .01, 0)) @ reference[i]
+             if name == 'W_Wing' else reference[i] for i, (name, _) in enumerate(SKELETON)]
+REST_TRACKS = list(range(len(SKELETON)))
+rest_motion = dict(motion, clip='a999_000000.hkx', frameCount=2, frameRate=3.0, duration=1 / 3, trackCount=len(REST_TRACKS),
+                   trackBoneIndices=REST_TRACKS, trackNames=[name for name, _ in SKELETON],
+                   frames=[[sample(rest_pose[i]) for i in REST_TRACKS]] * 2,
+                   part=dict(model='wp_a_9990', binder='WP_A_9990.anibnd', id='a999_000000', reason='rest pose, no clip for this ID',
+                             source='Owned part binder', rest=True))
+rest_clip = out / 'rest-clip.json'
+rest_clip.write_text(json.dumps(rest_motion), encoding='utf-8')
+rest_model = dict(model, name='wp_a_9990', animation=dict(motion=str(rest_clip), clip='a999_000000.hkx', binder='WP_A_9990.anibnd',
+                                                          id='a999_000000', reason='rest pose, no clip for this ID', frames=2,
+                                                          frameRate=3.0, rest=True))
+rest_manifest = out / 'owned-rest-character.json'
+rest_manifest.write_text(json.dumps(dict(models=[rest_model], texture_count=0, warnings=[])), encoding='utf-8')
+holder = character('Owned resting character', 4)
+scene['sekiro_bridge_export_rig'] = holder
+import_character(rest_manifest, holder)
+resting, = part_rigs(scene)
+# Only the weighted bones and their parents: W_Wing and W_Extra stay out, as for any weapon at rest.
+assert set(resting.pose.bones.keys()) == {'W_Root', 'W_Mid', 'W_Tip', 'W_Flap', 'W_Tassel'}, resting.pose.bones.keys()
+rest_action = resting.animation_data.action
+assert rest_action.name == 'WP_A_9990 | a999_000000', rest_action.name
+rest_times = sorted({point.co[0] for curve in action_curves(rest_action) for point in curve.keyframe_points})
+assert rest_times == [1], rest_times
+resting.hide_set(False)
+scene.frame_set(1); bpy.context.view_layer.update()
+rest_worlds = []
+for index, (name, parent) in enumerate(SKELETON):
+    rest_worlds.append(rest_worlds[parent] @ rest_pose[index] if parent >= 0 else rest_pose[index])
+rest_error = max(max(abs(a - b) for row_a, row_b in zip(resting.pose.bones[name].matrix, CONVERSION @ rest_worlds[i] @ CONVERSION)
+                     for a, b in zip(row_a, row_b)) for i, (name, _) in enumerate(SKELETON) if name in resting.pose.bones)
+assert rest_error < 2e-5, rest_error
+assert abs(resting.pose.bones['W_Root'].matrix.to_scale()[0] - .8) < 1e-5
+assert export_parts(out / 'parts-rest', 1, 9) == [], 'A weapon that holds its rest pose has no clip to write'
+
+tip = resting.pose.bones['W_Tip']
+scene.frame_set(9)
+tip.rotation_quaternion = tip.rotation_quaternion @ Euler((.4, 0, .2), 'XYZ').to_quaternion()
+tip.keyframe_insert('rotation_quaternion', frame=9)
+new_index = export_parts(out / 'parts-new', 1, 9)
+assert len(new_index) == 1, new_index
+entry = new_index[0]
+assert (entry['new'], entry['clip'], entry['frameRate'], entry['frames'], entry['source'], entry['binder']) == \
+    (True, 'a999_000000.hkx', 30.0, 5, 'Owned part binder', 'WP_A_9990.anibnd'), entry
+assert sorted(entry['missingBones']) == ['W_Extra', 'W_Wing'], entry['missingBones']
+new_clip = json.loads(Path(entry['motion']).read_text(encoding='utf-8'))
+assert new_clip['trackBoneIndices'] == REST_TRACKS and new_clip['frameRate'] == 30.0
+start_error = sample_error(new_clip['frames'][:1], rest_motion['frames'][:1])
+# A track whose bone the rig lacks holds the rest clip's pose, not the skeleton's reference pose.
+held_error = sample_error([[new_clip['frames'][-1][1]]], [[rest_motion['frames'][0][1]]])
+assert start_error < 2e-5 and held_error < 2e-5, (start_error, held_error)
+moved = sample_error([[new_clip['frames'][-1][2]]], [[rest_motion['frames'][0][2]]])
+assert moved > .05, moved
+resting.hide_set(True)
 report = dict(frames=FRAMES, clipRate=30, sceneRate=60, keyedBones=sorted(keyed), donorWeaponsExported=0, maximum_pose_error=max(errors),
-              maximum_export_error=first, maximum_reopened_error=second)
+              maximum_export_error=first, maximum_reopened_error=second, rest_pose_error=rest_error, new_clip_start_error=start_error,
+              new_clip_held_error=held_error, new_clip_tip_turn=moved)
 (out / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
 print('OWNED PART ANIMATION CHECK ' + json.dumps(report), flush=True)

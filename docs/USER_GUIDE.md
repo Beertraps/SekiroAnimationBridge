@@ -227,19 +227,47 @@ With **Animate weapon parts** on, the import keys each selected weapon with the 
 
 1. The part's clip with the same ID. The part's own TAE can give an ID another clip: the umbrella's `a076_405033` plays `a076_421020_1`.
 2. A clip whose ID plays the same body clip in the character's TAE. Wolf's TAE gives the prosthetic tools' `a07X_412000` the body clip `a070_412000`, so with `a070_412000` the umbrella plays `a076_412000_1` and the Loaded Axe `a073_412000_1`; a clip in the tool's own animation category comes first. A source finds the TAE in the character's `c0000.anibnd.dcx`. Individual files skip this step.
-3. Otherwise the part holds its rest pose, `a999_000000`, which every animation without a clip of its own shares. It is not keyed.
+3. Otherwise the part holds its rest pose, `a999_000000`, which every animation without a clip of its own shares. Its pose is keyed once, on frame 1, in an action named `<MODEL> | a999_000000`, so that the weapon looks as it does in the game. That pose is not always the model's own: the folded umbrella on the forearm, `WP_A_0760`, is 0.8 of its size. You can key a new clip over it; see [New part clips](#new-part-clips).
 
 To start from a part's clip instead and find the animations that play it, use [Import by weapon part](#import-by-weapon-part).
 
-The **Preview** block lists the clip that each selected weapon plays and why; the activity log names them too, and the import result counts them. A part clip is keyed on the weapon's own rig, the hidden `<MODEL> | Weapon rig` armature under its socket, in an action named `<MODEL> | <clip>`, such as `WP_A_0760_1 | a076_405010_1`. The rig gains every bone of the part's skeleton. A part clip keeps its own frame rate on the scene's timeline: a 30 fps part clip in a 60 fps scene is keyed on every second frame. Edit it like any action.
+The **Preview** block lists the clip that each selected weapon plays and why; the activity log names them too, and the import result counts them. A part clip is keyed on the weapon's own rig, the hidden `<MODEL> | Weapon rig` armature under its socket, in an action named `<MODEL> | <clip>`, such as `WP_A_0760_1 | a076_405010_1`. The rig gains every bone of the part's skeleton; a weapon at rest keeps the bones its mesh uses. A part clip keeps its own frame rate on the scene's timeline: a 30 fps part clip in a 60 fps scene is keyed on every second frame. Edit it like any action.
 
 A clip that moves bones the weapon's model lacks is not keyed, and the activity log says so. Which socket the animated model sits on, and when it shows, comes from the animation's TAE; see [Weapons that the animation moves](#weapons-that-the-animation-moves). Without it, the umbrella's opening model would sit on the forearm next to the folded one instead of in the hand. TAE events that hide a weapon or swap its model masks are not applied.
 
 ### Part clips on export
 
-**Also export part animations** on the export page also writes the clip of each animated weapon part in the scene. Each is sampled from its weapon rig over the same frames as the character, at the part clip's own frame rate, written in the character HKX's format and settings, and read back like it. A file keeps its member name and goes beside the character's HKX, such as `a076_405010_1.hkx`; two weapons with a clip of the same name each get a folder named after the model. A weapon that holds its rest pose is not written.
+**Also export part animations** on the export page also writes the clip of each animated weapon part in the scene. Each is sampled from its weapon rig over the same frames as the character, written in the character HKX's format and settings, and read back like it. It goes beside the character's HKX. Two clips of the same name, or a clip with the character HKX's name, each go into a folder named after the model.
 
-Replace the file in the part's animation binder with WitchyBND, for example `WP_A_0760_1.anibnd` inside `parts\wp_a_0760.partsbnd.dcx`. The bridge does not repack binders, and part clips written this way are not yet tested in game.
+- A weapon that came with a clip keeps the clip's member name, such as `a076_405010_1.hkx`, and its frame rate.
+- A weapon that holds its rest pose is written only when you keyed its rig, so that its pose leaves the rest pose somewhere in the frame range. It is a new clip; see [New part clips](#new-part-clips).
+- **Part clip ID**, under the option, names every part clip after another animation ID, such as `a000_003001`. A part clip plays while the character plays the TAE ID of the same number.
+
+**Also write them into a mod folder** puts each part clip into its weapon's part binder, `parts\wp_a_0760.partsbnd.dcx` in the chosen mod folder:
+
+- The first time, the part binder is read from the game folder; after that, from the mod folder, so clips written one after another add up. The game folder is never written.
+- A clip of the same name replaces the old one. A new name adds a clip, with the member ID that the binder's clips follow: `a000_003000_1.hkx` is ID 1000003000, since the model's number `_1` does not count.
+- A weapon with a far-away copy, such as `wp_a_0760_l.partsbnd.dcx`, gets the clip in both files. `_m` files stay as they are.
+- A `.me3` profile of the same name goes beside the mod folder. The mod folder can be a new character's folder.
+- The bridge then reads the part binders back: each must read, each clip's name must end in its model's number, each clip must decode on its part skeleton, and both copies must hold the same clips. The export result and `bridge_cli part-verify` show these checks.
+
+Without a mod folder, replace the file in the part's animation binder with WitchyBND, for example `WP_A_0760_1.anibnd` inside `parts\wp_a_0760.partsbnd.dcx`. Part clips written by the bridge are not yet tested in the game.
+
+### New part clips
+
+A weapon that has a part skeleton can get a clip for an animation it has none for, such as the umbrella opening while Wolf idles in `a000_000000`.
+
+1. Import the animation with the weapon selected and **Animate weapon parts** on. The log says, for example, *WP_A_0760_1: holds its rest pose a999_000000_1.hkx; key its weapon rig to give it a new clip*.
+2. In Blender's **Outliner**, find the weapon rig, such as `WP_A_0760_1 | Weapon rig`, under the weapon's socket. It is hidden: click its eye icon to show it.
+3. Click the rig in the Outliner to select it. Move the mouse over the 3D view and press **Ctrl+Tab** to enter Pose Mode.
+4. Go to the first frame of your clip. Click a bone, press **I** and choose **Rotation** to key its rest pose there.
+5. Go to a later frame, rotate the bone with **R**, and key it again with **I** and **Rotation**. Do the same for other bones.
+6. Press **Ctrl+Tab** to leave Pose Mode, hide the rig again with its eye icon, and save the scene.
+7. On the export page, tick **Also export part animations**, and **Also write them into a mod folder** with a folder for the mod. Export.
+
+The new clip is named after the character clip's animation ID and the model's number: `a000_000000_1.hkx` for `WP_A_0760_1` with `a000_000000.hkx`, or the name in the binder when you add the HKX to one. It runs at 30 fps, as Sekiro's part clips do, and has a track for each bone of the part's skeleton. Bones that the rig lacks hold the rest pose.
+
+A part clip plays while the character plays the TAE ID of its name, so the character needs that ID in its TAE. Whether the part also needs an entry in its own TAE is not yet known: the game files have no part clip without one outside the `_l` and `_m` copies. See [the plan](PART_ANIMATIONS_PLAN.md).
 
 ## Edit and export
 
@@ -261,7 +289,7 @@ Export creates a raw `.hkx` and adjacent `.motion.json` sidecar. To put it into 
 - **Name in the binder** starts empty, which uses the clip's own name, such as `a050_002000.hkx`, and replaces that clip. Another `aXXX_YYYYYY.hkx` name adds a new clip, with the member ID and folder that the binder's clips follow (`a050_002000.hkx` is ID 1050002000). The game plays a new clip only once a TAE entry of that animation ID points at it; the log says so.
 - Before its first change the binder is kept as `.bak` beside it. Its other members stay byte for byte as they were, and the result is read back before it is written.
 
-Weapon part clips from **Also export part animations** still go beside the HKX only.
+Weapon part clips from **Also export part animations** go beside the HKX, and with **Also write them into a mod folder** into their part binders; see [Part clips on export](#part-clips-on-export). A new part clip takes the name in the binder.
 
 Sekiro and Dark Souls III rigs have a foot target chain on each side: `L_Foot_Target2` and `L_Foot_Target1` hang straight down from `Master`, and `L_Foot_Target` sits on the foot. In the game's clips the chain stands on the foot like an upright column: the target copies its foot on every frame, and the two bones above it keep their reference pose, upright, and move with it; the game most likely reads the targets for foot IK. The export does the same, whatever Blender shows for these bones: each chain is written standing on the exported foot. Feet that you move in Blender take their targets with them. The export log lists the targets.
 
@@ -468,7 +496,7 @@ For example, the umbrella's clip with Wolf's `a076_405010.hkx`:
 .\standalone\sekiro_animation_cli.ps1 export -BlenderExe "D:\Blender\blender.exe" -InputBlend "D:\SekiroWork\c0000_a076_405010.blend" -OutputHKX "D:\SekiroWork\export\a076_405010.hkx" -ExportParts
 ```
 
-This writes `a076_405010.hkx` and `a076_405010_1.hkx` into `D:\SekiroWork\export`.
+This writes `a076_405010.hkx` and `a076_405010_1.hkx` into `D:\SekiroWork\export`. To write part binders into a mod folder, use `bridge_cli export --write-parts`; see [JSON command line for scripts and agents](#json-command-line-for-scripts-and-agents).
 
 ## JSON command line for scripts and agents
 
@@ -496,7 +524,8 @@ standalone\bridge_cli.cmd export "D:\SekiroWork\c5060.blend" --output "D:\Sekiro
 | `import CATALOG CLIP --output SCENE` | The Blender scene and the import report. `--models`, `--rig-only` and the `--donor-...` options as in the PowerShell CLI |
 | `inspect SCENE` | The scene's actions and frame ranges |
 | `verify SCENE` | Checks of the scene, without saving it: see below |
-| `export SCENE --output HKX` | The HKX, with the export options of the PowerShell CLI in lower case, such as `--frame-range` and `--binder` |
+| `export SCENE --output HKX` | The HKX, with the export options of the PowerShell CLI in lower case, such as `--frame-range` and `--binder`. `--write-parts FOLDER` also puts the part clips into their part binders in that mod folder, and `--part-id` names them: see [Part clips on export](#part-clips-on-export) |
+| `part-verify FOLDER` | The checks of the part binders in a mod folder |
 | `character-parts GAME --map MAP` | The template's enemies in a map, for `--part` |
 | `character-export SCENE --game-folder GAME --id ID --output FOLDER` | A new Sekiro character in a mod folder, with the report and its checks: see [New Sekiro character](#new-sekiro-character) |
 | `character-clone GAME --id ID --output FOLDER` | The template under the new ID, as a first test in the game |

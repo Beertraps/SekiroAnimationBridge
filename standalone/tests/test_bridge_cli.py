@@ -182,6 +182,17 @@ class Commands(unittest.TestCase):
                          ('character-parts',str(self.base/'Sekiro'),'m11_00_00_00','c1020',''))
         self.assertEqual((check['mode'],check['outputFolder'],check['characterId'],check['gameFolder']),
                          ('character-verify',str(self.base/'mods'/'dante'),'c1800',''))
+    def test_writing_part_binders_exports_the_parts(self):
+        self.call('export',self.base/'wolf.blend','--output',self.base/'a000_003000.hkx','--write-parts',self.base/'mods'/'umbrella',
+                  '--part-id','a000_003001')
+        request=self.jobs[-1]
+        self.assertEqual((request['exportParts'],request['writeParts'],request['partsFolder'],request['partId']),
+                         (True,True,str(self.base/'mods'/'umbrella'),'a000_003001'))
+        checks=[dict(name='wp_a_0760.partsbnd.dcx reads back',passed=True,detail=''),dict(name='clips decode',passed=False,detail='')]
+        with mock.patch.object(bridge_cli,'run_job',lambda request:self.jobs.append(request) or
+                               dict(output=request['partsFolder'],report=dict(checks=checks,binders=[]),notices=[])):
+            code,result,_=call('part-verify',self.base/'mods'/'umbrella')
+        self.assertEqual((code,result['passed'],self.jobs[-1]['mode'],result['folder']),(0,False,'part-verify',str(self.base/'mods'/'umbrella')))
 
 
 class Options(unittest.TestCase):

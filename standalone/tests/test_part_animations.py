@@ -240,22 +240,31 @@ class PartFileTests(unittest.TestCase):
         calls = []
 
         def decode(clip, compendium, skeleton, output):
-            calls.append((Path(clip).read_bytes(), Path(compendium).read_bytes(), Path(skeleton).read_bytes()))
+            calls.append((Path(clip).read_bytes(), compendium if compendium == '-' else Path(compendium).read_bytes(),
+                          Path(skeleton).read_bytes()))
             Path(output).write_text(json.dumps(dict(format='sekiro-animation-bridge', formatVersion=1, frameCount=2, frameRate=30.0,
                                                     trackNames=['W_Root', 'W_Wing'])), encoding='utf-8')
         rows = pa.plan([str(self.parts)], 'a076_405010.hkx', {}, 'c0000')
         report, notices = pa.prepare(manifest, rows, decode, self.folder / 'work')
-        self.assertEqual(calls, [(b'CLIP', b'COMP', b'SKEL')])
+        self.assertEqual(calls, [(b'CLIP', b'COMP', b'SKEL'), (b'REST', '-', b'SKEL')])
         self.assertEqual(notices, [])
         models = {m['name']: m for m in json.loads(manifest.read_text(encoding='utf-8'))['models']}
         animation = models['wp_a_0760_1']['animation']
         self.assertEqual((animation['clip'], animation['frames'], animation['frameRate'], animation['reason']),
                          ('a076_405010_1.hkx', 2, 30.0, 'same ID'))
         motion = json.loads(Path(animation['motion']).read_text(encoding='utf-8'))
-        self.assertEqual((motion['clip'], motion['part']['binder']), ('a076_405010_1.hkx', 'WP_A_0760_1.anibnd'))
-        # The rest pose is shared by every ID without a clip: it is reported, never keyed.
-        self.assertNotIn('animation', models['wp_a_0760'])
+        self.assertEqual((motion['clip'], motion['part']['binder'], motion['part']['source']),
+                         ('a076_405010_1.hkx', 'WP_A_0760_1.anibnd', str(self.parts.resolve())))
+        self.assertNotIn('rest', motion['part'])
+        # The rest pose comes in marked rest, for a new clip to be keyed over it, also where it names bones the model lacks.
+        rest = models['wp_a_0760']['animation']
+        self.assertEqual((rest['clip'], rest['rest']), ('a999_000000.hkx', True))
+        self.assertTrue(json.loads(Path(rest['motion']).read_text(encoding='utf-8'))['part']['rest'])
         self.assertEqual([r.get('rest', False) for r in report], [False, True])
+
+    def test_part_clip_suffixes(self):
+        self.assertEqual([pa.suffix(name) for name in ('a076_405010_1.hkx', 'a999_000000.hkx', 'a104_317000_12', 'skeleton.hkx')],
+                         ['_1', '', '_12', ''])
 
     def test_a_clip_moving_missing_bones_keeps_the_rest_pose(self):
         manifest = self.folder / 'character.json'

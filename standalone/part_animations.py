@@ -305,15 +305,20 @@ def plan(models, clip, tae, character=''):
     return rows
 
 
+def suffix(member):
+    """The model suffix that ends a part clip's name: '_1' for a076_405010_1.hkx, '' for a999_000000.hkx."""
+    match = re.fullmatch(r'a\d{2,3}_\d{6}(_\d+)?(?:\.hkx)?', PureWindowsPath(str(member)).name, re.I)
+    return (match[1] or '') if match else ''
+
+
 def prepare(manifest_path, rows, decode, work, game='sekiro'):
     """Decode each planned part clip and record it with its model in the character manifest.
 
     decode(clip, compendium, skeleton, output_json) runs the HKX decoder on
     extracted files; '-' stands for no compendium. A model that holds its rest
-    pose keeps the static rig: its a999_000000 clip is shared by every animation
-    without a clip of its own, so it is neither keyed nor exported. A model whose
-    clip moves bones its FLVER lacks keeps its rest pose too. Returns report rows
-    and notices.
+    pose gets its a999_000000 clip, marked rest: the rig holds that pose and a
+    new clip can be keyed on it (blender_parts). A model whose clip moves bones
+    its FLVER lacks keeps its static rig. Returns report rows and notices.
     """
     import json
     import numpy as np
@@ -326,13 +331,10 @@ def prepare(manifest_path, rows, decode, work, game='sekiro'):
                       and Path(m['source']).resolve() == Path(row['source']).resolve()), None)
         if model is None:
             continue
-        if row['rest']:
-            report.append(dict(model=row['name'], clip=row['member'], binder=row['binder'], reason=row['reason'], rest=True))
-            print(f"Part clip: {row['name']} holds its rest pose ({row['member']}), it has no clip for this animation", flush=True)
-            continue
         part = part_binders(row['source'])[row['model']]
         if not part['skeleton']:
-            notices.append(f"{row['name']}: {part['binder']} has no skeleton, so the part keeps its rest pose.")
+            if not row['rest']:
+                notices.append(f"{row['name']}: {part['binder']} has no skeleton, so the part keeps its rest pose.")
             continue
         folder = Path(work) / row['model']
         folder.mkdir(parents=True, exist_ok=True)
@@ -351,15 +353,22 @@ def prepare(manifest_path, rows, decode, work, game='sekiro'):
         with np.load(model['data'], allow_pickle=False) as preview:
             flver_bones = {str(name) for name in preview['bone_names']}
         missing = [name for name in motion['trackNames'] if name not in flver_bones]
-        if missing:
+        # The rest pose keys only the bones the model has; the others hold it in a new clip.
+        if missing and not row['rest']:
             notices.append(f"{row['name']}: {row['member']} moves bones that its model lacks ({', '.join(missing[:6])}), "
                            "so the part keeps its rest pose.")
             continue
         motion.update(game=game, sourceHavok=info, clip=row['member'],
-                      part=dict(model=row['model'], binder=row['binder'], id=row['id'], reason=row['reason']))
+                      part=dict(model=row['model'], binder=row['binder'], id=row['id'], reason=row['reason'],
+                                source=str(Path(row['source']).resolve()), **({'rest': True} if row['rest'] else {})))
         output.write_text(json.dumps(motion), encoding='utf-8')
         model['animation'] = dict(motion=str(output.resolve()), clip=row['member'], binder=row['binder'], id=row['id'],
-                                  reason=row['reason'], frames=int(motion['frameCount']), frameRate=float(motion['frameRate']))
+                                  reason=row['reason'], frames=int(motion['frameCount']), frameRate=float(motion['frameRate']),
+                                  **({'rest': True} if row['rest'] else {}))
+        if row['rest']:
+            report.append(dict(model=row['name'], clip=row['member'], binder=row['binder'], reason=row['reason'], rest=True))
+            print(f"Part clip: {row['name']} holds its rest pose ({row['member']}), it has no clip for this animation", flush=True)
+            continue
         report.append(dict(model=row['name'], clip=row['member'], binder=row['binder'], reason=row['reason'],
                            frames=int(motion['frameCount']), frameRate=float(motion['frameRate'])))
         print(f"Part clip: {row['name']} plays {row['member']} ({row['reason']}), "
