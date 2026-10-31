@@ -73,14 +73,16 @@ def tae_entries(data, category=None):
 def read_tae(data, category=None):
     """How each animation ID of a TAE gets its HKX: ('own', ID), ('hkx', source ID) or ('other', entry ID).
 
-    A TAE version this reader does not know gives {}.
+    The file data of an entry starts with the offset of its file name. An entry
+    that imports another (file type 1) gives that entry's full ID after it:
+    c1010's entry 5010 imports 405010. A TAE version this reader does not know gives {}.
     """
     result = {}
     for ident, offset in tae_entries(data, category):
         file_offset, = struct.unpack_from('<q', data, offset + 24)
         reference, data_offset = struct.unpack_from('<qq', data, file_offset)
         if reference:
-            result[ident] = ('other', struct.unpack_from('<i', data, data_offset)[0])
+            result[ident] = ('other', struct.unpack_from('<i', data, data_offset + 8)[0])
         else:
             imports, source = data[data_offset + 9], struct.unpack_from('<i', data, data_offset + 12)[0]
             result[ident] = ('hkx', source) if imports and source >= 0 else ('own', ident)
