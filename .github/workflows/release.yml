@@ -26,7 +26,10 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '9.0.x'
+          # The Unreal decoder's CUE4Parse needs the .NET 10 SDK; the bridge's decoders build with .NET 9.
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Check the version
         run: |
@@ -41,6 +44,10 @@ jobs:
 
       - name: Build the RE Engine decoder
         run: ./packages/re_engine/decoder/build_decoder.ps1 -REELibRoot "$env:RUNNER_TEMP\REE-Lib" -OutputDirectory "$env:RUNNER_TEMP\re-decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\re-decoder-build"
+
+      - name: Build the Unreal decoder
+        # The runner has CMake and the C++ build tools, so the decoder carries the native ACL library.
+        run: ./packages/unreal/decoder/build_decoder.ps1 -CUE4ParseRoot "$env:RUNNER_TEMP\CUE4Parse" -OutputDirectory "$env:RUNNER_TEMP\unreal-decoder" -ArtifactsDirectory "$env:RUNNER_TEMP\unreal-decoder-build"
 
       - name: Prepare the .NET runtime
         run: ./tools/prepare_dotnet_runtime.ps1 -OutputDirectory "$env:RUNNER_TEMP\dotnet-runtime"
@@ -58,12 +65,20 @@ jobs:
           python tools/package_addon.py
           python tools/package_release.py --output "dist/SekiroAnimationBridge-$env:VERSION-win-x64.zip" --decoder "$env:RUNNER_TEMP\decoder" --dotnet-runtime "$env:RUNNER_TEMP\dotnet-runtime" --uv "$env:RUNNER_TEMP\uv"
           if ($LASTEXITCODE) { throw 'Packaging failed.' }
-          # The RE Engine package is a separate asset; users install it on the Setup page.
-          $version = (Get-Content packages/re_engine/package.json -Raw | ConvertFrom-Json).version
-          $package = "dist/AnimationBridge-package-re_engine-$version.zip"
-          python tools/package_game_package.py packages/re_engine --output $package --tool "decoder=$env:RUNNER_TEMP\re-decoder"
-          if ($LASTEXITCODE) { throw 'Packaging the RE Engine package failed.' }
-          "RE_ENGINE_PACKAGE=$((Resolve-Path $package).Path)" >> $env:GITHUB_ENV
+          # Each game package is a separate asset; users install it on the Setup page.
+          $packages = @(
+            @{ id = 're_engine'; env = 'RE_ENGINE_PACKAGE'; tools = @("decoder=$env:RUNNER_TEMP\re-decoder") },
+            @{ id = 'unreal'; env = 'UNREAL_PACKAGE'; tools = @("decoder=$env:RUNNER_TEMP\unreal-decoder") },
+            @{ id = 'doom_eternal'; env = 'DOOM_ETERNAL_PACKAGE'; tools = @() }
+          )
+          foreach ($p in $packages) {
+            $version = (Get-Content "packages/$($p.id)/package.json" -Raw | ConvertFrom-Json).version
+            $package = "dist/AnimationBridge-package-$($p.id)-$version.zip"
+            $toolArgs = @($p.tools | ForEach-Object { '--tool', $_ })
+            python tools/package_game_package.py "packages/$($p.id)" --output $package @toolArgs
+            if ($LASTEXITCODE) { throw "Packaging the $($p.id) package failed." }
+            "$($p.env)=$((Resolve-Path $package).Path)" >> $env:GITHUB_ENV
+          }
           Copy-Item SekiroRetargetAssistant-*.zip dist/
 
       - name: Test the release ZIP on a fresh profile
@@ -88,13 +103,18 @@ jobs:
           }
           $config = (Invoke-RestMethod "$($ui.base)/api/state" -Headers $headers).config
           if ($config.decoder -ne "$root\decoder\SekiroMotionDecoder.exe") { throw "Unexpected decoder: $($config.decoder)" }
-          # Install the RE Engine package from its ZIP, as a user does on the Setup page; its decoder runs on the shared runtime.
-          $install = @{ zip = $env:RE_ENGINE_PACKAGE; confirm = $true } | ConvertTo-Json
-          Invoke-RestMethod "$($ui.base)/api/packages/install" -Method Post -Headers $headers -ContentType 'application/json' -Body $install |
-            ConvertTo-Json -Depth 5 -Compress | Write-Host
+          # Install each game package from its ZIP, as a user does on the Setup page. The RE Engine decoder runs on the
+          # shared runtime; the Unreal decoder carries its own.
+          foreach ($zip in $env:RE_ENGINE_PACKAGE, $env:UNREAL_PACKAGE, $env:DOOM_ETERNAL_PACKAGE) {
+            $install = @{ zip = $zip; confirm = $true } | ConvertTo-Json
+            Invoke-RestMethod "$($ui.base)/api/packages/install" -Method Post -Headers $headers -ContentType 'application/json' -Body $install |
+              ConvertTo-Json -Depth 5 -Compress | Write-Host
+          }
           $checks = Invoke-RestMethod "$($ui.base)/api/environment" -Headers $headers
           $checks | Format-Table key, ready, detail -AutoSize | Out-String | Write-Host
-          if (-not ($checks | Where-Object { $_.key -eq 'package:re_engine:decoder' -and $_.ready })) { throw 'The RE Engine package decoder check failed.' }
+          foreach ($key in 'package:re_engine:decoder', 'package:unreal:decoder') {
+            if (-not ($checks | Where-Object { $_.key -eq $key -and $_.ready })) { throw "The $key check failed." }
+          }
           Invoke-RestMethod "$($ui.base)/api/shutdown" -Method Post -Headers $headers -ContentType 'application/json' -Body '{}' | Out-Null
           # Spline export runs Soulstruct Havok's 32-bit CompressAnim.exe, which needs the Visual C++ 2010 runtime.
           # Install it from Microsoft, as the README tells users, so the unit tests cover spline export too.
@@ -110,10 +130,12 @@ jobs:
           & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s standalone/tests -p "test_*.py"
           if ($LASTEXITCODE) { throw 'The unit tests failed.' }
           Pop-Location
-          # The bridge ZIP holds no packages, so the RE Engine package's own tests run in the checkout.
+          # The bridge ZIP holds no packages, so the packages' own tests run in the checkout.
           Push-Location $env:GITHUB_WORKSPACE
-          & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s packages/re_engine/tests
-          if ($LASTEXITCODE) { throw 'The RE Engine package tests failed.' }
+          foreach ($id in 're_engine', 'unreal', 'doom_eternal') {
+            & "$env:LOCALAPPDATA\SekiroAnimationBridge\writer-env\Scripts\python.exe" -E -X utf8 -m unittest discover -s "packages/$id/tests"
+            if ($LASTEXITCODE) { throw "The $id package tests failed." }
+          }
           Pop-Location
 
       - uses: actions/upload-artifact@v7
@@ -130,13 +152,15 @@ jobs:
           $changes = $changes.Substring($changes.IndexOf("`n") + 1).Trim()
           $addon = (Get-ChildItem dist/SekiroRetargetAssistant-*.zip).Name
           $package = (Get-ChildItem dist/AnimationBridge-package-re_engine-*.zip).Name
+          $unreal = (Get-ChildItem dist/AnimationBridge-package-unreal-*.zip).Name
+          $doom = (Get-ChildItem dist/AnimationBridge-package-doom_eternal-*.zip).Name
           $notes = @"
           ## Install
 
           1. Download **SekiroAnimationBridge-$env:VERSION-win-x64.zip**, extract it and double-click **Start Animation Bridge.cmd**. The first start prepares the conversion Python; it needs an internet connection and takes a few minutes.
           2. Install [Blender 4.5](https://www.blender.org/download/lts/4-5/) if you do not have it. The bridge finds standard installations; otherwise choose ``blender.exe`` under **Settings & setup**.
           3. Optional: install **$addon** in Blender to retarget animations between characters.
-          4. Optional: to import Devil May Cry 5, download **$package** and install it with **Install package…** under **Settings & setup**.
+          4. Optional: to import other games, download their package and install it with **Install package…** under **Settings & setup**: **$package** for Devil May Cry 5, **$unreal** for Unreal Engine 4 and 5 games (experimental), **$doom** for DOOM Eternal (experimental).
 
           No game files are included. KRAK-compressed archives need ``oo2core_6_win64.dll``: the bridge uses the one in your Sekiro folder or the copy that comes with Soulstruct, or asks for it. The optional *Spline* export format needs the [Microsoft Visual C++ 2010 Redistributable (x86)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist#visual-studio-2010-vc-100-sp1-no-longer-supported); **Settings & setup** shows whether it is installed.
 

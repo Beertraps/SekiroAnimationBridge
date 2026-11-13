@@ -1,4 +1,8 @@
-# Unreleased
+# 0.15.0 — additive clips, new animation IDs, weapon part clips, new Sekiro characters, whole characters from Devil May Cry 5, Deep Rock Galactic and DOOM Eternal
+
+Install `SekiroRetargetAssistant-0.11.0.zip` over 0.10.0 for the retarget changes.
+
+- **The Unreal Engine and DOOM Eternal packages come with the release.** Their ZIPs are on the release page beside the Devil May Cry 5 package: `AnimationBridge-package-unreal-0.2.0.zip`, with the Unreal decoder and its native ACL library, and `AnimationBridge-package-doom_eternal-0.4.0.zip`. Install them with **Install package…** under **Settings & setup**. Both stay experimental.
 
 - **Imported characters face the right way in Blender.** FromSoftware and Unreal Engine meshes came in inside out: Blender's *Face Orientation* overlay showed them red, and backface culling, Solidify or an export to another format saw their inside. The import reversed the triangles of every left-handed source, but the axis change already mirrors them into Blender's winding. Triangles now keep their order: on Sekiro's `c1010`, 99.9% of the polygons wind with their normals, where 0.3% did. Devil May Cry 5 and DOOM Eternal meshes were right and stay so.
 - **Imported normals are the game's.** The import smoothed each mesh after it set the custom normals, and Blender turned them: on `c1010` they were 18° off the model's normals on average. The import now smooths first, and the normals match the model's within 0.01°. This applies to every game, and a new Sekiro character made from a scene gets these normals.
