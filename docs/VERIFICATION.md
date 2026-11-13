@@ -5,6 +5,7 @@
 - On main at 0.15.0, the 328 unit tests in `standalone/tests`, the 14 RE Engine, 17 Unreal Engine and 20 DOOM Eternal package tests pass, and `node --check` passes on `app.js` and `preview.js`.
 - `claude/unruffled-leakey-6f0934` holds no new work: `git cherry` shows its commit 5d009a1 already on main as 6f8c1f7.
 - The release workflow now builds `AnimationBridge-package-unreal-<version>.zip` (Unreal decoder with CUE4Parse's native library) and `AnimationBridge-package-doom_eternal-<version>.zip`, installs both with the RE Engine package into the unpacked release ZIP, requires the `package:unreal:decoder` check to be ready, and runs the tests of all three packages.
+- Its first run on main without a tag (43383883046) built all three package ZIPs (`re_engine-0.1.0`, `unreal-0.2.0`, `doom_eternal-0.4.0`), and the RE Engine and Unreal decoder checks were ready after the install. It stopped in the unit tests from the unpacked ZIP: three `test_part_export.py` tests compared the runner's short temporary path `C:\Users\RUNNER~1\…` with the long form the bridge stores, as the package tests did in 0.14.1. The tests now resolve their temporary folders. With `TMP` set to an 8.3 short folder (`…\SCRATC~1\LONGTE~1`), the three tests failed before the fix and pass after it, and all unit and package tests pass.
 
 ## Earlier checks
 

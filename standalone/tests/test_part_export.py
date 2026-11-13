@@ -52,7 +52,9 @@ class PartBinderTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        # Resolved, as the bridge resolves the paths it stores: the temporary folder can be named in its 8.3 short
+        # form (C:\Users\RUNNER~1 on the release runner).
+        self.root = Path(temp.name).resolve()
         self.game = self.root / 'Sekiro' / 'parts'
         self.game.mkdir(parents=True)
         self.source = self.game / 'wp_a_0760.partsbnd.dcx'
@@ -168,7 +170,7 @@ class PartRequestTests(unittest.TestCase):
 
     def test_part_clip_names(self):
         with tempfile.TemporaryDirectory() as temp:
-            temp = Path(temp)
+            temp = Path(temp).resolve()
             motion = temp / 'edited.motion.json'
             motion.write_text(json.dumps(dict(export=dict(frameStart=1, frameEnd=61))), encoding='utf-8')
             index = [dict(model='wp_a_0760_1', name='WP_A_0760_1', clip='a076_405010_1.hkx', motion='', frames=61, frameRate=30.0,
